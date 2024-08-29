@@ -8,9 +8,10 @@ from ultralytics import YOLO
 from collections import deque
 from threading import Thread
 from queue import Queue
-from flask import Flask, Response
+from flask import Flask, Response, render_template
 import threading
 from flask_cors import CORS
+from flask_socketio import SocketIO, emit
 
 class ObjectDetection:
     def __init__(self):
@@ -389,7 +390,7 @@ class VideoStreaming:
         self.video_name = None
 
         self.frame_buffer = deque(maxlen=10)
-        self.running = True
+        self.running = False
 
     @property
     def preview(self):
@@ -783,8 +784,8 @@ class VideoStreaming:
         video_name = None
         fps_queue = deque(maxlen=30)
 
-        desired_width = 1280
-        desired_height = 720
+        desired_width = 1280 
+        desired_height = 720 
 
         while self.running and video_capture.isOpened():
             ret, frame = video_capture.read()
@@ -802,18 +803,21 @@ class VideoStreaming:
             ret, buffer = cv2.imencode('.jpg', processed_frame, [int(cv2.IMWRITE_JPEG_QUALITY), 70])
             frame = buffer.tobytes()
 
-            self.frame_buffer.append(frame)
+            # Emit frame to all connected clients
+            # socketio.emit('frame', {'image': frame}, namespace='/video')
+            socketio.emit('frame', {'image': frame})
+            # self.frame_buffer.append(frame)
 
         video_capture.release()
 
-    def stream_frames(self):
-        while self.running:
-            if self.frame_buffer:
-                frame = self.frame_buffer.popleft()
-                yield (b'--frame\r\n'
-                       b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
-            else:
-                time.sleep(0.001)  # Slight delay if buffer is empty
+    # def stream_frames(self):
+    #     while self.running:
+    #         if self.frame_buffer:
+    #             frame = self.frame_buffer.popleft()
+    #             yield (b'--frame\r\n'
+    #                    b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+    #         else:
+    #             time.sleep(0.001)  # Slight delay if buffer is empty
 
     def stop(self):
         self.running = False
@@ -821,19 +825,29 @@ class VideoStreaming:
 
 app = Flask(__name__)
 CORS(app)
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 
-@app.route('/video_feed')
-def video_feed():
-    video_streaming = VideoStreaming()
-    
-    # Start frame generation in a separate thread
-    threading.Thread(target=video_streaming.generate_frames, args=("rtsp://admin:1q2w3e4r.@218.54.201.82:554/idis?trackid=2", "PPE"), daemon=True).start()
-    
-    # Stream frames
-    return Response(video_streaming.stream_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
+video_streaming = VideoStreaming()
+
+@app.route('/')
+def index():
+    return render_template('index.html')
+
+@socketio.on('connect')
+def video_connect():
+    # print('Client connected')
+    # threading.Thread(target=video_streaming.generate_frames, args=("rtsp://admin:1q2w3e4r.@218.54.201.82:554/idis?trackid=2", "PPE"), daemon=True).start()
+    if not video_streaming.running:
+        video_streaming.running = True
+        threading.Thread(target=video_streaming.generate_frames, args=("rtsp://admin:1q2w3e4r.@218.54.201.82:554/idis?trackid=2", "PPE"), daemon=True).start()
+
+@socketio.on('disconnect')
+def video_disconnect():
+    print('Client disconnected')
+    video_streaming.stop()
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    socketio.run(app, host='0.0.0.0', port=5000, debug=True)
 
     
 
