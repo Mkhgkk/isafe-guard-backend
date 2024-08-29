@@ -9,6 +9,8 @@ from collections import deque
 from threading import Thread
 from queue import Queue
 from flask import Flask, Response
+import threading
+from flask_cors import CORS
 
 class ObjectDetection:
     def __init__(self):
@@ -385,6 +387,9 @@ class VideoStreaming:
         self.unsafe_frame_count = 0
         self.frames_written = 0
         self.video_name = None
+
+        self.frame_buffer = deque(maxlen=10)
+        self.running = True
 
     @property
     def preview(self):
@@ -781,7 +786,7 @@ class VideoStreaming:
         desired_width = 1280
         desired_height = 720
 
-        while video_capture.isOpened():
+        while self.running and video_capture.isOpened():
             ret, frame = video_capture.read()
             if not ret:
                 print(f"Failed to read from {rtsp_link}")
@@ -796,27 +801,39 @@ class VideoStreaming:
             # Encode frame in JPEG format with lower quality for faster transmission
             ret, buffer = cv2.imencode('.jpg', processed_frame, [int(cv2.IMWRITE_JPEG_QUALITY), 70])
             frame = buffer.tobytes()
-            
-            # Yield the frame as a part of a multipart response
-            yield (b'--frame\r\n'
-                b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
 
-            time.sleep(0.01)
+            self.frame_buffer.append(frame)
 
         video_capture.release()
 
+    def stream_frames(self):
+        while self.running:
+            if self.frame_buffer:
+                frame = self.frame_buffer.popleft()
+                yield (b'--frame\r\n'
+                       b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+            else:
+                time.sleep(0.001)  # Slight delay if buffer is empty
+
+    def stop(self):
+        self.running = False
+
 
 app = Flask(__name__)
-
+CORS(app)
 
 @app.route('/video_feed')
 def video_feed():
     video_streaming = VideoStreaming()
-    # Change 'your_model_name' to the actual model you want to use
-    return Response(video_streaming.generate_frames("rtsp://admin:1q2w3e4r.@218.54.201.82:554/idis?trackid=2", "PPE"),
-                    mimetype='multipart/x-mixed-replace; boundary=frame')
+    
+    # Start frame generation in a separate thread
+    threading.Thread(target=video_streaming.generate_frames, args=("rtsp://admin:1q2w3e4r.@218.54.201.82:554/idis?trackid=2", "PPE"), daemon=True).start()
+    
+    # Stream frames
+    return Response(video_streaming.stream_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)
+
     
 
