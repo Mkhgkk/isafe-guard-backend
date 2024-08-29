@@ -804,8 +804,8 @@ class VideoStreaming:
             frame = buffer.tobytes()
 
             # Emit frame to all connected clients
-            # socketio.emit('frame', {'image': frame}, namespace='/video')
-            socketio.emit('frame', {'image': frame})
+            socketio.emit('frame', {'image': frame}, namespace='/video')
+            # socketio.emit('frame', {'image': frame})
             # self.frame_buffer.append(frame)
 
         video_capture.release()
@@ -833,20 +833,23 @@ video_streaming = VideoStreaming()
 def index():
     return render_template('index.html')
 
-@socketio.on('connect')
+@socketio.on('connect', namespace='/video')
 def video_connect():
-    # print('Client connected')
+    print('Client connected')
     # threading.Thread(target=video_streaming.generate_frames, args=("rtsp://admin:1q2w3e4r.@218.54.201.82:554/idis?trackid=2", "PPE"), daemon=True).start()
-    if not video_streaming.running:
-        video_streaming.running = True
-        threading.Thread(target=video_streaming.generate_frames, args=("rtsp://admin:1q2w3e4r.@218.54.201.82:554/idis?trackid=2", "PPE"), daemon=True).start()
+    # if not video_streaming.running:
+    #     video_streaming.running = True
+    #     threading.Thread(target=video_streaming.generate_frames, args=("rtsp://admin:1q2w3e4r.@218.54.201.82:554/idis?trackid=2", "PPE"), daemon=True).start()
 
-@socketio.on('disconnect')
+@socketio.on('disconnect', namespace='/video')
 def video_disconnect():
     print('Client disconnected')
-    video_streaming.stop()
+    # video_streaming.stop()
 
 if __name__ == '__main__':
+    # if not video_streaming.running:
+    video_streaming.running = True
+    threading.Thread(target=video_streaming.generate_frames, args=("rtsp://admin:1q2w3e4r.@218.54.201.82:554/idis?trackid=2", "PPE"), daemon=True).start()
     socketio.run(app, host='0.0.0.0', port=5000, debug=True)
 
     
