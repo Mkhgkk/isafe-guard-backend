@@ -12,6 +12,7 @@ from flask import Flask, Response, render_template
 import threading
 from flask_cors import CORS
 from flask_socketio import SocketIO, emit
+import asyncio
 
 class ObjectDetection:
     def __init__(self):
@@ -392,6 +393,8 @@ class VideoStreaming:
         self.frame_buffer = deque(maxlen=10)
         self.running = False
 
+        self.lock = threading.Lock()
+
     @property
     def preview(self):
         return self._preview
@@ -770,22 +773,14 @@ class VideoStreaming:
     #             print(f"Error saving video event: {e}")
 
     def generate_frames(self, rtsp_link, model_name):
+        # Open the RTSP video stream
         video_capture = cv2.VideoCapture(rtsp_link)
         if not video_capture.isOpened():
             print(f"Error: Unable to open video stream from {rtsp_link}")
             return
-        
-        fps = video_capture.get(cv2.CAP_PROP_FPS) or 20
-        frame_interval = int(3 * fps)
-        record_duration = int(5 * fps)
-        total_frame_count = 0
-        unsafe_frame_count = 0
-        frames_written = 0
-        video_name = None
-        fps_queue = deque(maxlen=30)
 
-        desired_width = 1280 
-        desired_height = 720 
+        fps = video_capture.get(cv2.CAP_PROP_FPS) or 20
+        desired_width, desired_height = 1280, 720  # Set desired dimensions
 
         while self.running and video_capture.isOpened():
             ret, frame = video_capture.read()
@@ -793,22 +788,42 @@ class VideoStreaming:
                 print(f"Failed to read from {rtsp_link}")
                 break
 
-            # Resize frame to desired dimensions
+            # Resize frame to desired dimensions (perform this as early as possible)
             frame = cv2.resize(frame, (desired_width, desired_height))
 
-            # Apply your detection model
-            processed_frame, final_status = self.apply_model(frame, model_name)
-
-            # Encode frame in JPEG format with lower quality for faster transmission
-            ret, buffer = cv2.imencode('.jpg', processed_frame, [int(cv2.IMWRITE_JPEG_QUALITY), 70])
-            frame = buffer.tobytes()
-
-            # Emit frame to all connected clients
-            socketio.emit('frame', {'image': frame}, namespace='/video')
-            # socketio.emit('frame', {'image': frame})
-            # self.frame_buffer.append(frame)
+            # Lock the buffer and add the frame to the buffer
+            with self.lock:
+                self.frame_buffer.append(frame)
 
         video_capture.release()
+
+    def process_and_emit_frames(self, model_name):
+        while self.running:
+            with self.lock:
+                if self.frame_buffer:
+                    frame = self.frame_buffer.popleft()
+                else:
+                    frame = None
+
+            if frame is not None:
+                # Apply your detection model
+                processed_frame, final_status = self.apply_model(frame, model_name)
+
+                # Encode frame in JPEG format with lower quality for faster transmission
+                ret, buffer = cv2.imencode('.jpg', processed_frame, [int(cv2.IMWRITE_JPEG_QUALITY), 70])
+                frame_data = buffer.tobytes()
+
+                # Emit frame to all connected clients
+                socketio.emit('frame', {'image': frame_data}, namespace='/video')
+            else:
+                # If no frames are in the buffer, wait for a short time
+                asyncio.sleep(0.001)
+
+    # def apply_model(self, frame, model_name):
+    #     # Simulate model processing (replace with actual model inference)
+    #     processed_frame = frame  # No change for now
+    #     final_status = "safe"  # Placeholder status
+    #     return processed_frame, final_status
 
     # def stream_frames(self):
     #     while self.running:
@@ -836,21 +851,19 @@ def index():
 @socketio.on('connect', namespace='/video')
 def video_connect():
     print('Client connected')
-    # threading.Thread(target=video_streaming.generate_frames, args=("rtsp://admin:1q2w3e4r.@218.54.201.82:554/idis?trackid=2", "PPE"), daemon=True).start()
-    # if not video_streaming.running:
-    #     video_streaming.running = True
-    #     threading.Thread(target=video_streaming.generate_frames, args=("rtsp://admin:1q2w3e4r.@218.54.201.82:554/idis?trackid=2", "PPE"), daemon=True).start()
+    if not video_streaming.running:
+        video_streaming.running = True
+        threading.Thread(target=video_streaming.generate_frames, args=("rtsp://admin:1q2w3e4r.@218.54.201.82:554/idis?trackid=2", "PPE"), daemon=True).start()
+        threading.Thread(target=video_streaming.process_and_emit_frames, args=("PPE",), daemon=True).start()
 
 @socketio.on('disconnect', namespace='/video')
 def video_disconnect():
     print('Client disconnected')
-    # video_streaming.stop()
+    video_streaming.stop()
 
 if __name__ == '__main__':
-    # if not video_streaming.running:
     video_streaming.running = True
     threading.Thread(target=video_streaming.generate_frames, args=("rtsp://admin:1q2w3e4r.@218.54.201.82:554/idis?trackid=2", "PPE"), daemon=True).start()
+    threading.Thread(target=video_streaming.process_and_emit_frames, args=("PPE",), daemon=True).start()
     socketio.run(app, host='0.0.0.0', port=5000, debug=True)
-
-    
 
