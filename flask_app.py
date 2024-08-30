@@ -840,6 +840,8 @@ class VideoStreaming:
 
 app = Flask(__name__)
 CORS(app)
+# socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
+cors = CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 
 video_streaming = VideoStreaming()
@@ -851,15 +853,15 @@ def index():
 @socketio.on('connect', namespace='/video')
 def video_connect():
     print('Client connected')
-    if not video_streaming.running:
-        video_streaming.running = True
-        threading.Thread(target=video_streaming.generate_frames, args=("rtsp://admin:1q2w3e4r.@218.54.201.82:554/idis?trackid=2", "PPE"), daemon=True).start()
-        threading.Thread(target=video_streaming.process_and_emit_frames, args=("PPE",), daemon=True).start()
+    # if not video_streaming.running:
+    #     video_streaming.running = True
+    #     threading.Thread(target=video_streaming.generate_frames, args=("rtsp://admin:1q2w3e4r.@218.54.201.82:554/idis?trackid=2", "PPE"), daemon=True).start()
+    #     threading.Thread(target=video_streaming.process_and_emit_frames, args=("PPE",), daemon=True).start()
 
 @socketio.on('disconnect', namespace='/video')
 def video_disconnect():
     print('Client disconnected')
-    video_streaming.stop()
+    # video_streaming.stop()
 
 if __name__ == '__main__':
     video_streaming.running = True
