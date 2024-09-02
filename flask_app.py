@@ -8,10 +8,10 @@ from ultralytics import YOLO
 from collections import deque
 from threading import Thread
 from queue import Queue
-from flask import Flask, Response, render_template
+from flask import Flask, Response, render_template, request, jsonify
 import threading
 from flask_cors import CORS
-from flask_socketio import SocketIO, emit
+from flask_socketio import SocketIO, emit, join_room, leave_room, send
 import asyncio
 
 class ObjectDetection:
@@ -378,7 +378,7 @@ class ObjectDetection:
 
 
 class VideoStreaming:
-    def __init__(self):
+    def __init__(self, rtsp_link, model_name, stream_id):
         # self.app = app
         self.VIDEO = None  # Initialize without opening a stream
         self.MODEL = ObjectDetection()
@@ -394,6 +394,10 @@ class VideoStreaming:
         self.running = False
 
         self.lock = threading.Lock()
+
+        self.streams_id = stream_id
+        self.rtsp_link = rtsp_link
+        self.model_name = model_name
 
     @property
     def preview(self):
@@ -771,12 +775,20 @@ class VideoStreaming:
     #         except Exception as e:
     #             self.db.session.rollback()
     #             print(f"Error saving video event: {e}")
+    def start_stream(self):
+        self.running = True
+        threading.Thread(target=self.generate_frames, args=("rtsp://admin:1q2w3e4r.@218.54.201.82:554/idis?trackid=2", "PPE"), daemon=True).start()
+        threading.Thread(target=self.process_and_emit_frames, args=("PPE",), daemon=True).start()
+
+    def stop_streaming(self): 
+        self.running = False
+
 
     def generate_frames(self, rtsp_link, model_name):
         # Open the RTSP video stream
-        video_capture = cv2.VideoCapture(rtsp_link)
+        video_capture = cv2.VideoCapture(self.rtsp_link)
         if not video_capture.isOpened():
-            print(f"Error: Unable to open video stream from {rtsp_link}")
+            print(f"Error: Unable to open video stream from {self.rtsp_link}")
             return
 
         fps = video_capture.get(cv2.CAP_PROP_FPS) or 20
@@ -785,7 +797,7 @@ class VideoStreaming:
         while self.running and video_capture.isOpened():
             ret, frame = video_capture.read()
             if not ret:
-                print(f"Failed to read from {rtsp_link}")
+                print(f"Failed to read from {self.rtsp_link}")
                 break
 
             # Resize frame to desired dimensions (perform this as early as possible)
@@ -807,14 +819,16 @@ class VideoStreaming:
 
             if frame is not None:
                 # Apply your detection model
-                processed_frame, final_status = self.apply_model(frame, model_name)
+                processed_frame, final_status = self.apply_model(frame, self.model_name)
 
                 # Encode frame in JPEG format with lower quality for faster transmission
                 ret, buffer = cv2.imencode('.jpg', processed_frame, [int(cv2.IMWRITE_JPEG_QUALITY), 70])
                 frame_data = buffer.tobytes()
 
                 # Emit frame to all connected clients
-                socketio.emit('frame', {'image': frame_data}, namespace='/video')
+                # socketio.emit('frame', {'image': frame_data}, namespace='/video')
+                socketio.emit(f'frame-{self.streams_id}', {'image': frame_data}, namespace='/video', room=self.streams_id)
+
             else:
                 # If no frames are in the buffer, wait for a short time
                 asyncio.sleep(0.001)
@@ -844,11 +858,85 @@ CORS(app)
 cors = CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 
-video_streaming = VideoStreaming()
+# video_streaming = VideoStreaming()
+streams = {}
 
 @app.route('/')
 def index():
     return render_template('index.html')
+
+@app.route('/api/data', methods=['POST'])
+def receive_data():
+    # Check if the request contains JSON data
+    if request.is_json:
+        # Parse the JSON data from the request
+        data = request.get_json()
+
+        # Do something with the data (for example, print it or process it)
+        print(f"Received data: {data}")
+
+        # Create a response object
+        response = {
+            "status": "success",
+            "message": "Data received successfully",
+            "data": data
+        }
+
+        # Return a JSON response
+        return jsonify(response), 200
+    else:
+        # Return an error response if the data is not in JSON format
+        return jsonify({"status": "error", "message": "Request data must be JSON"}), 400
+
+
+@app.route('/api/start_stream', methods=['POST'])
+def start_stream():
+    if request.is_json:
+        data = request.get_json()
+
+        rtsp_link = data["rtsp_link"]
+        model_name = data["model_name"]
+        stream_id = data["stream_id"]
+
+        video_streaming = VideoStreaming(rtsp_link, model_name, stream_id)
+        video_streaming.start_stream()
+        streams[stream_id] = video_streaming
+
+        response = {
+            "status": "Success",
+            "message": "Detector started successifully",
+            "data": data
+        }
+
+        return jsonify(response), 200
+
+    else:
+        return jsonify({"status": "error", "message": "wrong data format!"}), 400
+
+@app.route('/api/stop_stream', methods=['POST'])
+def stop_stream():
+    if request.is_json:
+        data = request.get_json()
+
+        stream_id = data["stream_id"]
+
+        video_streaming = streams[stream_id]
+        video_streaming.stop_streaming()
+
+        del streams[stream_id]
+
+        response = {
+            "status": "Success",
+            "message": "Detector stopped successifully",
+            "data": data
+        }
+
+        return jsonify(response), 200
+
+    else:
+        return jsonify({"status": "error", "message": "wrong data format!"}), 400
+
+
 
 @socketio.on('connect', namespace='/video')
 def video_connect():
@@ -863,9 +951,21 @@ def video_disconnect():
     print('Client disconnected')
     # video_streaming.stop()
 
+@socketio.on('join', namespace='/video')
+def handle_join(data):
+    room = data['room']  # Get room name from the received data
+    join_room(room)
+    send(f"{request.sid} has entered the room {room}.", room=room)
+
+@socketio.on('leave', namespace='video')
+def handle_leave(data):
+    room = data['room']  # Get room name from the received data
+    leave_room(room)
+    send(f"{request.sid} has left the room {room}.", room=room)
+
 if __name__ == '__main__':
-    video_streaming.running = True
-    threading.Thread(target=video_streaming.generate_frames, args=("rtsp://admin:1q2w3e4r.@218.54.201.82:554/idis?trackid=2", "PPE"), daemon=True).start()
-    threading.Thread(target=video_streaming.process_and_emit_frames, args=("PPE",), daemon=True).start()
+    # video_streaming.running = True
+    # threading.Thread(target=video_streaming.generate_frames, args=("rtsp://admin:1q2w3e4r.@218.54.201.82:554/idis?trackid=2", "PPE"), daemon=True).start()
+    # threading.Thread(target=video_streaming.process_and_emit_frames, args=("PPE",), daemon=True).start()
     socketio.run(app, host='0.0.0.0', port=5000, debug=True)
 
