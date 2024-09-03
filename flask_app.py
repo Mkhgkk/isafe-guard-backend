@@ -13,6 +13,7 @@ import threading
 from flask_cors import CORS
 from flask_socketio import SocketIO, emit, join_room, leave_room, send
 import asyncio
+from camera_controller import CameraController
 
 class ObjectDetection:
     def __init__(self):
@@ -860,6 +861,7 @@ socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 
 # video_streaming = VideoStreaming()
 streams = {}
+camera_controllers = {}
 
 @app.route('/')
 def index():
@@ -902,6 +904,10 @@ def start_stream():
         video_streaming.start_stream()
         streams[stream_id] = video_streaming
 
+        # init ptz
+        camera_controller = camera_controller = CameraController('192.168.0.133', 80, 'root', 'fsnetworks1!')
+        camera_controllers[stream_id] = camera_controller
+
         response = {
             "status": "Success",
             "message": "Detector started successifully",
@@ -924,6 +930,7 @@ def stop_stream():
         video_streaming.stop_streaming()
 
         del streams[stream_id]
+        del camera_controllers[stream_id]
 
         response = {
             "status": "Success",
@@ -962,6 +969,35 @@ def handle_leave(data):
     room = data['room']  # Get room name from the received data
     leave_room(room)
     send(f"{request.sid} has left the room {room}.", room=room)
+
+@socketio.on('join_ptz', namespace='/video')
+def join_ptz_room(data):
+    stream_id = data["stream_id"]
+    camera_controller = camera_controllers[stream_id]
+
+    room = f"ptz-{stream_id}"
+    join_room(room)
+
+    zoom = camera_controller.get_zoom_level()
+    socketio.emit(f'zoom-level', {'zoom': zoom}, namespace='/video', room=room)
+
+@socketio.on('leave_ptz', namespace='/video')
+def leave_ptz_room(data):
+    stream_id = data["stream_id"]
+    room = f"ptz-{stream_id}"
+
+    leave_room(room)
+
+@socketio.on('ptz_move', namespace='/video')
+def ptz_change_zoom(data):
+    stream_id = data["stream_id"]
+    zoom_amount = data["zoom_amount"]
+    direction = data["direction"]
+    camera_controller = camera_controllers[stream_id]
+
+    camera_controller.move_camera(direction, zoom_amount)
+    
+
 
 if __name__ == '__main__':
     # video_streaming.running = True
