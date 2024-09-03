@@ -995,9 +995,11 @@ def ptz_change_zoom(data):
     direction = data["direction"]
     stop = data.get("stop", False)
     camera_controller = camera_controllers[stream_id]
+    room = f"ptz-{stream_id}"
 
     if direction == 'zoom_in':
         camera_controller.move_camera(direction, zoom_amount)
+        socketio.emit(f'zoom-level', {'zoom': zoom_amount}, namespace='/video', room=room)
     elif stop is False:  
         camera_controller.move_camera(direction)
     elif stop is True: 
