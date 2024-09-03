@@ -905,13 +905,22 @@ def start_stream():
         streams[stream_id] = video_streaming
 
         # init ptz
-        camera_controller = camera_controller = CameraController('192.168.0.133', 80, 'root', 'fsnetworks1!')
-        camera_controllers[stream_id] = camera_controller
+        supports_ptz = data["supports_ptz"]
+        if supports_ptz:
+            cam_ip = data["cam_ip"]
+            ptz_port = data["ptz_port"]
+            ptz_username = data["ptz_username"]
+            ptz_password = data["ptz_password"]
+
+            # camera_controller = camera_controller = CameraController('192.168.0.133', 80, 'root', 'fsnetworks1!')
+            camera_controller = camera_controller = CameraController(cam_ip, ptz_port, ptz_username, ptz_password)
+            camera_controllers[stream_id] = camera_controller
 
         response = {
             "status": "Success",
             "message": "Detector started successifully",
-            "data": data
+            "data": data,
+            "supports_ptz": supports_ptz
         }
 
         return jsonify(response), 200
