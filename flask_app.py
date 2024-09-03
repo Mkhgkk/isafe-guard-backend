@@ -991,12 +991,17 @@ def leave_ptz_room(data):
 @socketio.on('ptz_move', namespace='/video')
 def ptz_change_zoom(data):
     stream_id = data["stream_id"]
-    zoom_amount = data["zoom_amount"]
+    zoom_amount = data.get("zoom_amount", None)
     direction = data["direction"]
+    stop = data.get("stop", False)
     camera_controller = camera_controllers[stream_id]
 
-    camera_controller.move_camera(direction, zoom_amount)
-    
+    if direction == 'zoom_in':
+        camera_controller.move_camera(direction, zoom_amount)
+    elif stop is False:  
+        camera_controller.move_camera(direction)
+    elif stop is True: 
+        camera_controller.stop_camera()
 
 
 if __name__ == '__main__':
