@@ -54,25 +54,40 @@ class PTZAutoTracker:
             print(f"Error getting PTZ status: {e}")
             return None
 
-    def calculate_movement(self, frame_width, frame_height, bbox):
-        """Calculate the necessary pan, tilt, and zoom adjustments to keep the object centered."""
-        x1, y1, x2, y2 = bbox
-
-        # Calculate width and height of the bounding box
-        bbox_width = x2 - x1
-        bbox_height = y2 - y1
-
-        # Calculate the center of the bounding box
-        bbox_center_x = x1 + bbox_width / 2
-        bbox_center_y = y1 + bbox_height / 2
+    def calculate_movement(self, frame_width, frame_height, bboxes):
+        """Calculate the necessary pan, tilt, and zoom adjustments to keep the objects centered."""
+        if not bboxes:
+            return 0, 0, 0  # No movement if no bounding boxes
 
         # Compute frame center
         frame_center_x = frame_width / 2
         frame_center_y = frame_height / 2
 
+        # Calculate combined center of all objects
+        bbox_centers_x = []
+        bbox_centers_y = []
+        bbox_areas = []
+
+        for bbox in bboxes:
+            x1, y1, x2, y2 = bbox
+
+            # Calculate width, height, and center of each bounding box
+            bbox_width = x2 - x1
+            bbox_height = y2 - y1
+            bbox_center_x = x1 + bbox_width / 2
+            bbox_center_y = y1 + bbox_height / 2
+
+            bbox_centers_x.append(bbox_center_x)
+            bbox_centers_y.append(bbox_center_y)
+            bbox_areas.append(bbox_width * bbox_height)
+
+        # Calculate average center for pan and tilt
+        avg_center_x = np.mean(bbox_centers_x)
+        avg_center_y = np.mean(bbox_centers_y)
+
         # Calculate the normalized deltas for pan and tilt
-        delta_x = (bbox_center_x - frame_center_x) / frame_width
-        delta_y = (bbox_center_y - frame_center_y) / frame_height
+        delta_x = (avg_center_x - frame_center_x) / frame_width
+        delta_y = (avg_center_y - frame_center_y) / frame_height
 
         # Update tolerance dynamically based on zoom level
         self.center_tolerance_x = max(0.05, self.center_tolerance_x * (1 - self.ptz_metrics["zoom_level"]))
@@ -82,8 +97,8 @@ class PTZAutoTracker:
         pan_direction = self._calculate_pan_tilt(delta_x, self.center_tolerance_x, self.pan_velocity)
         tilt_direction = self._calculate_pan_tilt(delta_y, self.center_tolerance_y, self.tilt_velocity, invert=True)
 
-        # Calculate zoom adjustment based on object size and position
-        zoom_direction = self._calculate_zoom(frame_width, frame_height, bbox_width, bbox_height, bbox_center_x, bbox_center_y)
+        # Calculate zoom adjustment to keep all objects within frame
+        zoom_direction = self._calculate_zoom(frame_width, frame_height, bbox_areas, bbox_centers_x, bbox_centers_y)
 
         return pan_direction, tilt_direction, zoom_direction
 
@@ -94,21 +109,26 @@ class PTZAutoTracker:
             return max(-1.0, min(1.0, direction))  # Normalize to [-1, 1]
         return 0
 
-    def _calculate_zoom(self, frame_width, frame_height, bbox_width, bbox_height, bbox_center_x, bbox_center_y):
-        """Calculate the zoom adjustment required to keep the object in frame."""
-        bbox_area = bbox_width * bbox_height
+    def _calculate_zoom(self, frame_width, frame_height, bbox_areas, bbox_centers_x, bbox_centers_y):
+        """Calculate the zoom adjustment required to keep the objects in frame."""
         frame_area = frame_width * frame_height
 
         # Target area ratio for object size in the frame to prevent over-zoom or under-zoom
         min_target_area_ratio = 0.03  # Minimum area ratio threshold
         max_target_area_ratio = 0.1   # Maximum area ratio threshold
-        current_area_ratio = bbox_area / frame_area
 
-        # Calculate distance of the object from the frame center
+        # Calculate average area of all bounding boxes
+        total_bbox_area = np.sum(bbox_areas)
+        current_area_ratio = total_bbox_area / frame_area
+
+        # Calculate the farthest object from the center
         frame_center_x = frame_width / 2
         frame_center_y = frame_height / 2
-        distance_from_center = np.sqrt(((bbox_center_x - frame_center_x) / frame_width) ** 2 +
-                                       ((bbox_center_y - frame_center_y) / frame_height) ** 2)
+        max_distance_from_center = max(
+            np.sqrt(((bbox_center_x - frame_center_x) / frame_width) ** 2 +
+                    ((bbox_center_y - frame_center_y) / frame_height) ** 2)
+            for bbox_center_x, bbox_center_y in zip(bbox_centers_x, bbox_centers_y)
+        )
 
         # Define thresholds for zooming in and out based on area ratio and distance from center
         zoom_in_threshold = min_target_area_ratio * (1 - self.ptz_metrics["zoom_level"])
@@ -117,9 +137,9 @@ class PTZAutoTracker:
         zoom_direction = 0
 
         if current_area_ratio < zoom_in_threshold and self.ptz_metrics["zoom_level"] < self.max_zoom:
-            zoom_direction = self.zoom_velocity * (1 - distance_from_center)  # Zoom in to make the object larger
+            zoom_direction = self.zoom_velocity * (1 - max_distance_from_center)  # Zoom in to make objects larger
         elif current_area_ratio > zoom_out_threshold and self.ptz_metrics["zoom_level"] > self.min_zoom:
-            zoom_direction = -self.zoom_velocity * (1 + distance_from_center)  # Zoom out to make the object smaller
+            zoom_direction = -self.zoom_velocity * (1 + max_distance_from_center)  # Zoom out to keep objects in view
 
         # Ensure zoom level stays within limits
         new_zoom_level = self.ptz_metrics["zoom_level"] + zoom_direction
@@ -172,9 +192,6 @@ class PTZAutoTracker:
 
             # Initialize Position properly
             request.Position = self.ptz_service.GetStatus({'ProfileToken': self.profile_token}).Position
-            # request.Position.PanTilt.x = self.default_position['pan']
-            # request.Position.PanTilt.y = self.default_position['tilt']
-            # request.Position.Zoom.x = self.default_position['zoom']
             request.Position.PanTilt.x = home_pan
             request.Position.PanTilt.y = home_tilt
             request.Position.Zoom.x = home_zoom
@@ -187,9 +204,9 @@ class PTZAutoTracker:
         except exceptions.ONVIFError as e:
             print(f"Error moving to default position: {e}")
 
-    def track(self, frame_width, frame_height, bbox=None):
+    def track(self, frame_width, frame_height, bboxes=None):
         """Main tracking method."""
-        if bbox is None:
+        if bboxes is None or len(bboxes) == 0:
             # No object detected
             current_time = time.time()
             if current_time - self.last_detection_time > self.no_object_timeout:
@@ -201,7 +218,7 @@ class PTZAutoTracker:
                 print("No object detected. Waiting...")
             return
         
-        # Object detected; update last detection time
+        # Object(s) detected; update last detection time
         self.last_detection_time = time.time()
 
         # Throttle movement commands to prevent jitter
@@ -209,7 +226,7 @@ class PTZAutoTracker:
             print("Throttling movement to prevent jitter.")
             return
 
-        pan, tilt, zoom = self.calculate_movement(frame_width, frame_height, bbox)
+        pan, tilt, zoom = self.calculate_movement(frame_width, frame_height, bboxes)
         
         # If no movement is needed, stop the camera
         if pan == 0 and tilt == 0 and zoom == 0:
@@ -255,7 +272,7 @@ class PTZAutoTracker:
 #     # Dummy frame dimensions
 #     frame_width, frame_height = 1920, 1080
 
-#     # Example bounding box (x1, y1, x2, y2)
-#     bbox = (800, 450, 1120, 630)
+#     # Example bounding boxes for multiple objects (x1, y1, x2, y2)
+#     bboxes = [(800, 450, 1120, 630), (400, 300, 600, 500)]
 
-#     tracker.track(frame_width, frame_height, bbox)
+#     tracker.track(frame_width, frame_height, bboxes)

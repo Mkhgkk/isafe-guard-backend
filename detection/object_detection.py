@@ -26,8 +26,10 @@ class ObjectDetection:
         hat_boxes = []
         final_status = "Safe"
 
-        if not results or all(len(result.boxes.data) == 0 for result in results):
-            tracker.track(1280, 720, None)  
+        # if not results or all(len(result.boxes.data) == 0 for result in results):
+        #     tracker.track(1280, 720, None)  
+        # else:
+        #     tracker.track(1280, 720, )
 
         for result in results:
             for box in result.boxes.data:
@@ -51,12 +53,26 @@ class ObjectDetection:
                 final_status = "UnSafe"
                 # autotrack from here
                 # desired_width, desired_height = 1280, 720 
-                tracker.track(1280, 720, perBox)
+                # tracker.track(1280, 720, perBox)
                 cv2.rectangle(image, (perBox[0], perBox[1]), (perBox[2], perBox[3]), (0, 0, 255), 2)
                 cv2.putText(image, "Worker without helmet", (perBox[0], perBox[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
 
         color_status = (0, 0, 255) if final_status == "UnSafe" else (0, 255, 0)
         cv2.putText(image, final_status, (40, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, color_status, 3)
+
+        # Because the track method expects this format
+        bboxes = [(box[0], box[1], box[2], box[3]) for box in person_boxes]
+
+        # Initialize the tracker 
+        frame_height, frame_width = image.shape[:2]
+
+        if bboxes:
+            # Call the track method of PTZAutoTracker with detected person boxes
+            tracker.track(frame_width, frame_height, bboxes)
+        else:
+            # If no person is detected, inform the tracker to reset or move to default
+            tracker.track(frame_width, frame_height, None)
+
         return final_status
 
     def detect_ladder(self, image, results):
