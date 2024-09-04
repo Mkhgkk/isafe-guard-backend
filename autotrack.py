@@ -1,17 +1,14 @@
-from onvif import ONVIFCamera
+from onvif import ONVIFCamera, exceptions
 import time
 
 class PTZAutoTracker:
-    # def __init__(self, camera_ip, username, password, port=80):
     def __init__(self):
         # Initialize the ONVIF camera
         self.camera = ONVIFCamera("192.168.0.133", 80, "root", "fsnetworks1!")
-        # self.camera = ONVIFCamera(camera_ip, port, username, password)
         self.ptz_service = self.camera.create_ptz_service()
         self.media_service = self.camera.create_media_service()
         self.profiles = self.media_service.GetProfiles()
         self.profile_token = self.profiles[0].token
-    
 
         # Define tolerance levels for movement
         self.center_tolerance_x = 0.1  # 10% of frame width
@@ -29,8 +26,12 @@ class PTZAutoTracker:
 
     def get_ptz_status(self):
         """Get the current PTZ status."""
-        status = self.ptz_service.GetStatus()
-        return status
+        try:
+            status = self.ptz_service.GetStatus({'ProfileToken': self.profile_token})
+            return status
+        except exceptions.ONVIFError as e:
+            print(f"Error getting PTZ status: {e}")
+            return None
 
     def calculate_movement(self, frame_width, frame_height, bbox):
         """Calculate the necessary pan, tilt, and zoom adjustments."""
@@ -79,31 +80,48 @@ class PTZAutoTracker:
 
     def continuous_move(self, pan, tilt, zoom):
         """Send continuous move command to PTZ camera."""
-        request = self.ptz_service.create_type('ContinuousMove')
-        request.ProfileToken = self.profile_token
-        request.Velocity.PanTilt._x = pan
-        request.Velocity.PanTilt._y = tilt
-        request.Velocity.Zoom._x = zoom
+        try:
+            request = self.ptz_service.create_type('ContinuousMove')
+            request.ProfileToken = self.profile_token
 
-        self.ptz_service.ContinuousMove(request)
+            # Ensure Velocity and PanTilt are properly initialized
+            request.Velocity = self.ptz_service.GetStatus({'ProfileToken': self.profile_token}).Position
+            request.Velocity.PanTilt.x = pan
+            request.Velocity.PanTilt.y = tilt
+            request.Velocity.Zoom.x = zoom
+
+            # Send the continuous move command
+            self.ptz_service.ContinuousMove(request)
+        except exceptions.ONVIFError as e:
+            print(f"Error in continuous move: {e}")
 
     def stop_movement(self):
         """Stop PTZ movement."""
-        request = self.ptz_service.create_type('Stop')
-        request.ProfileToken = self.profile_token
-        request.PanTilt = True
-        request.Zoom = True
-        self.ptz_service.Stop(request)
+        try:
+            request = self.ptz_service.create_type('Stop')
+            request.ProfileToken = self.profile_token
+            request.PanTilt = True
+            request.Zoom = True
+            self.ptz_service.Stop(request)
+        except exceptions.ONVIFError as e:
+            print(f"Error stopping PTZ movement: {e}")
 
     def move_to_default_position(self):
         """Move the camera to the default 'home' position."""
-        request = self.ptz_service.create_type('AbsoluteMove')
-        request.ProfileToken = self.profile_token
-        request.Position.PanTilt._x = self.default_position['pan']
-        request.Position.PanTilt._y = self.default_position['tilt']
-        request.Position.Zoom._x = self.default_position['zoom']
+        try:
+            request = self.ptz_service.create_type('AbsoluteMove')
+            request.ProfileToken = self.profile_token
 
-        self.ptz_service.AbsoluteMove(request)
+            # Initialize Position properly
+            request.Position = self.ptz_service.GetStatus({'ProfileToken': self.profile_token}).Position
+            request.Position.PanTilt.x = self.default_position['pan']
+            request.Position.PanTilt.y = self.default_position['tilt']
+            request.Position.Zoom.x = self.default_position['zoom']
+
+            # Send the absolute move command
+            self.ptz_service.AbsoluteMove(request)
+        except exceptions.ONVIFError as e:
+            print(f"Error moving to default position: {e}")
 
     def track(self, frame_width, frame_height, bbox=None):
         """Main tracking method."""
@@ -130,22 +148,17 @@ class PTZAutoTracker:
             # Otherwise, move the camera
             self.continuous_move(pan, tilt, zoom)
 
-        time.sleep(0.1)  # Small delay to prevent overloading the camera with commands
 
-# Example usage
-if __name__ == "__main__":
-    camera_ip = "192.168.0.133"
-    username = "root"
-    password = "fsnetworks1!"
+# # Example usage
+# if __name__ == "__main__":
+#     tracker = PTZAutoTracker()
 
-    tracker = PTZAutoTracker(camera_ip, username, password)
+#     # Dummy frame dimensions
+#     frame_width, frame_height = 1920, 1080
 
-    # Dummy frame dimensions
-    frame_width, frame_height = 1920, 1080
+#     while True:
+#         # Example: replace `bbox` with real detection data
+#         bbox = [800, 450, 1100, 650]  # Example bounding box (x1, y1, x2, y2)
 
-    while True:
-        # Example: replace `bbox` with real detection data
-        bbox = [800, 450, 1100, 650]  # Example bounding box (x1, y1, x2, y2)
-
-        tracker.track(frame_width, frame_height, bbox)
-        time.sleep(1)  # Simulate frame processing delay
+#         tracker.track(frame_width, frame_height, bbox)
+#         time.sleep(1)  # Simulate frame processing delay
