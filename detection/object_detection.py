@@ -26,6 +26,9 @@ class ObjectDetection:
         hat_boxes = []
         final_status = "Safe"
 
+        if not results or all(len(result.boxes.data) == 0 for result in results):
+            tracker.track(1280, 720, None)  
+
         for result in results:
             for box in result.boxes.data:
                 coords = list(map(int, box[:4]))

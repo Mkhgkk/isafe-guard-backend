@@ -163,15 +163,21 @@ class PTZAutoTracker:
 
     def move_to_default_position(self):
         """Move the camera to the default 'home' position."""
+        home_pan = -0.34133333
+        home_tilt = -0.847708464
+        home_zoom = 0.129928589
         try:
             request = self.ptz_service.create_type('AbsoluteMove')
             request.ProfileToken = self.profile_token
 
             # Initialize Position properly
             request.Position = self.ptz_service.GetStatus({'ProfileToken': self.profile_token}).Position
-            request.Position.PanTilt.x = self.default_position['pan']
-            request.Position.PanTilt.y = self.default_position['tilt']
-            request.Position.Zoom.x = self.default_position['zoom']
+            # request.Position.PanTilt.x = self.default_position['pan']
+            # request.Position.PanTilt.y = self.default_position['tilt']
+            # request.Position.Zoom.x = self.default_position['zoom']
+            request.Position.PanTilt.x = home_pan
+            request.Position.PanTilt.y = home_tilt
+            request.Position.Zoom.x = home_zoom
 
             # Update zoom level metrics
             self.ptz_metrics["zoom_level"] = self.default_position['zoom']
