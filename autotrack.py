@@ -83,7 +83,7 @@ class PTZAutoTracker:
         tilt_direction = self._calculate_pan_tilt(delta_y, self.center_tolerance_y, self.tilt_velocity, invert=True)
 
         # Calculate zoom adjustment based on object size and position
-        zoom_direction = self._calculate_zoom(bbox_width, bbox_height, frame_width, frame_height)
+        zoom_direction = self._calculate_zoom(frame_width, frame_height, bbox_width, bbox_height, bbox_center_x, bbox_center_y)
 
         return pan_direction, tilt_direction, zoom_direction
 
@@ -94,25 +94,32 @@ class PTZAutoTracker:
             return max(-1.0, min(1.0, direction))  # Normalize to [-1, 1]
         return 0
 
-    def _calculate_zoom(self, bbox_width, bbox_height, frame_width, frame_height):
+    def _calculate_zoom(self, frame_width, frame_height, bbox_width, bbox_height, bbox_center_x, bbox_center_y):
         """Calculate the zoom adjustment required to keep the object in frame."""
         bbox_area = bbox_width * bbox_height
         frame_area = frame_width * frame_height
 
-        # Conservative target area ratio to prevent over-zoom
-        target_area_ratio = 0.05  
+        # Target area ratio for object size in the frame to prevent over-zoom or under-zoom
+        min_target_area_ratio = 0.03  # Minimum area ratio threshold
+        max_target_area_ratio = 0.1   # Maximum area ratio threshold
         current_area_ratio = bbox_area / frame_area
 
-        # Apply dynamic thresholds based on distance from the center
-        zoom_in_threshold = target_area_ratio * (1 - self.ptz_metrics["zoom_level"])
-        zoom_out_threshold = target_area_ratio * (1 + self.ptz_metrics["zoom_level"])
+        # Calculate distance of the object from the frame center
+        frame_center_x = frame_width / 2
+        frame_center_y = frame_height / 2
+        distance_from_center = np.sqrt(((bbox_center_x - frame_center_x) / frame_width) ** 2 +
+                                       ((bbox_center_y - frame_center_y) / frame_height) ** 2)
+
+        # Define thresholds for zooming in and out based on area ratio and distance from center
+        zoom_in_threshold = min_target_area_ratio * (1 - self.ptz_metrics["zoom_level"])
+        zoom_out_threshold = max_target_area_ratio * (1 + self.ptz_metrics["zoom_level"])
 
         zoom_direction = 0
 
         if current_area_ratio < zoom_in_threshold and self.ptz_metrics["zoom_level"] < self.max_zoom:
-            zoom_direction = self.zoom_velocity  # Zoom in to make the object larger
+            zoom_direction = self.zoom_velocity * (1 - distance_from_center)  # Zoom in to make the object larger
         elif current_area_ratio > zoom_out_threshold and self.ptz_metrics["zoom_level"] > self.min_zoom:
-            zoom_direction = -self.zoom_velocity  # Zoom out to make the object smaller
+            zoom_direction = -self.zoom_velocity * (1 + distance_from_center)  # Zoom out to make the object smaller
 
         # Ensure zoom level stays within limits
         new_zoom_level = self.ptz_metrics["zoom_level"] + zoom_direction
