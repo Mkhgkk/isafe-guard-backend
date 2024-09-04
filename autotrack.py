@@ -18,8 +18,8 @@ class PTZAutoTracker:
         self.center_tolerance_y = 0.1
 
         # Define PTZ movement speeds
-        self.pan_velocity = 0.1
-        self.tilt_velocity = 0.1
+        self.pan_velocity = 0.8
+        self.tilt_velocity = 0.8
         self.zoom_velocity = 0.02
 
         # Zoom limits
