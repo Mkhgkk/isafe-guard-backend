@@ -2,6 +2,9 @@ import os
 import datetime
 import cv2
 from ultralytics import YOLO
+from autotrack import PTZAutoTracker
+
+tracker = PTZAutoTracker()
 
 class ObjectDetection:
     def __init__(self):
@@ -43,6 +46,9 @@ class ObjectDetection:
                 cv2.putText(image, "Worker with helmet", (perBox[0], perBox[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 180, 0), 2)
             else:
                 final_status = "UnSafe"
+                # autotrack from here
+                # desired_width, desired_height = 1280, 720 
+                tracker.track(1280, 720, perBox)
                 cv2.rectangle(image, (perBox[0], perBox[1]), (perBox[2], perBox[3]), (0, 0, 255), 2)
                 cv2.putText(image, "Worker without helmet", (perBox[0], perBox[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
 
