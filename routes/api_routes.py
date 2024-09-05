@@ -39,6 +39,14 @@ def start_stream():
         stream_id = data["stream_id"]
         ptz_autotrack= data["ptz_autotrack"]
 
+        # Check if a stream with the same stream_id already exists
+        if stream_id in streams:
+            return jsonify({
+                "status": "error",
+                "message": f"Stream with id {stream_id} already exists!"
+            }), 400
+
+
         video_streaming = VideoStreaming(rtsp_link, model_name, stream_id, ptz_autotrack)
         video_streaming.start_stream()
         streams[stream_id] = video_streaming
