@@ -153,7 +153,7 @@ class VideoStreaming:
                 frame = self.frame_buffer.get()
                 processed_frame, final_status = self.apply_model(frame, model_name)
 
-                ret, buffer = cv2.imencode('.jpg', processed_frame, [int(cv2.IMWRITE_JPEG_QUALITY), 50])
+                ret, buffer = cv2.imencode('.jpg', processed_frame, [int(cv2.IMWRITE_JPEG_QUALITY), 30])
                 frame_data = buffer.tobytes()
 
                 socketio.emit(f'frame-{self.stream_id}', {'image': frame_data}, namespace='/video', room=self.stream_id)
