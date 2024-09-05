@@ -10,7 +10,7 @@ from utils.camera_controller import CameraController
 from socketio_instance import socketio
 
 class VideoStreaming:
-    def __init__(self, rtsp_link, model_name, stream_id):
+    def __init__(self, rtsp_link, model_name, stream_id, ptz_autotrack=False):
         # self.app = app
         self.VIDEO = None  # Initialize without opening a stream
         self.MODEL = ObjectDetection()
@@ -30,6 +30,8 @@ class VideoStreaming:
         self.streams_id = stream_id
         self.rtsp_link = rtsp_link
         self.model_name = model_name
+
+        self.ptz_autotrack = ptz_autotrack
 
     @property
     def preview(self):
@@ -379,7 +381,7 @@ class VideoStreaming:
         final_status = "Safe"
 
         if model_name == "PPE":
-            final_status = self.MODEL.detect_ppe(frame, results)
+            final_status = self.MODEL.detect_ppe(frame, results, self.ptz_autotrack)
         elif model_name == "Ladder":
             final_status = self.MODEL.detect_ladder(frame, results)
         elif model_name == "MobileScaffolding":
