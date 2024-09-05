@@ -25,7 +25,7 @@ app.socketio = socketio
 def get_system_utilization():
     """Function to fetch CPU and GPU utilization and emit to frontend."""
     # Get CPU utilization
-    cpu_usage = psutil.cpu_percent(interval=1)
+    cpu_usage = psutil.cpu_percent(interval=0)
     
     # Get GPU utilization (if NVIDIA GPU is present)
     gpus = GPUtil.getGPUs()
