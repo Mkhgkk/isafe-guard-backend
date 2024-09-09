@@ -4,14 +4,13 @@ import threading
 import time
 import asyncio
 from collections import deque
-from queue import Queue
+from multiprocessing import Process, Queue
 from detection.object_detection import ObjectDetection
 from utils.camera_controller import CameraController
 from socketio_instance import socketio
 
 class VideoStreaming:
     def __init__(self, rtsp_link, model_name, stream_id, ptz_autotrack=False):
-        self.VIDEO = None
         self.MODEL = ObjectDetection()
         self.fps_queue = deque(maxlen=30)
         self.total_frame_count = 0
@@ -19,73 +18,30 @@ class VideoStreaming:
         self.frames_written = 0
         self.video_name = None
 
-        self.frame_buffer = Queue(maxsize=10)
+        self.frame_queue = Queue(maxsize=10)
+        self.result_queue = Queue(maxsize=10)
         self.running = False
 
         self.stream_id = stream_id
         self.rtsp_link = rtsp_link
         self.model_name = model_name
-
         self.ptz_autotrack = ptz_autotrack
 
-    @property
-    def preview(self):
-        return self._preview
-
-    @preview.setter
-    def preview(self, value):
-        self._preview = bool(value)
-
-    @property
-    def flipH(self):
-        return self._flipH
-
-    @flipH.setter
-    def flipH(self, value):
-        self._flipH = bool(value)
-
-    @property
-    def detect(self):
-        return self._detect
-
-    @detect.setter
-    def detect(self, value):
-        self._detect = bool(value)
-
-    @property
-    def exposure(self):
-        return self._exposure
-
-    @exposure.setter
-    def exposure(self, value):
-        self._exposure = value
-        self.VIDEO.set(cv2.CAP_PROP_EXPOSURE, self._exposure)
-
-    @property
-    def contrast(self):
-        return self._contrast
-
-    @contrast.setter
-    def contrast(self, value):
-        self._contrast = value
-        self.VIDEO.set(cv2.CAP_PROP_CONTRAST, self._contrast)
-
-    def process_video(self, snap, model_name, out, video_count, result_queue):
+    def process_video(self, frame, model_name, out, video_count):
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
 
         if self._detect:
             if out is None:
                 fps = self.VIDEO.get(cv2.CAP_PROP_FPS) or 20
-                out, self.video_name = self.create_video_writer(snap, timestamp, model_name, fps)
-            snap, timestamp, final_status, inference_time = self.MODEL.detectObj(snap, timestamp, model_name)
+                out, self.video_name = self.create_video_writer(frame, timestamp, model_name, fps)
+            frame, timestamp, final_status, inference_time = self.MODEL.detectObj(frame, timestamp, model_name)
             self.total_frame_count += 1
             if final_status == "UnSafe" and out is not None:
-                out.write(snap)
+                out.write(frame)
                 self.unsafe_frame_count += 1
                 self.frames_written += 1
 
-        result_queue.put((snap, out, self.total_frame_count, timestamp, self.video_name))
-
+        return frame, out, self.total_frame_count, timestamp, self.video_name
 
     def apply_model(self, frame, model_name):
         model = self.MODEL.models.get(model_name)
@@ -117,13 +73,21 @@ class VideoStreaming:
 
     def start_stream(self):
         self.running = True
-        threading.Thread(target=self.generate_frames, args=(self.rtsp_link, self.model_name), daemon=True).start()
-        threading.Thread(target=self.process_and_emit_frames, args=(self.model_name,), daemon=True).start()
+
+        # Start the multiprocessing processes
+        generate_process = Process(target=self.generate_frames, args=(self.rtsp_link, self.frame_queue))
+        process_process = Process(target=self.process_frames, args=(self.frame_queue, self.result_queue, self.model_name))
+
+        generate_process.start()
+        process_process.start()
+
+        # Start the thread for emitting frames via socketio
+        threading.Thread(target=self.emit_frames, daemon=True).start()
 
     def stop_streaming(self):
         self.running = False
 
-    def generate_frames(self, rtsp_link, model_name):
+    def generate_frames(self, rtsp_link, frame_queue):
         video_capture = cv2.VideoCapture(rtsp_link)
         if not video_capture.isOpened():
             print(f"Error: Unable to open video stream from {rtsp_link}")
@@ -141,21 +105,29 @@ class VideoStreaming:
             frame = cv2.resize(frame, (desired_width, desired_height))
 
             try:
-                self.frame_buffer.put_nowait(frame)
+                frame_queue.put_nowait(frame)
             except:
                 print("Frame buffer is full; dropping frame.")
 
         video_capture.release()
 
-    def process_and_emit_frames(self, model_name):
+    def process_frames(self, frame_queue, result_queue, model_name):
         while self.running:
-            if not self.frame_buffer.empty():
-                frame = self.frame_buffer.get()
+            if not frame_queue.empty():
+                frame = frame_queue.get()
                 processed_frame, final_status = self.apply_model(frame, model_name)
+                result_queue.put((processed_frame, final_status))
+            else:
+                time.sleep(0.01)
 
-                ret, buffer = cv2.imencode('.jpg', processed_frame, [int(cv2.IMWRITE_JPEG_QUALITY), 20])
+    def emit_frames(self):
+        while self.running:
+            if not self.result_queue.empty():
+                frame, final_status = self.result_queue.get()
+                ret, buffer = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 20])
                 frame_data = buffer.tobytes()
 
+                # Emit the frame via socketio in the main process
                 socketio.emit(f'frame-{self.stream_id}', {'image': frame_data}, namespace='/video', room=self.stream_id)
             else:
                 time.sleep(0.01)
