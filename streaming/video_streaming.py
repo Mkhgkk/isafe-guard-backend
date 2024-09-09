@@ -93,8 +93,11 @@ class VideoStreaming:
             print(f"Error: Unable to open video stream from {rtsp_link}")
             return
 
-        fps = video_capture.get(cv2.CAP_PROP_FPS) or 20
+        target_fps = 24
+        desired_frame_time = 1.0 / target_fps  # Time for one frame in seconds (41.67 ms)
         desired_width, desired_height = 1280, 720
+
+        last_frame_time = time.time()
 
         while self.running and video_capture.isOpened():
             ret, frame = video_capture.read()
@@ -102,14 +105,24 @@ class VideoStreaming:
                 print(f"Failed to read from {rtsp_link}")
                 break
 
-            frame = cv2.resize(frame, (desired_width, desired_height))
+            # Calculate the time since the last processed frame
+            current_time = time.time()
+            elapsed_time = current_time - last_frame_time
 
-            try:
-                frame_queue.put_nowait(frame)
-            except:
-                print("Frame buffer is full; dropping frame.")
+            # Only process the frame if the elapsed time is greater than or equal to the desired frame time
+            if elapsed_time >= desired_frame_time:
+                last_frame_time = current_time  # Update the last frame time
 
+                frame = cv2.resize(frame, (desired_width, desired_height))
+
+                try:
+                    frame_queue.put_nowait(frame)
+                except:
+                    print("Frame buffer is full; dropping frame.")
+        
         video_capture.release()
+
+
 
     def process_frames(self, frame_queue, result_queue, model_name):
         while self.running:
