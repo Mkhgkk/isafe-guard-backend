@@ -2,7 +2,6 @@ import cv2
 import datetime
 import threading
 import time
-import asyncio
 from collections import deque
 from multiprocessing import Process, Queue
 from detection.object_detection import ObjectDetection
@@ -48,7 +47,8 @@ class VideoStreaming:
         if not model:
             raise ValueError(f"Model '{model_name}' not found!")
 
-        results = model(frame)
+        results = model(frame, device="cuda:0,1")
+        print(results)
         final_status = "Safe"
 
         if model_name == "PPE":
@@ -118,31 +118,34 @@ class VideoStreaming:
                 try:
                     frame_queue.put_nowait(frame)
                 except:
-                    print("Frame buffer is full; dropping frame.")
+                    # Frame queue is full, sleep briefly to avoid busy looping
+                    time.sleep(0.01)
         
         video_capture.release()
 
-
-
     def process_frames(self, frame_queue, result_queue, model_name):
         while self.running:
-            if not frame_queue.empty():
-                frame = frame_queue.get()
+            try:
+                # Block until a frame is available with a timeout to avoid 100% CPU usage
+                frame = frame_queue.get(timeout=0.1)
                 processed_frame, final_status = self.apply_model(frame, model_name)
                 result_queue.put((processed_frame, final_status))
-            else:
+            except:
+                # Queue was empty or error, sleep briefly
                 time.sleep(0.01)
 
     def emit_frames(self):
         while self.running:
-            if not self.result_queue.empty():
-                frame, final_status = self.result_queue.get()
+            try:
+                # Block until a frame is available with a timeout to avoid 100% CPU usage
+                frame, final_status = self.result_queue.get(timeout=0.1)
                 ret, buffer = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 20])
                 frame_data = buffer.tobytes()
 
                 # Emit the frame via socketio in the main process
                 socketio.emit(f'frame-{self.stream_id}', {'image': frame_data}, namespace='/video', room=self.stream_id)
-            else:
+            except:
+                # Queue was empty or error, sleep briefly
                 time.sleep(0.01)
 
     def stop(self):
