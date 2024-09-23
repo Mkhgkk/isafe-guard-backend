@@ -5,6 +5,8 @@ from utils.camera_controller import CameraController
 from streams import streams
 from camera_controllers import camera_controllers
 
+from database.streams import insert_stream
+
 
 # streams = {}
 # camera_controllers = {}
@@ -117,5 +119,24 @@ def change_autotrack():
 
         return jsonify(response), 200
 
+    else:
+        return jsonify({"status": "error", "message": "wrong data format!"}), 400
+
+
+@app.route('/api/create_stream', methods=['POST'])
+def create_stream():
+    if request.is_json:
+        data = request.get_json()
+        
+        stream = insert_stream(data)
+
+        response = {
+            "status": "Success",
+            "message": "Streams created!",
+            "data": stream
+        }
+
+        return jsonify(response), 200
+    
     else:
         return jsonify({"status": "error", "message": "wrong data format!"}), 400

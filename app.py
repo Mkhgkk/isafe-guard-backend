@@ -7,8 +7,7 @@ from routes.api_routes import app
 import psutil
 import GPUtil
 from apscheduler.schedulers.background import BackgroundScheduler
-
-
+from database.db import create_db_instance, close_db_connection
 
 
 
@@ -40,6 +39,9 @@ if __name__ == '__main__':
     scheduler = BackgroundScheduler()
     scheduler.add_job(func=get_system_utilization, trigger="interval", seconds=2)
     scheduler.start()
+
+    create_db_instance()
+    
 
     socketio.run(app, host='0.0.0.0', port=5000, debug=True)
 
