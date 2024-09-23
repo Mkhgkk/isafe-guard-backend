@@ -153,6 +153,10 @@ class VideoStreaming:
                 frame = self.frame_buffer.get()
                 processed_frame, final_status = self.apply_model(frame, model_name)
 
+                self.fps_queue.append(time.time())
+                fps = len(self.fps_queue) / (self.fps_queue[-1] - self.fps_queue[0]) if len(self.fps_queue) > 1 else 0.0
+                cv2.putText(processed_frame, f"FPS: {fps:.2f}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+
                 ret, buffer = cv2.imencode('.jpg', processed_frame, [int(cv2.IMWRITE_JPEG_QUALITY), 20])
                 frame_data = buffer.tobytes()
 

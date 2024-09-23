@@ -7,7 +7,7 @@ import numpy as np
 class PTZAutoTracker:
     def __init__(self):
         # Initialize the ONVIF camera
-        self.camera = ONVIFCamera("192.168.0.128", 80, "root", "fsnetworks1!")
+        self.camera = ONVIFCamera("192.168.0.149", 80, "root", "fsnetworks1!")
         self.ptz_service = self.camera.create_ptz_service()
         self.media_service = self.camera.create_media_service()
         self.profiles = self.media_service.GetProfiles()

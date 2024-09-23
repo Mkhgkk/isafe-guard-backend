@@ -7,19 +7,32 @@ from autotrack import PTZAutoTracker
 tracker = PTZAutoTracker()
 
 class ObjectDetection:
-    def __init__(self):
-        # Define paths for model storage
-        PROJECT_PATH = os.path.abspath(os.getcwd())
-        MODELS_PATH = os.path.join(PROJECT_PATH, "models")
+    _instance = None  # class attribute to hold the single instance
 
-        # Load YOLO models
-        self.models = {
-            "PPE": YOLO(os.path.join(MODELS_PATH, "PPEbest.pt")),
-            "Ladder": YOLO(os.path.join(MODELS_PATH, "Ladder_yolov8.pt")),
-            "MobileScaffolding": YOLO(os.path.join(MODELS_PATH, "MobileScaffoldingbest.pt")),
-            "Scaffolding": YOLO(os.path.join(MODELS_PATH, "best_2024_scafolding.pt")),
-            "CuttingWelding": YOLO(os.path.join(MODELS_PATH, "cutting_welding_yolov8.pt")),
-        }
+    def __new__(cls, *args, **kwargs):
+        # Check if an instance already exists
+        if cls._instance is None:
+            # Create a new instance and assign it to _instance
+            cls._instance = super(ObjectDetection, cls).__new__(cls)
+        return cls._instance
+
+    def __init__(self):
+        # This ensures the init code only runs once
+        if not hasattr(self, 'initialized'):
+            # Define paths for model storage
+            PROJECT_PATH = os.path.abspath(os.getcwd())
+            MODELS_PATH = os.path.join(PROJECT_PATH, "models")
+
+            # Load YOLO models
+            self.models = {
+                # "PPE": YOLO(os.path.join(MODELS_PATH, "PPEbest.pt")),
+                "PPE": YOLO(os.path.join(MODELS_PATH, "PPEbest.engine")),
+                "Ladder": YOLO(os.path.join(MODELS_PATH, "Ladder_yolov8.pt")),
+                "MobileScaffolding": YOLO(os.path.join(MODELS_PATH, "MobileScaffoldingbest.pt")),
+                "Scaffolding": YOLO(os.path.join(MODELS_PATH, "best_2024_scafolding.pt")),
+                "CuttingWelding": YOLO(os.path.join(MODELS_PATH, "cutting_welding_yolov8.pt")),
+            }
+            self.initialized = True  # Mark the instance as initialized
 
     def detect_ppe(self, image, results, ptz_autotrack):
         person_boxes = []
