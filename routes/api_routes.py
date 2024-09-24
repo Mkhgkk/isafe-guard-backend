@@ -20,19 +20,19 @@ app = Flask(__name__)
 def index():
     return render_template('index.html')
 
-@app.route('/api/data', methods=['POST'])
-def receive_data():
-    if request.is_json:
-        data = request.get_json()
-        print(f"Received data: {data}")
-        response = {
-            "status": "success",
-            "message": "Data received successfully",
-            "data": data
-        }
-        return jsonify(response), 200
-    else:
-        return jsonify({"status": "error", "message": "Request data must be JSON"}), 400
+# @app.route('/api/data', methods=['POST'])
+# def receive_data():
+#     if request.is_json:
+#         data = request.get_json()
+#         print(f"Received data: {data}")
+#         response = {
+#             "status": "success",
+#             "message": "Data received successfully",
+#             "data": data
+#         }
+#         return jsonify(response), 200
+#     else:
+#         return jsonify({"status": "error", "message": "Request data must be JSON"}), 400
 
 @app.route('/api/start_stream', methods=['POST'])
 def start_stream():

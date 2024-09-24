@@ -8,6 +8,9 @@ import os
 # Import Routes
 from main.stream.routes import stream_blueprint
 
+from socket_.socketio_instance import socketio
+from socket_.socketio_handlers import setup_socketio_handlers
+
 def create_app():
 
   # Flask Config
@@ -32,6 +35,10 @@ def create_app():
 
   # Register Blueprints
   app.register_blueprint(stream_blueprint, url_prefix="/api/stream")
+
+  # Socket initialization
+  socketio.init_app(app, cors_allowed_origins="*", async_mode='threading')
+  setup_socketio_handlers(socketio)
 
   # Index Route
   @app.route("/")
