@@ -39,6 +39,7 @@ def create_app():
   # Socket initialization
   socketio.init_app(app, cors_allowed_origins="*", async_mode='threading')
   setup_socketio_handlers(socketio)
+  app.socketio = socketio
 
   # Index Route
   @app.route("/")
