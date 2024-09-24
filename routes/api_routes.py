@@ -5,7 +5,9 @@ from utils.camera_controller import CameraController
 from streams import streams
 from camera_controllers import camera_controllers
 
-from database.streams import insert_stream
+from database.streams import insert_stream, get_streams
+
+import tools
 
 
 # streams = {}
@@ -140,3 +142,12 @@ def create_stream():
     
     else:
         return jsonify({"status": "error", "message": "wrong data format!"}), 400
+    
+
+# @app.route('/api/get_all_streams', methods=['GET'])
+# def get_all_streams():
+#     streams = get_streams()
+#     resp = tools.JsonResp(list(streams), 200)
+
+#     return resp
+    

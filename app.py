@@ -38,7 +38,7 @@ if __name__ == '__main__':
     # Initialize the scheduler
     scheduler = BackgroundScheduler()
     scheduler.add_job(func=get_system_utilization, trigger="interval", seconds=2)
-    scheduler.start()
+    # scheduler.start()
 
     create_db_instance()
     
