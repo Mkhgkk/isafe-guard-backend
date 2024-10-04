@@ -40,6 +40,9 @@ def fetch_schedules():
       stream = stream_docs[schedule['stream_id']]
       # print(schedule["stream_id"])
       # print(stream_docs[schedule["stream_id"]])
+      if schedule['stream_id'] != 'stream3':
+        print(schedule["stream_id"])
+        continue
       Stream.start_stream(stream['rtsp_link'], schedule['model_name'], stream['stream_id'])
       print(schedule)
 

@@ -123,29 +123,60 @@ class VideoStreaming:
     def stop_streaming(self):
         self.running = False
 
+    # def generate_frames(self, rtsp_link, model_name):
+    #     video_capture = cv2.VideoCapture(rtsp_link)
+    #     if not video_capture.isOpened():
+    #         print(f"Error: Unable to open video stream from {rtsp_link}")
+    #         return
+
+    #     fps = video_capture.get(cv2.CAP_PROP_FPS) or 20
+    #     desired_width, desired_height = 1280, 720
+
+    #     while self.running and video_capture.isOpened():
+    #         ret, frame = video_capture.read()
+    #         if not ret:
+    #             print(f"Failed to read from {rtsp_link}")
+    #             break
+
+    #         frame = cv2.resize(frame, (desired_width, desired_height))
+
+    #         try:
+    #             self.frame_buffer.put_nowait(frame)
+    #         except:
+    #             print("Frame buffer is full; dropping frame.")
+
+    #     video_capture.release()
+
     def generate_frames(self, rtsp_link, model_name):
-        video_capture = cv2.VideoCapture(rtsp_link)
-        if not video_capture.isOpened():
-            print(f"Error: Unable to open video stream from {rtsp_link}")
-            return
+        while self.running:
+            video_capture = cv2.VideoCapture(rtsp_link)
 
-        fps = video_capture.get(cv2.CAP_PROP_FPS) or 20
-        desired_width, desired_height = 1280, 720
+            if not video_capture.isOpened():
+                print(f"Error: Unable to open video stream from {rtsp_link}. Retrying in 5 seconds...")
+                time.sleep(5)
+                continue
 
-        while self.running and video_capture.isOpened():
-            ret, frame = video_capture.read()
-            if not ret:
-                print(f"Failed to read from {rtsp_link}")
-                break
+            fps = video_capture.get(cv2.CAP_PROP_FPS) or 20
+            desired_width, desired_height = 1280, 720
 
-            frame = cv2.resize(frame, (desired_width, desired_height))
+            while self.running and video_capture.isOpened():
+                ret, frame = video_capture.read()
 
-            try:
-                self.frame_buffer.put_nowait(frame)
-            except:
-                print("Frame buffer is full; dropping frame.")
+                if not ret:
+                    print(f"Failed to read from {rtsp_link}. Attempting to reconnect...")
+                    video_capture.release()
+                    break
 
-        video_capture.release()
+                frame = cv2.resize(frame, (desired_width, desired_height))
+
+                try:
+                    self.frame_buffer.put_nowait(frame)
+                except:
+                    print("Frame buffer is full; dropping frame.")
+
+            video_capture.release()
+            print(f"Stream from {rtsp_link} disconnected. Reconnecting in 5 seconds...")
+            time.sleep(5)
 
     def process_and_emit_frames(self, model_name):
         while self.running:
