@@ -7,6 +7,8 @@ from appwrite.query import Query
 from appwrite.services.databases import Databases
 from appwrite.id import ID
 
+import asyncio
+
 from main.stream.model import Stream
 
 client = Client()
@@ -18,6 +20,7 @@ databases = Databases(client)
 
 stream_docs = {}
 
+
 def fetch_streams():
   streams = databases.list_documents(
     database_id="isafe-guard-db",
@@ -27,7 +30,9 @@ def fetch_streams():
   for stream in  streams['documents']:
     stream_docs[stream["stream_id"]] = stream
 
-def fetch_schedules():
+async def fetch_schedules():
+  tasks = []
+
   schedules = databases.list_documents(
     database_id="isafe-guard-db",
     collection_id="66fa20d600253c7d4503",
@@ -40,11 +45,15 @@ def fetch_schedules():
       stream = stream_docs[schedule['stream_id']]
       # print(schedule["stream_id"])
       # print(stream_docs[schedule["stream_id"]])
-      if schedule['stream_id'] != 'stream3':
-        print(schedule["stream_id"])
-        continue
-      Stream.start_stream(stream['rtsp_link'], schedule['model_name'], stream['stream_id'])
+      # if schedule['stream_id'] != 'stream3':
+      #   print(schedule["stream_id"])
+      #   continue
+      # Stream.start_stream(stream['rtsp_link'], schedule['model_name'], stream['stream_id'])
+      task = Stream.start_stream(stream['rtsp_link'], schedule['model_name'], stream['stream_id'], stream['cam_ip'], stream['ptz_port'], stream['ptz_username'], stream['ptz_password'])
+      tasks.append(task)
       print(schedule)
+
+  await asyncio.gather(*tasks)
 
     
 
@@ -53,7 +62,8 @@ def fetch_schedules():
 if __name__ == "__main__":
   print(int(time.time()))
   fetch_streams()
-  fetch_schedules()
+  # fetch_schedules()
+  asyncio.run(fetch_schedules())
   app = create_app()
   app.run(host=app.config["FLASK_DOMAIN"], port=app.config["FLASK_PORT"])
 else:
