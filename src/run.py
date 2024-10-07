@@ -42,16 +42,11 @@ async def fetch_schedules():
   for schedule in schedules['documents']:
     # active schedules
     if schedule["start_timestamp"] < int(time.time()):
-      stream = stream_docs[schedule['stream_id']]
-      # print(schedule["stream_id"])
-      # print(stream_docs[schedule["stream_id"]])
-      # if schedule['stream_id'] != 'stream3':
-      #   print(schedule["stream_id"])
-      #   continue
-      # Stream.start_stream(stream['rtsp_link'], schedule['model_name'], stream['stream_id'])
-      task = Stream.start_stream(stream['rtsp_link'], schedule['model_name'], stream['stream_id'], stream['cam_ip'], stream['ptz_port'], stream['ptz_username'], stream['ptz_password'])
-      tasks.append(task)
       print(schedule)
+      stream = stream_docs[schedule['stream_id']]
+     
+      task = Stream.start_stream(stream['rtsp_link'], schedule['model_name'], stream['stream_id'], schedule['end_timestamp'], stream['cam_ip'], stream['ptz_port'], stream['ptz_username'], stream['ptz_password'])
+      tasks.append(task)
 
   await asyncio.gather(*tasks)
 

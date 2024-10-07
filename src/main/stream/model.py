@@ -9,6 +9,12 @@ from streaming.video_streaming import VideoStreaming
 from utils.camera_controller import CameraController
 from main import tools
 import asyncio
+import time
+import datetime
+from apscheduler.schedulers.background import BackgroundScheduler
+
+scheduler = BackgroundScheduler()
+scheduler.start()
 
 class Stream:
     @staticmethod
@@ -17,7 +23,7 @@ class Stream:
         return streams
     
     @staticmethod
-    async def start_stream(rtsp_link, model_name, stream_id, cam_ip=None, ptz_port=None, ptz_username=None, ptz_password=None, home_pan=None, home_tilt=None, home_zoom=None):
+    async def start_stream(rtsp_link, model_name, stream_id, end_timestamp, cam_ip=None, ptz_port=None, ptz_username=None, ptz_password=None, home_pan=None, home_tilt=None, home_zoom=None):
         supports_ptz = all([cam_ip, ptz_port, ptz_username, ptz_password])
         ptz_autotrack = all([home_pan, home_tilt, home_zoom])
         
@@ -29,6 +35,11 @@ class Stream:
         video_streaming = VideoStreaming(rtsp_link, model_name, stream_id, ptz_autotrack)
         video_streaming.start_stream()
         streams[stream_id] = video_streaming
+
+        # Schedule stop stream
+        stop_time = datetime.datetime.fromtimestamp(end_timestamp)
+        scheduler.add_job(Stream.stop_stream, 'date', run_date=stop_time, args=[stream_id])
+        print(f"Stream {stream_id} scheduled to stop at {stop_time}.")
 
         # Asynchronously configure PTZ to avoid blocking the loop
         if supports_ptz:
