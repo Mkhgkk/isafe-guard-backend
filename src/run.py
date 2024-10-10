@@ -42,6 +42,10 @@ async def fetch_schedules():
   for schedule in schedules['documents']:
     # active schedules
     if schedule["start_timestamp"] < int(time.time()):
+
+      if schedule['stream_id'] != 'stream1':
+        continue
+      
       print(schedule)
       stream = stream_docs[schedule['stream_id']]
      
