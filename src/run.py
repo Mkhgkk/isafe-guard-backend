@@ -57,9 +57,10 @@ async def fetch_schedules():
 if __name__ == "__main__":
   print(int(time.time()))
   fetch_streams()
-  # fetch_schedules()
+  fetch_schedules()
   asyncio.run(fetch_schedules())
   app = create_app()
+  app.databases = databases
   app.run(host=app.config["FLASK_DOMAIN"], port=app.config["FLASK_PORT"])
 else:
   logging.basicConfig(app.config["FLASK_DIRECTORY"] + "trace.log", level=logging.DEBUG)
