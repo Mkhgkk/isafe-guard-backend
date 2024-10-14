@@ -134,6 +134,8 @@ class VideoStreaming:
     #         else:
     #             time.sleep(0.01)
 
+    def save_event_to_database(self, filename)
+
 
 
     def process_and_emit_frames(self, model_name):
@@ -143,6 +145,7 @@ class VideoStreaming:
         self.total_frame_count = 0
         self.unsafe_frame_count = 0
         start_time = None
+        is_recording = False  # Flag to track if a recording is in progress
 
         while self.running:
             if not self.frame_buffer.empty():
@@ -168,14 +171,16 @@ class VideoStreaming:
                 frame_data = buffer.tobytes()
                 socketio.emit(f'frame-{self.stream_id}', {'image': frame_data}, namespace='/video', room=self.stream_id)
 
-                # Check if we should start or continue saving the video
-                if out is None and self.total_frame_count % frame_interval == 0:
+                # Check if we should start or continue saving the video, but only if not already recording
+                if not is_recording and self.total_frame_count % frame_interval == 0:
                     unsafe_ratio = self.unsafe_frame_count / frame_interval if frame_interval else 0
                     if unsafe_ratio >= 0.7:
                         # Create a video writer if it's not already created
                         timestamp = datetime.datetime.now().strftime('%Y%m%d%H%M%S')
                         out, self.video_name = self.create_video_writer(frame, timestamp, model_name, fps)
                         start_time = time.time()  # Set start_time when the recording starts
+                        is_recording = True  # Set the recording flag to True
+                        # TODO: save this event to database
                         print(f"Started recording video at {timestamp}, start_time set to {start_time}")
 
                 # Write the frame to the video file if the writer is initialized
@@ -189,6 +194,7 @@ class VideoStreaming:
                         out.release()
                         out = None
                         start_time = None  # Reset start_time after releasing the video writer
+                        is_recording = False  # Reset the recording flag
                         print(f"Stopped recording video, total duration: {record_duration_seconds} seconds")
 
                 # Reset the unsafe frame count for the next interval
@@ -201,6 +207,7 @@ class VideoStreaming:
         # Release the video writer when stopping
         if out is not None:
             out.release()
+
 
 
     def stop(self):
