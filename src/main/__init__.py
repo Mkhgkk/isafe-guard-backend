@@ -1,4 +1,4 @@
-from flask import Flask, request
+from flask import Flask, request, Blueprint, send_from_directory
 from flask_cors import CORS
 from pymongo import MongoClient
 from main.tools import JsonResp
@@ -14,7 +14,8 @@ from socket_.socketio_handlers import setup_socketio_handlers
 def create_app():
 
   # Flask Config
-  app = Flask(__name__)
+  # app = Flask(__name__)
+  app = Flask(__name__, static_folder='static')
   app.config.from_pyfile("config/config.cfg")
 #   cors = CORS(app, resources={r"/*": { "origins": app.config["FRONTEND_DOMAIN"] }})
   cors = CORS(app, resources={r"/*": { "origins": "*" }})
@@ -33,6 +34,8 @@ def create_app():
     mongo[app.config["MONGO_AUTH_DATABASE"]].authenticate(app.config["MONGO_AUTH_USERNAME"], app.config["MONGO_AUTH_PASSWORD"])
     app.db = mongo[app.config["MONGO_APP_DATABASE"]]
 
+  
+
   # Register Blueprints
   app.register_blueprint(stream_blueprint, url_prefix="/api/stream")
 
@@ -41,9 +44,14 @@ def create_app():
   setup_socketio_handlers(socketio)
   app.socketio = socketio
 
+  @app.route('/static/<path:filename>')
+  def serve_static_file(filename):
+      return send_from_directory(app.static_folder, filename)
+
   # Index Route
   @app.route("/")
   def index():
     return JsonResp({ "status": "Online" }, 200)
+  
   
   return app
