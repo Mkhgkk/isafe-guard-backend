@@ -11,6 +11,16 @@ import asyncio
 
 from main.stream.model import Stream
 
+import psutil
+import GPUtil
+from apscheduler.schedulers.background import BackgroundScheduler
+
+from socket_.socketio_instance import socketio
+
+import logging
+
+logging.getLogger('apscheduler').setLevel(logging.WARNING)
+
 client = Client()
 # client.set_endpoint('http://192.168.0.10/v1')
 client.set_endpoint('http://172.105.209.31/v1')
@@ -21,6 +31,15 @@ client.set_key('standard_a5d6a12567fad8968cf5e2bc4482006c886d22e175e2d9bdabfea44
 databases = Databases(client)
 
 stream_docs = {}
+
+def get_system_utilization():
+    """Function to fetch CPU and GPU utilization and emit to frontend."""
+    cpu_usage = psutil.cpu_percent(interval=0)
+    
+    gpus = GPUtil.getGPUs()
+    gpu_usage = gpus[0].load * 100 if gpus else 0
+    
+    socketio.emit('system_status', {'cpu': cpu_usage, 'gpu': gpu_usage}, namespace='/video')
 
 
 def fetch_streams():
@@ -67,6 +86,11 @@ if __name__ == "__main__":
   asyncio.run(fetch_schedules())
   app = create_app()
   app.databases = databases
+
+  scheduler = BackgroundScheduler()
+  scheduler.add_job(func=get_system_utilization, trigger="interval", seconds=2)
+  scheduler.start()
+  
   app.run(host=app.config["FLASK_DOMAIN"], port=app.config["FLASK_PORT"])
 else:
   logging.basicConfig(app.config["FLASK_DIRECTORY"] + "trace.log", level=logging.DEBUG)

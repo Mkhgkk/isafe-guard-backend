@@ -11,6 +11,9 @@ from main.stream.routes import stream_blueprint
 from socket_.socketio_instance import socketio
 from socket_.socketio_handlers import setup_socketio_handlers
 
+
+
+
 def create_app():
 
   # Flask Config
@@ -43,6 +46,8 @@ def create_app():
   socketio.init_app(app, cors_allowed_origins="*", async_mode='threading')
   setup_socketio_handlers(socketio)
   app.socketio = socketio
+
+  
 
   @app.route('/static/<path:filename>')
   def serve_static_file(filename):
