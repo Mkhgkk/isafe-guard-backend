@@ -237,8 +237,11 @@ class VideoStreaming:
                         out, video_name = self.create_video_writer(frame, timestamp, model_name, fps)
                         start_time = time.time()  # Set start_time when the recording starts
                         is_recording = True  # Set the recording flag to True
-                        # TODO: save this event to database
-                        self.save_event_to_database(processed_frame, "Missing Head-hat", "PPE", start_time, video_name)
+                        
+                        # self.save_event_to_database(processed_frame, "Missing Head-hat", "PPE", start_time, video_name)
+                        save_thread = threading.Thread(target=self.save_event_to_database, args=(processed_frame, "Missing Head-hat", "PPE", start_time, video_name))
+                        save_thread.start()
+                        
                         print(f"Started recording video at {timestamp}, start_time set to {start_time}")
 
                 # Write the frame to the video file if the writer is initialized
