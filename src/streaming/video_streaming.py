@@ -157,9 +157,16 @@ class VideoStreaming:
         image_directory = "/home/Mkhgkk/Projects/Monitoring/src/main/static/thumbnails"  # Update this path as needed
         os.makedirs(image_directory, exist_ok=True)
 
+        original_height, original_width = frame.shape[:2]
+        target_width = 150
+        aspect_ratio = original_height / original_width
+        target_height = int(target_width * aspect_ratio)
+        resized_frame = cv2.resize(frame, (target_width, target_height), interpolation=cv2.INTER_AREA)
+
+
         image_path = os.path.join(image_directory, image_filename)
 
-        ret = cv2.imwrite(image_path, frame)
+        ret = cv2.imwrite(image_path, resized_frame)
 
         if not ret:
             print("Failed to save frame as an image")
