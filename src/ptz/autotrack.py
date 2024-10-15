@@ -8,6 +8,7 @@ class PTZAutoTracker:
     def __init__(self):
         # Initialize the ONVIF camera
         self.camera = ONVIFCamera("192.168.0.149", 80, "root", "fsnetworks1!")
+        # self.camera = ONVIFCamera("223.171.86.249", 80, "admin", "1q2w3e4r.")
         self.ptz_service = self.camera.create_ptz_service()
         self.media_service = self.camera.create_media_service()
         self.profiles = self.media_service.GetProfiles()
@@ -183,9 +184,13 @@ class PTZAutoTracker:
 
     def move_to_default_position(self):
         """Move the camera to the default 'home' position."""
-        home_pan = -0.34133333
-        home_tilt = -0.847708464
-        home_zoom = 0.129928589
+        # home_pan = -0.34133333
+        # home_tilt = -0.847708464
+        # home_zoom = 0.129928589
+
+        home_pan = -0.550611138
+        home_tilt = -0.531818211
+        home_zoom = 0.0499999933
         try:
             request = self.ptz_service.create_type('AbsoluteMove')
             request.ProfileToken = self.profile_token
