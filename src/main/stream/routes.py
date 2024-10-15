@@ -121,7 +121,7 @@ def change_autotrack():
         print("An error occurred:", e)
         traceback.print_exc()
         return tools.JsonResp({"status": "error", "message": "wrong data format!"}, 400)
-
+    
     
 @stream_blueprint.route("/create_schedule", methods=['POST'])
 def create_schedule():

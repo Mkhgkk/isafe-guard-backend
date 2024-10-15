@@ -8,6 +8,21 @@ from queue import Queue
 from detection.object_detection import ObjectDetection
 from utils.camera_controller import CameraController
 from socket_.socketio_instance import socketio
+import base64
+import os
+
+from appwrite.client import Client
+from appwrite.query import Query
+from appwrite.services.databases import Databases
+from appwrite.id import ID
+
+
+client = Client()
+client.set_endpoint('http://192.168.0.10/v1')
+client.set_project('66f4c2e6001ef89c0f5c')
+client.set_key('standard_f6ffca3b91315e5263932317123368335466126c2bb58bf4201b64c9c3768ab3f364eabe0f7ba852fa24876c624393b306ce9a3f71db9c8fa951526a39e49721c80812d477196faad02d282ea51962a823c02f4580c1c95c67e6dba054653fa4d094a99ce4cb1a31ce52c57dbda6b925168446dd879de1e1d6321f0fa2f88cbd')
+
+databases = Databases(client)
 
 class VideoStreaming:
     def __init__(self, rtsp_link, model_name, stream_id, ptz_autotrack=False):
@@ -69,9 +84,9 @@ class VideoStreaming:
         return frame, final_status
 
     def create_video_writer(self, frame, timestamp, model_name, output_fps):
-        video_name1 = f"/home/Mkhgkk/Projects/Monitoring/static/unsafe/video_{model_name}_{timestamp}.mp4"
+        video_name1 = f"/home/Mkhgkk/Projects/Monitoring/src/main/static/videos/video_{model_name}_{timestamp}.mp4"
         # video_name1 = f"./static/unsafe/video_{model_name}_{timestamp}.mp4"
-        video_name = f"/unsafe/video_{model_name}_{timestamp}.mp4"
+        video_name = f"video_{self.stream_id}_{model_name}_{timestamp}.mp4"
         height, width, _ = frame.shape
         # fourcc = cv2.VideoWriter_fourcc(*"avc1")
         fourcc = cv2.VideoWriter_fourcc(*"mp4v")  # Use mp4v codec
@@ -134,7 +149,41 @@ class VideoStreaming:
     #         else:
     #             time.sleep(0.01)
 
-    def save_event_to_database(self, filename)
+    def save_event_to_database(self, frame, title, description, start_time, filename):
+
+        timestamp_str = str(int(time.time()))
+        image_filename = f"thumbnail_{timestamp_str}.jpg"
+
+        image_directory = "/home/Mkhgkk/Projects/Monitoring/src/main/static/thumbnails"  # Update this path as needed
+        os.makedirs(image_directory, exist_ok=True)
+
+        image_path = os.path.join(image_directory, image_filename)
+
+        ret = cv2.imwrite(image_path, frame)
+
+        if not ret:
+            print("Failed to save frame as an image")
+            return
+
+        try:
+            # Step 2: Save the event data including the image path to the database
+            response = databases.create_document(
+                database_id="isafe-guard-db",
+                collection_id="670d337f001f9ab7ff34",
+                document_id=ID.unique(),
+                data={
+                    "stream_id": self.stream_id,
+                    "title": title,
+                    "description": description,
+                    "timestamp": int(start_time),
+                    "thumbnail":  image_filename,  # Save the path to the saved image
+                    "video_filename": filename
+                }
+            )
+            print("Event saved successfully with image path:", response)
+
+        except Exception as e:
+            print(f"Error saving event to database: {e}")
 
 
 
@@ -177,10 +226,11 @@ class VideoStreaming:
                     if unsafe_ratio >= 0.7:
                         # Create a video writer if it's not already created
                         timestamp = datetime.datetime.now().strftime('%Y%m%d%H%M%S')
-                        out, self.video_name = self.create_video_writer(frame, timestamp, model_name, fps)
+                        out, video_name = self.create_video_writer(frame, timestamp, model_name, fps)
                         start_time = time.time()  # Set start_time when the recording starts
                         is_recording = True  # Set the recording flag to True
                         # TODO: save this event to database
+                        self.save_event_to_database(processed_frame, "Missing Head-hat", "PPE", start_time, video_name)
                         print(f"Started recording video at {timestamp}, start_time set to {start_time}")
 
                 # Write the frame to the video file if the writer is initialized
