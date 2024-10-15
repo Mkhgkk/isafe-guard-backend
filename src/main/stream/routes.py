@@ -1,4 +1,5 @@
 from flask import current_app as app
+from flask import Response
 from flask import Flask, request
 import json
 from .model import Stream
@@ -17,6 +18,7 @@ from utils.camera_controller import CameraController
 from appwrite.id import ID
 
 import asyncio
+import os
 
 
 
@@ -92,6 +94,22 @@ def stop_stream():
 
     except Exception as e:
         return tools.JsonResp({"status": "error", "message": "wrong data format!"}, 400)
+    
+
+def stream_video(file_path):
+    def generate():
+        with open(file_path, "rb") as video_file:
+            data = video_file.read(1024 * 1024)  # Stream in chunks of 1MB
+            while data:
+                yield data
+                data = video_file.read(1024 * 1024)
+    return Response(generate(), mimetype="video/mp4")
+    
+
+@stream_blueprint.route("/video_playback/<filename>", methods=['GET'])
+def stream_file(filename):
+    file_path = os.path.join('/home/Mkhgkk/Projects/Monitoring/src/main/static/videos', filename)
+    return stream_video(file_path)
     
 
     
