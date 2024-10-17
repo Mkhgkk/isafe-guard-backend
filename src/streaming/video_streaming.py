@@ -91,7 +91,8 @@ class VideoStreaming:
         height, width, _ = frame.shape
         # fourcc = cv2.VideoWriter_fourcc(*"avc1")
         fourcc = cv2.VideoWriter_fourcc(*"mp4v")  # Use mp4v codec
-        return cv2.VideoWriter(video_name1, fourcc, output_fps, (width, height)), video_name
+        # return cv2.VideoWriter(video_name1, fourcc, output_fps, (width, height)), video_name
+        return None, video_name
 
     def start_stream(self):
         self.running = True
@@ -101,26 +102,43 @@ class VideoStreaming:
     def stop_streaming(self):
         self.running = False
 
-
     def generate_frames(self, rtsp_link, model_name):
         while self.running:
-            video_capture = cv2.VideoCapture(rtsp_link)
+            # Check if rtsp_link includes "rtsp"
+            if "rtsp" in rtsp_link:
+                # -- keep existing logic
+                # fps = video_capture.get(cv2.CAP_PROP_FPS) or 20
+                video_capture = cv2.VideoCapture(rtsp_link)
+                video_capture.set(cv2.CAP_PROP_FPS, 20)
+            else:
+                # Handle streaming from file with loop
+                video_capture = cv2.VideoCapture(rtsp_link)
+                video_capture.set(cv2.CAP_PROP_FPS, 10)
+
+                loop = True
 
             if not video_capture.isOpened():
                 print(f"Error: Unable to open video stream from {rtsp_link}. Retrying in 5 seconds...")
                 time.sleep(5)
                 continue
 
-            fps = video_capture.get(cv2.CAP_PROP_FPS) or 20
+            # fps = video_capture.get(cv2.CAP_PROP_FPS) or 20
             desired_width, desired_height = 1280, 720
 
             while self.running and video_capture.isOpened():
                 ret, frame = video_capture.read()
 
                 if not ret:
-                    print(f"Failed to read from {rtsp_link}. Attempting to reconnect...")
-                    video_capture.release()
-                    break
+                    if "rtsp" in rtsp_link:
+                        # Reconnect for RTSP streams
+                        print(f"Failed to read from {rtsp_link}. Attempting to reconnect...")
+                        video_capture.release()
+                        break
+                    else:
+                        # Restart the file stream from the beginning for file streams
+                        print(f"End of file reached in {rtsp_link}. Restarting the stream...")
+                        video_capture.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                        continue
 
                 frame = cv2.resize(frame, (desired_width, desired_height))
 
@@ -132,6 +150,43 @@ class VideoStreaming:
             video_capture.release()
             print(f"Stream from {rtsp_link} disconnected. Reconnecting in 5 seconds...")
             time.sleep(5)
+
+
+    # def generate_frames(self, rtsp_link, model_name):
+    #     while self.running:
+    #         # Check if rtsp_link includes "rtsp"
+    #         # -- keep existing logic
+
+    #         # Handle streaming from file with loop
+
+    #         video_capture = cv2.VideoCapture(rtsp_link)
+
+    #         if not video_capture.isOpened():
+    #             print(f"Error: Unable to open video stream from {rtsp_link}. Retrying in 5 seconds...")
+    #             time.sleep(5)
+    #             continue
+
+    #         fps = video_capture.get(cv2.CAP_PROP_FPS) or 20
+    #         desired_width, desired_height = 1280, 720
+
+    #         while self.running and video_capture.isOpened():
+    #             ret, frame = video_capture.read()
+
+    #             if not ret:
+    #                 print(f"Failed to read from {rtsp_link}. Attempting to reconnect...")
+    #                 video_capture.release()
+    #                 break
+
+    #             frame = cv2.resize(frame, (desired_width, desired_height))
+
+    #             try:
+    #                 self.frame_buffer.put_nowait(frame)
+    #             except:
+    #                 print("Frame buffer is full; dropping frame.")
+
+    #         video_capture.release()
+    #         print(f"Stream from {rtsp_link} disconnected. Reconnecting in 5 seconds...")
+    #         time.sleep(5)
 
     # def process_and_emit_frames(self, model_name):
     #     while self.running:
