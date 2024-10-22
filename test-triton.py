@@ -41,7 +41,8 @@ image = np.expand_dims(image, axis=0)  # Add batch dimension
 
 # Create Triton gRPC client
 url = "localhost:8001"  # gRPC typically uses port 8001
-model_name = "PPEbest"
+model_name = "PPEtrt" # .engine model
+# model_name = "PPEbest" # .onnx model
 client = grpcclient.InferenceServerClient(url=url)
 
 # Prepare inputs and outputs

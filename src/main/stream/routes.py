@@ -187,3 +187,40 @@ def create_schedule():
         print("An error occurred: ", e)
         traceback.print_exc()
         return tools.JsonResp({"status": "error", "message": e}, 400)
+    
+@stream_blueprint.route("/delete_schedule", methods=['POST'])
+def delete_schedule():
+    try:
+        # Schedule document
+        data = json.loads(request.data)
+        stream_id = data['stream_id']
+        schedule_document_id = data['$id']
+
+        # Check if stream is running
+        stream = streams.get(stream_id)
+        # Stop stream
+        if stream is not None:
+            Stream.stop_stream(stream_id)
+
+        # Delete schedule
+        response = app.databases.delete_document(
+            database_id="isafe-guard-db",
+            collection_id="66fa20d600253c7d4503",
+            document_id=schedule_document_id
+        )
+
+        print("Document deleted successfully.")
+        
+
+        # Send response
+        return tools.JsonResp({
+            "status": "Success",
+            "message": "Schedule deleted successfully",
+            "data": response
+        }, 200)
+
+
+    except Exception as e:
+        print("An error occurred: ", e)
+        traceback.print_exc()
+        return tools.JsonResp({"status": "error", "message": e}, 400)

@@ -82,10 +82,22 @@ class Stream:
 
     @staticmethod
     def stop_stream(stream_id):
-        stream_id = stream_id
+        if stream_id not in streams:
+            # raise ValueError(f"Stream ID {stream_id} does not exist in streams.")
+            return
 
-        video_streaming = streams[stream_id]
-        video_streaming.stop_streaming()
+        try:
+            video_streaming = streams.get(stream_id)
+            if video_streaming:
+                video_streaming.stop_streaming()
+            else:
+                # raise ValueError(f"Stream ID {stream_id} is not active.")
+                return
 
-        del streams[stream_id]
-        del camera_controllers[stream_id]
+            del streams[stream_id]
+
+            if stream_id in camera_controllers:
+                del camera_controllers[stream_id]
+        except Exception as e:
+            raise RuntimeError(f"Failed to stop stream {stream_id}: {e}")
+
