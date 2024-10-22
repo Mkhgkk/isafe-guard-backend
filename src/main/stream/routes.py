@@ -224,3 +224,40 @@ def delete_schedule():
         print("An error occurred: ", e)
         traceback.print_exc()
         return tools.JsonResp({"status": "error", "message": e}, 400)
+    
+
+@stream_blueprint.route("/update_stream", methods=['POST'])
+def update_stream():
+    try:
+        data = json.loads(request.data)
+        stream_id = data['stream_id']
+        rtsp_link = data['rtsp_link']
+        stream_document_id = data['$id']
+        
+        # Check if stream is running and stop  it before updating
+        stream = streams.get(stream_id)
+        if stream is not None:
+            if stream.rtsp_link != rtsp_link:
+                Stream.update_rtsp_link(stream_id, rtsp_link)
+
+        response = app.databases.update_document(
+            database_id="isafe-guard-db",
+            collection_id="66f504260003d64837e5",
+            document_id=stream_document_id,
+            data=data
+        )
+
+        print("Document updated successfully.")
+
+        # Send response
+        return tools.JsonResp({
+            "status": "Success",
+            "message": "Stream updated successfully",
+            "data": response
+        }, 200)
+
+
+    except Exception as e: 
+        print("An error occurred: ", e)
+        traceback.print_exc()
+        return tools.JsonResp({"status": "error", "message": e}, 400)

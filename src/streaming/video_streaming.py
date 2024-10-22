@@ -37,6 +37,7 @@ class VideoStreaming:
 
         self.frame_buffer = Queue(maxsize=10)
         self.running = False
+        
 
         self.stream_id = stream_id
         self.rtsp_link = rtsp_link
@@ -45,23 +46,6 @@ class VideoStreaming:
         self.ptz_autotrack = ptz_autotrack
 
     
-
-    def process_video(self, snap, model_name, out, video_count, result_queue):
-        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-
-        if self._detect:
-            if out is None:
-                fps = self.VIDEO.get(cv2.CAP_PROP_FPS) or 20
-                out, self.video_name = self.create_video_writer(snap, timestamp, model_name, fps)
-            snap, timestamp, final_status, inference_time = self.MODEL.detectObj(snap, timestamp, model_name)
-            self.total_frame_count += 1
-            if final_status == "UnSafe" and out is not None:
-                out.write(snap)
-                self.unsafe_frame_count += 1
-                self.frames_written += 1
-
-        result_queue.put((snap, out, self.total_frame_count, timestamp, self.video_name))
-
 
     def apply_model(self, frame, model_name):
         model = self.MODEL.models.get(model_name)
@@ -102,43 +86,27 @@ class VideoStreaming:
     def stop_streaming(self):
         self.running = False
 
+
     def generate_frames(self, rtsp_link, model_name):
         while self.running:
-            # Check if rtsp_link includes "rtsp"
-            if "rtsp" in rtsp_link:
-                # -- keep existing logic
-                # fps = video_capture.get(cv2.CAP_PROP_FPS) or 20
-                video_capture = cv2.VideoCapture(rtsp_link)
-                video_capture.set(cv2.CAP_PROP_FPS, 20)
-            else:
-                # Handle streaming from file with loop
-                video_capture = cv2.VideoCapture(rtsp_link)
-                video_capture.set(cv2.CAP_PROP_FPS, 10)
 
-                loop = True
+            video_capture = cv2.VideoCapture(rtsp_link)
 
             if not video_capture.isOpened():
                 print(f"Error: Unable to open video stream from {rtsp_link}. Retrying in 5 seconds...")
                 time.sleep(5)
                 continue
 
-            # fps = video_capture.get(cv2.CAP_PROP_FPS) or 20
+            fps = video_capture.get(cv2.CAP_PROP_FPS) or 20
             desired_width, desired_height = 1280, 720
 
             while self.running and video_capture.isOpened():
                 ret, frame = video_capture.read()
 
                 if not ret:
-                    if "rtsp" in rtsp_link:
-                        # Reconnect for RTSP streams
-                        print(f"Failed to read from {rtsp_link}. Attempting to reconnect...")
-                        video_capture.release()
-                        break
-                    else:
-                        # Restart the file stream from the beginning for file streams
-                        print(f"End of file reached in {rtsp_link}. Restarting the stream...")
-                        video_capture.set(cv2.CAP_PROP_POS_FRAMES, 0)
-                        continue
+                    print(f"Failed to read from {rtsp_link}. Attempting to reconnect...")
+                    video_capture.release()
+                    break
 
                 frame = cv2.resize(frame, (desired_width, desired_height))
 
@@ -151,59 +119,6 @@ class VideoStreaming:
             print(f"Stream from {rtsp_link} disconnected. Reconnecting in 5 seconds...")
             time.sleep(5)
 
-
-    # def generate_frames(self, rtsp_link, model_name):
-    #     while self.running:
-    #         # Check if rtsp_link includes "rtsp"
-    #         # -- keep existing logic
-
-    #         # Handle streaming from file with loop
-
-    #         video_capture = cv2.VideoCapture(rtsp_link)
-
-    #         if not video_capture.isOpened():
-    #             print(f"Error: Unable to open video stream from {rtsp_link}. Retrying in 5 seconds...")
-    #             time.sleep(5)
-    #             continue
-
-    #         fps = video_capture.get(cv2.CAP_PROP_FPS) or 20
-    #         desired_width, desired_height = 1280, 720
-
-    #         while self.running and video_capture.isOpened():
-    #             ret, frame = video_capture.read()
-
-    #             if not ret:
-    #                 print(f"Failed to read from {rtsp_link}. Attempting to reconnect...")
-    #                 video_capture.release()
-    #                 break
-
-    #             frame = cv2.resize(frame, (desired_width, desired_height))
-
-    #             try:
-    #                 self.frame_buffer.put_nowait(frame)
-    #             except:
-    #                 print("Frame buffer is full; dropping frame.")
-
-    #         video_capture.release()
-    #         print(f"Stream from {rtsp_link} disconnected. Reconnecting in 5 seconds...")
-    #         time.sleep(5)
-
-    # def process_and_emit_frames(self, model_name):
-    #     while self.running:
-    #         if not self.frame_buffer.empty():
-    #             frame = self.frame_buffer.get()
-    #             processed_frame, final_status = self.apply_model(frame, model_name)
-
-    #             self.fps_queue.append(time.time())
-    #             fps = len(self.fps_queue) / (self.fps_queue[-1] - self.fps_queue[0]) if len(self.fps_queue) > 1 else 0.0
-    #             cv2.putText(processed_frame, f"FPS: {fps:.2f}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
-
-    #             ret, buffer = cv2.imencode('.jpg', processed_frame, [int(cv2.IMWRITE_JPEG_QUALITY), 20])
-    #             frame_data = buffer.tobytes()
-
-    #             socketio.emit(f'frame-{self.stream_id}', {'image': frame_data}, namespace='/video', room=self.stream_id)
-    #         else:
-    #             time.sleep(0.01)
 
     def save_event_to_database(self, frame, title, description, start_time, filename):
 
@@ -324,7 +239,3 @@ class VideoStreaming:
         if out is not None:
             out.release()
 
-
-
-    def stop(self):
-        self.running = False

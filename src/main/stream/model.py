@@ -100,4 +100,25 @@ class Stream:
                 del camera_controllers[stream_id]
         except Exception as e:
             raise RuntimeError(f"Failed to stop stream {stream_id}: {e}")
+        
+    @staticmethod
+    def update_rtsp_link(stream_id, rtsp_link):
+        stream = streams.get(stream_id)
+        if stream is None:
+            raise ValueError(f"Stream ID {stream_id} does not exist.")
+
+        if not rtsp_link:
+            raise ValueError("Invalid RTSP link provided.")
+
+        try:
+            if stream.running:
+                stream.stop_streaming()
+                stream.rtsp_link = rtsp_link
+                # stream.start_stream()
+            else:
+                stream.rtsp_link = rtsp_link
+
+        except Exception as e:
+            raise RuntimeError(f"Failed to update RTSP link for stream {stream_id}: {e}")
+
 
