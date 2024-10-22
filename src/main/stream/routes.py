@@ -237,8 +237,10 @@ def update_stream():
         # Check if stream is running and stop  it before updating
         stream = streams.get(stream_id)
         if stream is not None:
-            if stream.rtsp_link != rtsp_link:
-                Stream.update_rtsp_link(stream_id, rtsp_link)
+            # if stream.rtsp_link != rtsp_link:
+            #     Stream.update_rtsp_link(stream_id, rtsp_link)
+            # print(stream)
+            stream.stop_streaming()
 
         response = app.databases.update_document(
             database_id="isafe-guard-db",

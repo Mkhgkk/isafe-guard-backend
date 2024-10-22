@@ -69,14 +69,29 @@ class VideoStreaming:
         return frame, final_status
 
     def create_video_writer(self, frame, timestamp, model_name, output_fps):
-        video_name1 = f"/home/Mkhgkk/Projects/Monitoring/src/main/static/videos/video_{model_name}_{timestamp}.mp4"
-        # video_name1 = f"./static/unsafe/video_{model_name}_{timestamp}.mp4"
+        video_directory = os.path.abspath(os.path.join(os.path.dirname(__file__), '../main/static/videos'))
+        # video_directory = os.path.join(base_dir, "static", "videos")
+        os.makedirs(video_directory, exist_ok=True)
+        
+        video_path = os.path.join(video_directory, f"video_{model_name}_{timestamp}.mp4")
         video_name = f"video_{self.stream_id}_{model_name}_{timestamp}.mp4"
+        
         height, width, _ = frame.shape
-        # fourcc = cv2.VideoWriter_fourcc(*"avc1")
         fourcc = cv2.VideoWriter_fourcc(*"mp4v")  # Use mp4v codec
-        # return cv2.VideoWriter(video_name1, fourcc, output_fps, (width, height)), video_name
-        return None, video_name
+        
+        # Return the video writer object and the video name
+        return cv2.VideoWriter(video_path, fourcc, output_fps, (width, height)), video_name
+        # return None, video_name
+    
+    # def create_video_writer(self, frame, timestamp, model_name, output_fps):
+    #     video_name1 = f"/home/Mkhgkk/Projects/Monitoring/src/main/static/videos/video_{model_name}_{timestamp}.mp4"
+    #     # video_name1 = f"./static/unsafe/video_{model_name}_{timestamp}.mp4"
+    #     video_name = f"video_{self.stream_id}_{model_name}_{timestamp}.mp4"
+    #     height, width, _ = frame.shape
+    #     # fourcc = cv2.VideoWriter_fourcc(*"avc1")
+    #     fourcc = cv2.VideoWriter_fourcc(*"mp4v")  # Use mp4v codec
+    #     # return cv2.VideoWriter(video_name1, fourcc, output_fps, (width, height)), video_name
+    #     return None, video_name
 
     def start_stream(self):
         self.running = True
@@ -117,15 +132,18 @@ class VideoStreaming:
 
             video_capture.release()
             print(f"Stream from {rtsp_link} disconnected. Reconnecting in 5 seconds...")
-            time.sleep(5)
+
+            if self.running:
+                time.sleep(5)
 
 
     def save_event_to_database(self, frame, title, description, start_time, filename):
-
         timestamp_str = str(int(time.time()))
         image_filename = f"thumbnail_{timestamp_str}.jpg"
 
-        image_directory = "/home/Mkhgkk/Projects/Monitoring/src/main/static/thumbnails"  # Update this path as needed
+        # image_directory = "/home/Mkhgkk/Projects/Monitoring/src/main/static/thumbnails"  # Update this path as needed
+        image_directory = os.path.abspath(os.path.join(os.path.dirname(__file__), '../main/static/thumbnails'))
+        # image_directory = os.path.join(base_dir, "static", "thumbnails")
         os.makedirs(image_directory, exist_ok=True)
 
         original_height, original_width = frame.shape[:2]
