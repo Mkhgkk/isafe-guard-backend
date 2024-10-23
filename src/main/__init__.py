@@ -1,4 +1,4 @@
-from flask import Flask, request, Blueprint, send_from_directory, send_file
+from flask import Flask, request, Blueprint, send_from_directory, send_file, abort, Response
 from flask_cors import CORS
 from pymongo import MongoClient
 from main.tools import JsonResp
@@ -53,9 +53,27 @@ def create_app():
   def serve_static_file(filename):
       return send_from_directory(app.static_folder, filename)
   
-  @app.route('/video_playback/<path:filename>')
+  @app.route('/video/<path:filename>')
   def serve_video(filename):
-      return send_from_directory(app.static_folder, filename, mimetype='video/mp4')
+      return send_from_directory(app.static_folder, filename, mimetype='video/webm')
+
+
+  # @app.route('/video/<path:filename>', methods=['GET'])
+  # def serve_video(filename):
+  #     path = os.path.join(app.static_folder, filename)
+  #     if not os.path.exists(path):
+  #         abort(404)
+
+  #     def generate():
+  #         with open(path, 'rb') as f:
+  #             while True:
+  #                 chunk = f.read(4096)
+  #                 if not chunk:
+  #                     break
+  #                 yield chunk
+
+  #     # return Response(generate(), mimetype='video/mp4')
+  #     return Response(generate(), mimetype='video/x-msvideo')
 
   # Index Route
   @app.route("/")

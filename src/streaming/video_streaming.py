@@ -16,6 +16,8 @@ from appwrite.query import Query
 from appwrite.services.databases import Databases
 from appwrite.id import ID
 
+import subprocess
+
 
 client = Client()
 client.set_endpoint('http://172.105.209.31/v1')
@@ -67,32 +69,52 @@ class VideoStreaming:
             final_status = self.MODEL.detect_cutting_welding(frame, results)
 
         return frame, final_status
+    
+    # def convert_to_hls(self, video_file, output_dir):
+    #     """
+    #     Convert the recorded video file to HLS segments using FFmpeg.
+    #     """
+    #     os.makedirs(output_dir, exist_ok=True)
+    #     output_file = os.path.join(output_dir, f"{os.path.basename(video_file).split('.')[0]}.m3u8")
+
+    #     # FFmpeg command to convert video to HLS
+    #     command = [
+    #         'ffmpeg',
+    #         '-i', f"/home/Mkhgkk/Projects/Monitoring/src/main/static/videos/{video_file}",                     # Input video file
+    #         '-codec: copy',                       # Copy the codec
+    #         '-start_number', '0',                 # Start number for segments
+    #         '-hls_time', '5',                     # Duration of each segment
+    #         '-hls_list_size', '0',                # Include all segments in the playlist
+    #         '-f', 'hls',                          # Output format
+    #         output_file                            # Output HLS playlist file
+    #     ]
+
+    #     try:
+    #         subprocess.run(command, check=True)  # Execute the command
+    #         print(f"Successfully converted {video_file} to HLS segments.")
+    #     except subprocess.CalledProcessError as e:
+    #         print(f"Error during HLS conversion: {e}")
+
 
     def create_video_writer(self, frame, timestamp, model_name, output_fps):
         video_directory = os.path.abspath(os.path.join(os.path.dirname(__file__), '../main/static/videos'))
-        # video_directory = os.path.join(base_dir, "static", "videos")
         os.makedirs(video_directory, exist_ok=True)
-        
-        video_path = os.path.join(video_directory, f"video_{model_name}_{timestamp}.mp4")
-        video_name = f"video_{self.stream_id}_{model_name}_{timestamp}.mp4"
-        
-        height, width, _ = frame.shape
-        fourcc = cv2.VideoWriter_fourcc(*"mp4v")  # Use mp4v codec
-        
-        # Return the video writer object and the video name
-        return cv2.VideoWriter(video_path, fourcc, output_fps, (width, height)), video_name
-        # return None, video_name
-    
-    # def create_video_writer(self, frame, timestamp, model_name, output_fps):
-    #     video_name1 = f"/home/Mkhgkk/Projects/Monitoring/src/main/static/videos/video_{model_name}_{timestamp}.mp4"
-    #     # video_name1 = f"./static/unsafe/video_{model_name}_{timestamp}.mp4"
-    #     video_name = f"video_{self.stream_id}_{model_name}_{timestamp}.mp4"
-    #     height, width, _ = frame.shape
-    #     # fourcc = cv2.VideoWriter_fourcc(*"avc1")
-    #     fourcc = cv2.VideoWriter_fourcc(*"mp4v")  # Use mp4v codec
-    #     # return cv2.VideoWriter(video_name1, fourcc, output_fps, (width, height)), video_name
-    #     return None, video_name
 
+        video_path = os.path.join(video_directory, f"video_{model_name}_{timestamp}.avi")  # Use .avi extension
+        video_name = f"video_{self.stream_id}_{model_name}_{timestamp}.avi"  # Change file name accordingly
+
+        height, width, _ = frame.shape
+        # fourcc = cv2.VideoWriter_fourcc(*"XVID")  # Use XVID codec
+        # fourcc = cv2.VideoWriter_fourcc(*"vp80")  # Use VP8 codec for WebM format
+        # fourcc = cv2.VideoWriter_fourcc(*"mp4v")  # Use mp4v codec
+        # fourcc = cv2.VideoWriter_fourcc(*"H264")  # Use H.264 codec
+        fourcc = cv2.VideoWriter_fourcc(*"MJPG")  # Faster codec, less compression
+
+        # Return the video writer object and the video name
+        # return cv2.VideoWriter(video_path, fourcc, output_fps, (width, height)), video_name
+        return None, video_name
+
+    
     def start_stream(self):
         self.running = True
         threading.Thread(target=self.generate_frames, args=(self.rtsp_link, self.model_name), daemon=True).start()
@@ -191,6 +213,7 @@ class VideoStreaming:
         self.unsafe_frame_count = 0
         start_time = None
         is_recording = False  # Flag to track if a recording is in progress
+        video_output_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../main/static/videos/hls_segments'))
 
         while self.running:
             if not self.frame_buffer.empty():
@@ -244,6 +267,7 @@ class VideoStreaming:
                         out = None
                         start_time = None  # Reset start_time after releasing the video writer
                         is_recording = False  # Reset the recording flag
+                        # self.convert_to_hls(video_name, video_output_dir)
                         print(f"Stopped recording video, total duration: {record_duration_seconds} seconds")
 
                 # Reset the unsafe frame count for the next interval
