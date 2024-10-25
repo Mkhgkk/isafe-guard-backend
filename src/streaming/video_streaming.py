@@ -22,7 +22,6 @@ import subprocess
 client = Client()
 client.set_endpoint('http://172.105.209.31/v1')
 client.set_project('66f4c2e6001ef89c0f5c')
-# client.set_key('standard_f6ffca3b91315e5263932317123368335466126c2bb58bf4201b64c9c3768ab3f364eabe0f7ba852fa24876c624393b306ce9a3f71db9c8fa951526a39e49721c80812d477196faad02d282ea51962a823c02f4580c1c95c67e6dba054653fa4d094a99ce4cb1a31ce52c57dbda6b925168446dd879de1e1d6321f0fa2f88cbd')
 client.set_key('standard_a5d6a12567fad8968cf5e2bc4482006c886d22e175e2d9bdabfea4453958462e507effc6276fc3f9b6f766bf34bf5290a9cb56d8277003a4128de039fd5a5d7299c12ea831eccc96d04c50655e5f0a7df0a5fcd80532a664649f0fb9e34cdfe33f12d91035738668f6b2bbefb7ed665c8905eb0796038981498cd4e7a9bc22aa')
 
 databases = Databases(client)
@@ -39,15 +38,12 @@ class VideoStreaming:
 
         self.frame_buffer = Queue(maxsize=10)
         self.running = False
-        
 
         self.stream_id = stream_id
         self.rtsp_link = rtsp_link
         self.model_name = model_name
 
         self.ptz_autotrack = ptz_autotrack
-
-    
 
     def apply_model(self, frame, model_name):
         model = self.MODEL.models.get(model_name)
@@ -69,52 +65,52 @@ class VideoStreaming:
             final_status = self.MODEL.detect_cutting_welding(frame, results)
 
         return frame, final_status
-    
-    # def convert_to_hls(self, video_file, output_dir):
-    #     """
-    #     Convert the recorded video file to HLS segments using FFmpeg.
-    #     """
-    #     os.makedirs(output_dir, exist_ok=True)
-    #     output_file = os.path.join(output_dir, f"{os.path.basename(video_file).split('.')[0]}.m3u8")
-
-    #     # FFmpeg command to convert video to HLS
-    #     command = [
-    #         'ffmpeg',
-    #         '-i', f"/home/Mkhgkk/Projects/Monitoring/src/main/static/videos/{video_file}",                     # Input video file
-    #         '-codec: copy',                       # Copy the codec
-    #         '-start_number', '0',                 # Start number for segments
-    #         '-hls_time', '5',                     # Duration of each segment
-    #         '-hls_list_size', '0',                # Include all segments in the playlist
-    #         '-f', 'hls',                          # Output format
-    #         output_file                            # Output HLS playlist file
-    #     ]
-
-    #     try:
-    #         subprocess.run(command, check=True)  # Execute the command
-    #         print(f"Successfully converted {video_file} to HLS segments.")
-    #     except subprocess.CalledProcessError as e:
-    #         print(f"Error during HLS conversion: {e}")
-
 
     def create_video_writer(self, frame, timestamp, model_name, output_fps):
         video_directory = os.path.abspath(os.path.join(os.path.dirname(__file__), '../main/static/videos'))
         os.makedirs(video_directory, exist_ok=True)
 
-        video_path = os.path.join(video_directory, f"video_{model_name}_{timestamp}.avi")  # Use .avi extension
-        video_name = f"video_{self.stream_id}_{model_name}_{timestamp}.avi"  # Change file name accordingly
+        video_path = os.path.join(video_directory, f"video_{model_name}_{timestamp}.mp4")
+        video_name = f"video_{self.stream_id}_{model_name}_{timestamp}.mp4"
 
         height, width, _ = frame.shape
-        # fourcc = cv2.VideoWriter_fourcc(*"XVID")  # Use XVID codec
-        # fourcc = cv2.VideoWriter_fourcc(*"vp80")  # Use VP8 codec for WebM format
-        # fourcc = cv2.VideoWriter_fourcc(*"mp4v")  # Use mp4v codec
-        # fourcc = cv2.VideoWriter_fourcc(*"H264")  # Use H.264 codec
-        fourcc = cv2.VideoWriter_fourcc(*"MJPG")  # Faster codec, less compression
 
-        # Return the video writer object and the video name
-        # return cv2.VideoWriter(video_path, fourcc, output_fps, (width, height)), video_name
-        return None, video_name
+        # FFmpeg command to write raw video frames to MP4 using H.264 codec (libx264)
+        command = [
+            'ffmpeg',
+            '-y',  # Overwrite output file if it exists
+            '-f', 'rawvideo',  # Input format: raw video
+            '-vcodec', 'rawvideo',  # Codec for raw video input
+            '-pix_fmt', 'bgr24',  # Pixel format for OpenCV frames
+            '-s', f'{width}x{height}',  # Frame size
+            '-r', str(output_fps),  # Frame rate
+            '-i', '-',  # Input comes from stdin (pipe)
+            '-an',  # No audio
+            '-c:v', 'libx264',  # Use H.264 codec
+            '-preset', 'fast',  # Encoding speed preset
+            '-crf', '23',  # Quality setting (lower is higher quality)
+            '-pix_fmt', 'yuv420p',  # Output pixel format (needed for compatibility)
+            video_path  # Output video path
+        ]
 
-    
+        # Start the FFmpeg process
+        process = subprocess.Popen(command, stdin=subprocess.PIPE)
+
+        # Return the FFmpeg process and the video name
+        return process, video_name
+
+    def write_frames_to_ffmpeg(self, process, frame):
+        try:
+            # Convert the frame to bytes and write it to the FFmpeg process stdin
+            process.stdin.write(frame.tobytes())
+        except BrokenPipeError:
+            print("FFmpeg process ended unexpectedly.")
+
+    def finalize_video(self, process):
+        if process:
+            process.stdin.close()  # Close the stdin to signal FFmpeg to finish
+            process.wait()  # Wait for FFmpeg to finish writing the video
+
     def start_stream(self):
         self.running = True
         threading.Thread(target=self.generate_frames, args=(self.rtsp_link, self.model_name), daemon=True).start()
@@ -122,7 +118,6 @@ class VideoStreaming:
 
     def stop_streaming(self):
         self.running = False
-
 
     def generate_frames(self, rtsp_link, model_name):
         while self.running:
@@ -158,14 +153,11 @@ class VideoStreaming:
             if self.running:
                 time.sleep(5)
 
-
     def save_event_to_database(self, frame, title, description, start_time, filename):
         timestamp_str = str(int(time.time()))
         image_filename = f"thumbnail_{timestamp_str}.jpg"
 
-        # image_directory = "/home/Mkhgkk/Projects/Monitoring/src/main/static/thumbnails"  # Update this path as needed
         image_directory = os.path.abspath(os.path.join(os.path.dirname(__file__), '../main/static/thumbnails'))
-        # image_directory = os.path.join(base_dir, "static", "thumbnails")
         os.makedirs(image_directory, exist_ok=True)
 
         original_height, original_width = frame.shape[:2]
@@ -173,7 +165,6 @@ class VideoStreaming:
         aspect_ratio = original_height / original_width
         target_height = int(target_width * aspect_ratio)
         resized_frame = cv2.resize(frame, (target_width, target_height), interpolation=cv2.INTER_AREA)
-
 
         image_path = os.path.join(image_directory, image_filename)
 
@@ -184,7 +175,6 @@ class VideoStreaming:
             return
 
         try:
-            # Step 2: Save the event data including the image path to the database
             response = databases.create_document(
                 database_id="isafe-guard-db",
                 collection_id="670d337f001f9ab7ff34",
@@ -194,7 +184,7 @@ class VideoStreaming:
                     "title": title,
                     "description": description,
                     "timestamp": int(start_time),
-                    "thumbnail":  image_filename,  # Save the path to the saved image
+                    "thumbnail": image_filename,
                     "video_filename": filename
                 }
             )
@@ -203,10 +193,8 @@ class VideoStreaming:
         except Exception as e:
             print(f"Error saving event to database: {e}")
 
-
-
     def process_and_emit_frames(self, model_name):
-        out = None
+        process = None
         record_duration_seconds = 10  # Duration in seconds for each video segment
         frame_interval = 30           # Interval to check unsafe condition
         self.total_frame_count = 0
@@ -243,31 +231,30 @@ class VideoStreaming:
                 if not is_recording and self.total_frame_count % frame_interval == 0:
                     unsafe_ratio = self.unsafe_frame_count / frame_interval if frame_interval else 0
                     if unsafe_ratio >= 0.7:
-                        # Create a video writer if it's not already created
+                        # Start the FFmpeg process if it's not already running
                         timestamp = datetime.datetime.now().strftime('%Y%m%d%H%M%S')
-                        out, video_name = self.create_video_writer(frame, timestamp, model_name, fps)
+                        process, video_name = self.create_video_writer(frame, timestamp, model_name, fps)
                         start_time = time.time()  # Set start_time when the recording starts
                         is_recording = True  # Set the recording flag to True
-                        
-                        # self.save_event_to_database(processed_frame, "Missing Head-hat", "PPE", start_time, video_name)
+
+                        # Start a background thread to save the event to the database
                         save_thread = threading.Thread(target=self.save_event_to_database, args=(processed_frame, "Missing Head-hat", "PPE", start_time, video_name))
                         save_thread.start()
-                        
+
                         print(f"Started recording video at {timestamp}, start_time set to {start_time}")
 
-                # Write the frame to the video file if the writer is initialized
-                if out is not None:
-                    out.write(processed_frame)
+                # Write the frame to the FFmpeg process
+                if process is not None:
+                    self.write_frames_to_ffmpeg(process, processed_frame)
 
                 # Stop recording if the current video segment has reached the specified duration
-                # Check this only if out is initialized and a start_time exists
-                if out is not None and start_time is not None:
+                if process is not None and start_time is not None:
                     if (time.time() - start_time) >= record_duration_seconds:
-                        out.release()
-                        out = None
+                        self.finalize_video(process)
+                        process = None
                         start_time = None  # Reset start_time after releasing the video writer
                         is_recording = False  # Reset the recording flag
-                        # self.convert_to_hls(video_name, video_output_dir)
+
                         print(f"Stopped recording video, total duration: {record_duration_seconds} seconds")
 
                 # Reset the unsafe frame count for the next interval
@@ -278,6 +265,5 @@ class VideoStreaming:
                 time.sleep(0.01)  # Increase sleep time slightly to reduce CPU usage
 
         # Release the video writer when stopping
-        if out is not None:
-            out.release()
-
+        if process is not None:
+            self.finalize_video(process)

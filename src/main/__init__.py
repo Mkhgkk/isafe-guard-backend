@@ -55,7 +55,7 @@ def create_app():
   
   @app.route('/video/<path:filename>')
   def serve_video(filename):
-      return send_from_directory(app.static_folder, filename, mimetype='video/webm')
+      return send_from_directory(app.static_folder, filename, mimetype='video/mp4')
 
 
   # @app.route('/video/<path:filename>', methods=['GET'])
