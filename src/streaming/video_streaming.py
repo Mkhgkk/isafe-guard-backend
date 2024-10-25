@@ -11,12 +11,14 @@ from socket_.socketio_instance import socketio
 import base64
 import os
 
+
 from appwrite.client import Client
 from appwrite.query import Query
 from appwrite.services.databases import Databases
 from appwrite.id import ID
 
 import subprocess
+import requests
 
 
 client = Client()
@@ -157,6 +159,27 @@ class VideoStreaming:
             if self.running:
                 time.sleep(5)
 
+    def send_watch_notification(self):
+        print("Sending notification now...")
+        data = {
+            "phone_id": "4b91e2ca33c3119c",
+            "status": "UnSafe",
+            "detail": ["Wear Helmet"],
+            "timestamp": str(time.time_ns())
+        }
+        url = "http://118.67.143.38:7000/external/camera"
+
+        try:
+            response = requests.post(url, json=data)
+            # Optionally check for successful status code (200 or 201)
+            if response.status_code in (200, 201):
+                print("Notification sent successfully!")
+            else:
+                print(f"Failed to send notification. Status code: {response.status_code}")
+        except requests.RequestException as e:
+            print(f"Error occurred: {e}")
+
+
     def save_event_to_database(self, frame, title, description, start_time, filename):
         timestamp_str = str(int(time.time()))
         image_filename = f"thumbnail_{timestamp_str}.jpg"
@@ -244,7 +267,13 @@ class VideoStreaming:
 
                         # Start a background thread to save the event to the database
                         save_thread = threading.Thread(target=self.save_event_to_database, args=(processed_frame, "Missing Head-hat", "PPE", start_time, video_name))
+                        
+                        # TODO:
+                        # Send watch notification from here
+                        notification_thread = threading.Thread(target=self.send_watch_notification, args=())
+
                         save_thread.start()
+                        notification_thread.start()
 
                         print(f"Started recording video at {timestamp}, start_time set to {start_time}")
 
