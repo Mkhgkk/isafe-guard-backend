@@ -247,7 +247,7 @@ class VideoStreaming:
                     fps = len(self.fps_queue) / time_diff if time_diff > 0 else 20.0
                 else:
                     fps = 20.0
-                cv2.putText(processed_frame, f"FPS: {fps:.2f}", (10, 1100), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+                cv2.putText(processed_frame, f"FPS: {fps:.2f}", (1100, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
 
                 # Encode the frame for streaming
                 ret, buffer = cv2.imencode('.jpg', processed_frame, [int(cv2.IMWRITE_JPEG_QUALITY), 50])
