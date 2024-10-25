@@ -267,13 +267,10 @@ class VideoStreaming:
 
                         # Start a background thread to save the event to the database
                         save_thread = threading.Thread(target=self.save_event_to_database, args=(processed_frame, "Missing Head-hat", "PPE", start_time, video_name))
-                        
-                        # TODO:
-                        # Send watch notification from here
                         notification_thread = threading.Thread(target=self.send_watch_notification, args=())
 
                         save_thread.start()
-                        notification_thread.start()
+                        # notification_thread.start()
 
                         print(f"Started recording video at {timestamp}, start_time set to {start_time}")
 

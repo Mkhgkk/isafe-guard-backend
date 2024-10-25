@@ -32,7 +32,8 @@ class ObjectDetection:
                 # "Ladder": YOLO(os.path.join(MODELS_PATH, "Ladder_yolov8.pt")),
                 "Ladder": YOLO(os.path.join(MODELS_PATH, "Ladder_yolov8.engine")),
                 "MobileScaffolding": YOLO(os.path.join(MODELS_PATH, "MobileScaffoldingbest.pt")),
-                "Scaffolding": YOLO(os.path.join(MODELS_PATH, "best_2024_scafolding.pt")),
+                # "Scaffolding": YOLO(os.path.join(MODELS_PATH, "best_2024_scafolding.pt")),
+                "Scaffolding": YOLO(os.path.join(MODELS_PATH, "scaffolding_yolov8.engine")),
                 "CuttingWelding": YOLO(os.path.join(MODELS_PATH, "cutting_welding_yolov8.engine")),
                 # "CuttingWelding": YOLO(os.path.join(MODELS_PATH, "cutting_welding_yolov8.pt")),
             }
@@ -274,7 +275,7 @@ class ObjectDetection:
 
         for result in results:
             for (x0, y0, x1, y1, confi, clas) in result.boxes.data:
-                if confi > 0.6:
+                if confi > 0.3:
                     box = [int(x0), int(y0), int(x1 - x0), int(y1 - y0)]
                     box2 = [int(x0), int(y0), int(x1), int(y1)]
                     box3 = [int(x0), int(y0), int(x1), int(y1)]
