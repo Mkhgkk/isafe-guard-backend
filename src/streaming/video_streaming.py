@@ -45,6 +45,10 @@ class VideoStreaming:
 
         self.ptz_autotrack = ptz_autotrack
 
+        # Variables to manage recording cooldown
+        self.last_event_time = 0  # Track the time of the last unsafe event
+        self.event_cooldown_seconds = 30  # Cooldown period in seconds
+
     def apply_model(self, frame, model_name):
         model = self.MODEL.models.get(model_name)
         if not model:
@@ -230,12 +234,13 @@ class VideoStreaming:
                 # Check if we should start or continue saving the video, but only if not already recording
                 if not is_recording and self.total_frame_count % frame_interval == 0:
                     unsafe_ratio = self.unsafe_frame_count / frame_interval if frame_interval else 0
-                    if unsafe_ratio >= 0.7:
+                    if unsafe_ratio >= 0.7 and (time.time() - self.last_event_time) > self.event_cooldown_seconds:
                         # Start the FFmpeg process if it's not already running
                         timestamp = datetime.datetime.now().strftime('%Y%m%d%H%M%S')
                         process, video_name = self.create_video_writer(frame, timestamp, model_name, fps)
                         start_time = time.time()  # Set start_time when the recording starts
                         is_recording = True  # Set the recording flag to True
+                        self.last_event_time = time.time()  # Update last event time
 
                         # Start a background thread to save the event to the database
                         save_thread = threading.Thread(target=self.save_event_to_database, args=(processed_frame, "Missing Head-hat", "PPE", start_time, video_name))
