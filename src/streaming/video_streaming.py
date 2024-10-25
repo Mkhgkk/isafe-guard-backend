@@ -76,8 +76,8 @@ class VideoStreaming:
         video_directory = os.path.abspath(os.path.join(os.path.dirname(__file__), '../main/static/videos'))
         os.makedirs(video_directory, exist_ok=True)
 
-        video_path = os.path.join(video_directory, f"video_{model_name}_{timestamp}.mp4")
         video_name = f"video_{self.stream_id}_{model_name}_{timestamp}.mp4"
+        video_path = os.path.join(video_directory, video_name)
 
         height, width, _ = frame.shape
 
