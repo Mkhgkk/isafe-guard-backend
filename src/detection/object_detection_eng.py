@@ -496,21 +496,21 @@ class ObjectDetection:
                     box2 = [int(x0), int(y0), int(x1), int(y1)]
                     box3 = [int(x0), int(y0), int(x1), int(y1)]
                     if int(clas) == 3:
-                        cv2.rectangle(image, box, (0, 150, 0), 2)
-                        self.draw_text_with_background(image, f"hook", (box[0], box[1] - 10), font_scale, (0, 200, 0), thickness)
+                        cv2.rectangle(image, box, (0, 130, 0), 2)
+                        self.draw_text_with_background(image, f"hook {confi:.2f}", (box[0], box[1] - 10), font_scale, (0, 200, 0), thickness)
                         hook.append(box3)
                     elif int(clas) == 2:
                         cv2.rectangle(image, box, (0, 255, 0), 2)
-                        self.draw_text_with_background(image, f"Hard Hat", (box[0], box[1] - 10), font_scale, (0, 255, 0), thickness)
+                        self.draw_text_with_background(image, f"Hard Hat {confi:.2f}", (box[0], box[1] - 10), font_scale, (0, 255, 0), thickness)
                         hat.append(box2)
                     elif int(clas) == 4:
                         o_hatch += 1
                         cv2.rectangle(image, box, (0, 0, 255), 2)
-                        self.draw_text_with_background(image, f"opened_hatch", (box[0], box[1] - 10), font_scale, (0, 0, 255), thickness)
+                        self.draw_text_with_background(image, f"opened_hatch {confi:.2f}", (box[0], box[1] - 10), font_scale, (0, 0, 255), thickness)
                     elif int(clas) == 5:
                         c_hatch += 1
                         cv2.rectangle(image, box, (0, 255, 0), 2)
-                        self.draw_text_with_background(image, f"closed_hatch", (box[0], box[1] - 10), font_scale, (0, 255, 0), thickness)
+                        self.draw_text_with_background(image, f"closed_hatch {confi:.2f}", (box[0], box[1] - 10), font_scale, (0, 255, 0), thickness)
                     elif int(clas) == 1:
                         person.append(box2)
 
@@ -529,14 +529,13 @@ class ObjectDetection:
             hatDetected = any(
                 int(hatBox[0]) > int(perBox[0]) and int(hatBox[2]) < int(perBox[2]) and hatBox[1] >= perBox[1] - 20 for
                 hatBox in hat)
-            color = (0, 120, 0) if hatDetected else (0, 0, 255)
+            color = (0, 180, 0) if hatDetected else (0, 0, 255)
             cv2.rectangle(image, (perBox[0], perBox[1]), (perBox[2], perBox[3]), color, 2)
-            #status_text = "작업자 안전모 착용" if hatDetected else "작업자 안전모 미착용"
-            status_text = "Worker with Helmet" if hatDetected else "Worker Without Helmet"
+            status_text = "Worker with helmet" if hatDetected else "Worker without helmet"
             self.draw_text_with_background(image, status_text, (perBox[0], perBox[1] - 10), font_scale, color, thickness)
             if not hatDetected:
                 final_status = "UnSafe"
-                #reasons.append("작업자 안전모 미착용")
+                #reasons.append("Worker without helmet")
 
         vertical_person = False
         for i, perBox1 in enumerate(person):
@@ -547,30 +546,28 @@ class ObjectDetection:
                             vertical_person = True
 
         if vertical_person:
-            reasons.append("작업자 상하 동시 작업 진행 중")
+            reasons.append("Workers in same vertical area")
 
         #color_status = (0, 0, 255) if final_status != "Safe" else (0, 128, 0)
-        color_hooks = (0, 120, 0) if missing_hooks == 0 else (0, 0, 255)
-        color_helmet = (0, 120, 0) if missing_helmet == 0 else (0, 0, 255)
+        color_hooks = (0, 128, 0) if missing_hooks == 0 else (0, 0, 255)
+        color_helmet = (0, 128, 0) if missing_helmet == 0 else (0, 0, 255)
 
         
         if missing_hooks > 0:
             final_status = "UnSafe"
-            reasons.append (f"안전고리 미체결")#(f"Missing {missing_hooks} hooks")
-            self.draw_text_with_background(image, f"Missing Hook", (50, 90), font_scale, color_hooks, thickness)
+            reasons.append (f"Missing Hook")#(f"Missing {missing_hooks} hooks")
+            self.draw_text_with_background(image, f"Missing hook", (50, 90), font_scale, color_hooks, thickness)
         if missing_helmet > 0:
             final_status = "UnSafe"
-            reasons.append (f"안전모 미착용") #(f"Missing {missing_helmet} helmets")
-            self.draw_text_with_background(image, f"Missing Helmet", (50, 130), font_scale, color_helmet, thickness)
+            reasons.append (f"Missing Helmet") #(f"Missing {missing_helmet} helmets")
+            self.draw_text_with_background(image, f"Missing helmet", (50, 130), font_scale, color_helmet, thickness)
         
         if vertical_person:
             final_status = "UnSafe"
-            self.draw_text_with_background(image, f"Working in same Vertical Area", (50, 170), font_scale, (0, 0, 255), thickness)
+            self.draw_text_with_background(image, f"Working in same vertical area", (50, 170), font_scale, (0, 0, 255), thickness)
         final_status = "Safe" if not reasons else "UnSafe"
-        color_status = (0, 0, 255) if final_status != "Safe" else (0, 120, 0)
-
-        #self.draw_text_with_background(image, "안전" if (final_status == "Safe") else "위험", (40, 50), font_scale, color_status, thickness)
-        self.draw_text_with_background(image, final_status, (40, 50), 1.0, color_status, thickness)
+        color_status = (0, 0, 255) if final_status != "Safe" else (0, 128, 0)
+        self.draw_text_with_background(image, f"{final_status}", (40, 50), font_scale, color_status, thickness)
 
         return final_status, reasons
 

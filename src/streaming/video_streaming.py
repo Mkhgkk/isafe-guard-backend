@@ -58,6 +58,7 @@ class VideoStreaming:
 
         results = model(frame)
         final_status = "Safe"
+        reasons = []
 
         if model_name == "PPE":
             final_status = self.MODEL.detect_ppe(frame, results, self.ptz_autotrack)
@@ -66,11 +67,11 @@ class VideoStreaming:
         elif model_name == "MobileScaffolding":
             final_status = self.MODEL.detect_mobile_scaffolding(frame, results)
         elif model_name == "Scaffolding":
-            final_status = self.MODEL.detect_scaffolding(frame, results)
+            final_status, reasons = self.MODEL.detect_scaffolding(frame, results)
         elif model_name == "CuttingWelding":
             final_status = self.MODEL.detect_cutting_welding(frame, results)
 
-        return frame, final_status
+        return frame, final_status, [reasons]
 
     def create_video_writer(self, frame, timestamp, model_name, output_fps):
         video_directory = os.path.abspath(os.path.join(os.path.dirname(__file__), '../main/static/videos'))
@@ -159,12 +160,16 @@ class VideoStreaming:
             if self.running:
                 time.sleep(5)
 
-    def send_watch_notification(self):
+    def send_watch_notification(self, reasons=["Wear helmet"]):
         print("Sending notification now...")
+        print("REASONS: ", reasons)
+
         data = {
             "phone_id": "4b91e2ca33c3119c",
             "status": "UnSafe",
-            "detail": ["안전모 미착용"],
+            # "detail": ["안전모 미착용"],
+            # "detail": [reasons] if len(reasons ==1) else reasons,
+            "detail": reasons,
             "timestamp": str(time.time_ns())
         }
         url = "http://118.67.143.38:7000/external/camera"
@@ -233,7 +238,7 @@ class VideoStreaming:
         while self.running:
             if not self.frame_buffer.empty():
                 frame = self.frame_buffer.get()
-                processed_frame, final_status = self.apply_model(frame, model_name)
+                processed_frame, final_status, reasons = self.apply_model(frame, model_name)
 
                 # Check if the frame is unsafe
                 if final_status != "Safe":
@@ -267,7 +272,7 @@ class VideoStreaming:
 
                         # Start a background thread to save the event to the database
                         save_thread = threading.Thread(target=self.save_event_to_database, args=(processed_frame, "Missing Head-hat", "PPE", start_time, video_name))
-                        notification_thread = threading.Thread(target=self.send_watch_notification, args=())
+                        notification_thread = threading.Thread(target=self.send_watch_notification, args=(reasons))
 
                         save_thread.start()
                         notification_thread.start()
