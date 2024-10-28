@@ -164,7 +164,7 @@ class VideoStreaming:
         data = {
             "phone_id": "4b91e2ca33c3119c",
             "status": "UnSafe",
-            "detail": ["Wear Helmet"],
+            "detail": ["안전모 미착용"],
             "timestamp": str(time.time_ns())
         }
         url = "http://118.67.143.38:7000/external/camera"
@@ -270,7 +270,7 @@ class VideoStreaming:
                         notification_thread = threading.Thread(target=self.send_watch_notification, args=())
 
                         save_thread.start()
-                        # notification_thread.start()
+                        notification_thread.start()
 
                         print(f"Started recording video at {timestamp}, start_time set to {start_time}")
 

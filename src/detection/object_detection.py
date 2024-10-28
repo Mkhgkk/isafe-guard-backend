@@ -32,7 +32,8 @@ class ObjectDetection:
                 # "Ladder": YOLO(os.path.join(MODELS_PATH, "Ladder_yolov8.engine")),
                 "MobileScaffolding": YOLO(os.path.join(MODELS_PATH, "MobileScaffoldingbest.pt")),
                 # "Scaffolding": YOLO(os.path.join(MODELS_PATH, "best_2024_scafolding.engine")),
-                "Scaffolding": YOLO(os.path.join(MODELS_PATH, "scaffolding_yolov8.engine")),
+                # "Scaffolding": YOLO(os.path.join(MODELS_PATH, "scaffolding_yolov8.pt")),
+                "Scaffolding": YOLO(os.path.join(MODELS_PATH, "best_scaffolding.engine")),
                 # "CuttingWelding": YOLO(os.path.join(MODELS_PATH, "cutting_welding_yolov8.engine")),
                 "CuttingWelding": YOLO(os.path.join(MODELS_PATH, "cutting_welding_yolov8.pt")),
             }
@@ -494,19 +495,19 @@ class ObjectDetection:
                     box = [int(x0), int(y0), int(x1 - x0), int(y1 - y0)]
                     box2 = [int(x0), int(y0), int(x1), int(y1)]
                     box3 = [int(x0), int(y0), int(x1), int(y1)]
-                    if int(clas) == 5:
+                    if int(clas) == 3:
                         cv2.rectangle(image, box, (0, 130, 0), 2)
                         self.draw_text_with_background(image, f"hook {confi:.2f}", (box[0], box[1] - 10), font_scale, (0, 200, 0), thickness)
                         hook.append(box3)
-                    elif int(clas) == 3:
+                    elif int(clas) == 2:
                         cv2.rectangle(image, box, (0, 255, 0), 2)
                         self.draw_text_with_background(image, f"Hard Hat {confi:.2f}", (box[0], box[1] - 10), font_scale, (0, 255, 0), thickness)
                         hat.append(box2)
-                    elif int(clas) == 7:
+                    elif int(clas) == 4:
                         o_hatch += 1
                         cv2.rectangle(image, box, (0, 0, 255), 2)
                         self.draw_text_with_background(image, f"opened_hatch {confi:.2f}", (box[0], box[1] - 10), font_scale, (0, 0, 255), thickness)
-                    elif int(clas) == 8:
+                    elif int(clas) == 5:
                         c_hatch += 1
                         cv2.rectangle(image, box, (0, 255, 0), 2)
                         self.draw_text_with_background(image, f"closed_hatch {confi:.2f}", (box[0], box[1] - 10), font_scale, (0, 255, 0), thickness)
@@ -521,9 +522,9 @@ class ObjectDetection:
         missing_helmet = max(0, class_worker_count - class_helmet_count)
 
         if missing_hooks > 0:
-            reasons.append(f"Missing {missing_hooks} hooks")
+            reasons.append (f"Missing Hook")#(f"Missing {missing_hooks} hooks")
         if missing_helmet > 0:
-            reasons.append(f"Missing {missing_helmet} helmets")
+            reasons.append (f"Missing Helmet") #(f"Missing {missing_helmet} helmets")
 
         final_status = "Safe" if not reasons else "UnSafe"
 
@@ -558,7 +559,7 @@ class ObjectDetection:
         self.draw_text_with_background(image, f"Missing {missing_hooks} hooks", (50, 90), font_scale, color_hooks, thickness)
         self.draw_text_with_background(image, f"Missing {missing_helmet} helmets", (50, 130), font_scale, color_helmet, thickness)
         if vertical_person:
-            self.draw_text_with_background(image, f"Working in same vertical area", (50, 170), font_scale, (0, 128, 0), thickness)
+            self.draw_text_with_background(image, f"Working in same vertical area", (50, 170), font_scale, (0, 0, 255), thickness)
 
         return final_status#, reasons
 
