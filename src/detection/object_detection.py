@@ -5,7 +5,7 @@ from ultralytics import YOLO
 from ptz.autotrack import PTZAutoTracker
 import numpy as np
 
-tracker = PTZAutoTracker()
+# tracker = PTZAutoTracker()
 
 class ObjectDetection:
     _instance = None  # class attribute to hold the single instance
@@ -27,7 +27,8 @@ class ObjectDetection:
             # Load YOLO models
             self.models = {
                 # "PPE": YOLO(os.path.join(MODELS_PATH, "PPEbest.pt")),
-                "PPE": YOLO(os.path.join(MODELS_PATH, "PPEbest.engine")),
+                # "PPE": YOLO(os.path.join(MODELS_PATH, "PPEbest.engine")),
+                "PPE": YOLO("http://localhost:8000/PPEtrt", task="detect"),
                 "Ladder": YOLO(os.path.join(MODELS_PATH, "Ladder_yolov8.pt")),
                 # "Ladder": YOLO(os.path.join(MODELS_PATH, "Ladder_yolov8.engine")),
                 "MobileScaffolding": YOLO(os.path.join(MODELS_PATH, "MobileScaffoldingbest.pt")),
