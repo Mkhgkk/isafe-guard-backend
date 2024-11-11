@@ -40,6 +40,7 @@ class VideoStreaming:
 
         self.frame_buffer = Queue(maxsize=10)
         self.running = False
+        self.stop_event = threading.Event()
 
         self.stream_id = stream_id
         self.rtsp_link = rtsp_link
@@ -120,14 +121,17 @@ class VideoStreaming:
 
     def start_stream(self):
         self.running = True
+        self.stop_event.clear()
         threading.Thread(target=self.generate_frames, args=(self.rtsp_link, self.model_name), daemon=True).start()
         threading.Thread(target=self.process_and_emit_frames, args=(self.model_name,), daemon=True).start()
 
     def stop_streaming(self):
         self.running = False
+        self.stop_event.set()
 
     def generate_frames(self, rtsp_link, model_name):
-        while self.running:
+        # while self.running:
+        while not self.stop_event.is_set():
 
             video_capture = cv2.VideoCapture(rtsp_link)
 
@@ -139,7 +143,8 @@ class VideoStreaming:
             fps = video_capture.get(cv2.CAP_PROP_FPS) or 20
             desired_width, desired_height = 1280, 720
 
-            while self.running and video_capture.isOpened():
+            # while self.running and video_capture.isOpened():
+            while not self.stop_event.is_set() and video_capture.isOpened():
                 ret, frame = video_capture.read()
 
                 if not ret:
@@ -157,7 +162,8 @@ class VideoStreaming:
             video_capture.release()
             print(f"Stream from {rtsp_link} disconnected. Reconnecting in 5 seconds...")
 
-            if self.running:
+            # if self.running:
+            if not self.stop_event.is_set():
                 time.sleep(5)
 
     def send_watch_notification(self, reasons=["Wear helmet"]):
@@ -235,7 +241,8 @@ class VideoStreaming:
         is_recording = False  # Flag to track if a recording is in progress
         video_output_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../main/static/videos/hls_segments'))
 
-        while self.running:
+        # while self.running:
+        while not self.stop_event.is_set():
             if not self.frame_buffer.empty():
                 frame = self.frame_buffer.get()
                 processed_frame, final_status, reasons = self.apply_model(frame, model_name)
@@ -275,7 +282,7 @@ class VideoStreaming:
                         notification_thread = threading.Thread(target=self.send_watch_notification, args=(reasons))
 
                         save_thread.start()
-                        notification_thread.start()
+                        # notification_thread.start()
 
                         print(f"Started recording video at {timestamp}, start_time set to {start_time}")
 
