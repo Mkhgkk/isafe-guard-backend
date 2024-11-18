@@ -83,6 +83,7 @@ if __name__ == "__main__":
   print(int(time.time()))
   fetch_streams()
   # fetch_schedules()
+  print("app starting...")
   asyncio.run(fetch_schedules())
   app = create_app()
   app.databases = databases
@@ -91,6 +92,6 @@ if __name__ == "__main__":
   scheduler.add_job(func=get_system_utilization, trigger="interval", seconds=2)
   scheduler.start()
   
-  app.run(host=app.config["FLASK_DOMAIN"], port=app.config["FLASK_PORT"])
+  app.run(host=app.config["FLASK_DOMAIN"], port=app.config["FLASK_PORT"], debug=False, use_reloader=False)
 else:
   logging.basicConfig(app.config["FLASK_DIRECTORY"] + "trace.log", level=logging.DEBUG)

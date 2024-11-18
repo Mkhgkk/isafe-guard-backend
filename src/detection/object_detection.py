@@ -20,6 +20,7 @@ class ObjectDetection:
     def __init__(self):
         # This ensures the init code only runs once
         if not hasattr(self, 'initialized'):
+            print("Has not been init...")
             # Define paths for model storage
             PROJECT_PATH = os.path.abspath(os.getcwd())
             MODELS_PATH = os.path.join(PROJECT_PATH, "models")
@@ -27,19 +28,19 @@ class ObjectDetection:
             # Load YOLO models
             self.models = {
                 # "PPE": YOLO(os.path.join(MODELS_PATH, "PPEbest.pt")),
-                # "PPE": YOLO(os.path.join(MODELS_PATH, "PPEbest.engine")),
-                "PPE": YOLO("http://localhost:8000/PPEtrt", task="detect"),
-                "Ladder": YOLO(os.path.join(MODELS_PATH, "Ladder_yolov8.pt")),
-                # "Ladder": YOLO(os.path.join(MODELS_PATH, "Ladder_yolov8.engine")),
-                "MobileScaffolding": YOLO(os.path.join(MODELS_PATH, "MobileScaffoldingbest.pt")),
-                # "Scaffolding": YOLO(os.path.join(MODELS_PATH, "best_2024_scafolding.engine")),
-                # "Scaffolding": YOLO(os.path.join(MODELS_PATH, "scaffolding_yolov8.pt")),
-                "Scaffolding": YOLO(os.path.join(MODELS_PATH, "best_scaffolding.engine")),
-                # "CuttingWelding": YOLO(os.path.join(MODELS_PATH, "cutting_welding_yolov8.engine")),
-                "CuttingWelding": YOLO(os.path.join(MODELS_PATH, "cutting_welding_yolov8.pt")),
+                "PPE": YOLO(os.path.join(MODELS_PATH, "PPEbest.engine")),
+                # "PPE": YOLO("http://localhost:8000/PPEtrt", task="detect"),
+                # "Ladder": YOLO(os.path.join(MODELS_PATH, "Ladder_yolov8.pt")),
+                # # "Ladder": YOLO(os.path.join(MODELS_PATH, "Ladder_yolov8.engine")),
+                # "MobileScaffolding": YOLO(os.path.join(MODELS_PATH, "MobileScaffoldingbest.pt")),
+                # # "Scaffolding": YOLO(os.path.join(MODELS_PATH, "best_2024_scafolding.engine")),
+                # # "Scaffolding": YOLO(os.path.join(MODELS_PATH, "scaffolding_yolov8.pt")),
+                # "Scaffolding": YOLO(os.path.join(MODELS_PATH, "best_scaffolding.engine")),
+                # # "CuttingWelding": YOLO(os.path.join(MODELS_PATH, "cutting_welding_yolov8.engine")),
+                # "CuttingWelding": YOLO(os.path.join(MODELS_PATH, "cutting_welding_yolov8.pt")),
             }
             self.initialized = True  # Mark the instance as initialized
-
+        
 
     def detect_ppe(self, image, results, ptz_autotrack):
         person_boxes = []
