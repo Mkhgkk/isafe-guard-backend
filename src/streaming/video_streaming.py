@@ -119,6 +119,17 @@ class VideoStreaming:
             process.stdin.close()  # Close the stdin to signal FFmpeg to finish
             process.wait()  # Wait for FFmpeg to finish writing the video
 
+    # def finalize_video(self, process):
+    #     if process:
+    #         try:
+    #             process.stdin.close()  # Close the stdin to signal FFmpeg to finish
+    #             process.wait(timeout=5)  # Wait for FFmpeg to finish with a timeout
+    #         except subprocess.TimeoutExpired:
+    #             print("FFmpeg process did not terminate in time. Force terminating...")
+    #             process.kill()  # Force terminate if it doesn't close in time
+    #         except Exception as e:
+    #             print(f"Error finalizing video: {e}")
+
     def start_stream(self):
         self.running = True
         self.stop_event.clear()
@@ -126,7 +137,7 @@ class VideoStreaming:
         threading.Thread(target=self.process_and_emit_frames, args=(self.model_name,), daemon=True).start()
 
     def stop_streaming(self):
-        self.running = False
+        # self.running = False
         self.stop_event.set()
 
     def generate_frames(self, rtsp_link, model_name):
