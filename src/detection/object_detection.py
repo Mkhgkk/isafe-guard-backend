@@ -5,7 +5,7 @@ from ultralytics import YOLO
 from ptz.autotrack import PTZAutoTracker
 import numpy as np
 
-# tracker = PTZAutoTracker()
+tracker = PTZAutoTracker()
 
 class ObjectDetection:
     # _instance = None  # class attribute to hold the single instance

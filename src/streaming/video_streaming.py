@@ -11,6 +11,8 @@ from socket_.socketio_instance import socketio
 import base64
 import os
 
+from intrusion.auto import draw_safe_area
+
 
 from appwrite.client import Client
 from appwrite.query import Query
@@ -256,7 +258,9 @@ class VideoStreaming:
         while not self.stop_event.is_set():
             if not self.frame_buffer.empty():
                 frame = self.frame_buffer.get()
+                frame = draw_safe_area(frame)
                 processed_frame, final_status, reasons = self.apply_model(frame, model_name)
+
 
                 # Check if the frame is unsafe
                 if final_status != "Safe":
