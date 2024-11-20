@@ -39,7 +39,7 @@ def draw_safe_area(frame):
     # safe_area_ref = np.float32([
     #     [x1, y1], [x2, y1], [x2, y2], [x1, y2]
     # ]).reshape(-1, 1, 2)
-    safe_area_ref = np.float32([[494, 146], [687, 146], [687, 395], [494, 395]]).reshape(-1, 1, 2)
+    safe_area_ref = np.float32([[602, 238], [852, 238], [852, 542], [602, 542]]).reshape(-1, 1, 2)
 
     # Transform the safe area coordinates to the current frame
     safe_area_curr = cv2.perspectiveTransform(safe_area_ref, homography_matrix)
@@ -51,6 +51,22 @@ def draw_safe_area(frame):
     # Draw the transformed safe area on the current frame
     # current_frame_color = cv2.cvtColor(current_frame, cv2.COLOR_GRAY2BGR)
     cv2.polylines(frame, [np.int32(safe_area_curr)], True, (0, 255, 0), 2)
+
+    text_position = tuple(np.int32(safe_area_curr[0][0]))
+
+    # # Add the text "intrusion zone"
+    # cv2.putText(
+    #     frame,                       
+    #     "intrusion zone",            
+    #     text_position,               
+    #     cv2.FONT_HERSHEY_SIMPLEX,    
+    #     1,                         
+    #     (0, 255, 0),                 
+    #     2,                          
+    #     # cv2.LINE_AA                  
+    # )
+
+                        
 
     return frame
 
