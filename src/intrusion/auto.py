@@ -62,7 +62,7 @@ def draw_safe_area(frame):
     stabilized_homography = alpha * stabilized_homography + (1 - alpha) * homography_matrix
 
     # Define the safe area in the reference frame
-    safe_area_ref = np.float32([[574, 266], [784, 266], [784, 485], [574, 485]]).reshape(-1, 1, 2)
+    safe_area_ref = np.float32([[690, 167], [935, 167], [935, 444], [690, 444]]).reshape(-1, 1, 2)
 
     # Transform the safe area coordinates to the current frame
     safe_area_curr = cv2.perspectiveTransform(safe_area_ref, stabilized_homography)

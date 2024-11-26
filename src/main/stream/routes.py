@@ -263,3 +263,28 @@ def update_stream():
         print("An error occurred: ", e)
         traceback.print_exc()
         return tools.JsonResp({"status": "error", "message": e}, 400)
+    
+
+
+
+@stream_blueprint.route("/set_danger_zone", methods=['POST'])
+def set_danger_zone():
+    # get image data
+    # get list of of coordinates
+    # get current ptz location (consider that the camera can be moved)
+    try:
+        data = json.loads(request.data)
+        print(data)
+
+        # Send response
+        return tools.JsonResp({
+            "status": "Success",
+            "message": "ok",
+            "data": "ok"
+        }, 200)
+
+
+    except Exception as e: 
+        print("An error occurred: ", e)
+        traceback.print_exc()
+        return tools.JsonResp({"status": "error", "message": e}, 400)
