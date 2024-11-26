@@ -7,6 +7,7 @@ script_directory = os.path.dirname(os.path.abspath(__file__))
 image_path = os.path.join('intrusion', 'captured_frame.jpg')
 
 # Load the reference frame
+safe_area_box = [[690, 167], [935, 167], [935, 444], [690, 444]]
 reference_frame = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
 
 # Initialize the ORB detector
@@ -62,7 +63,7 @@ def draw_safe_area(frame):
     stabilized_homography = alpha * stabilized_homography + (1 - alpha) * homography_matrix
 
     # Define the safe area in the reference frame
-    safe_area_ref = np.float32([[690, 167], [935, 167], [935, 444], [690, 444]]).reshape(-1, 1, 2)
+    safe_area_ref = np.float32(safe_area_box).reshape(-1, 1, 2)
 
     # Transform the safe area coordinates to the current frame
     safe_area_curr = cv2.perspectiveTransform(safe_area_ref, stabilized_homography)

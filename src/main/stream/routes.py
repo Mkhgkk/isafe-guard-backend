@@ -22,6 +22,9 @@ import os
 import cv2
 import time
 
+from intrusion.auto import safe_area_box, reference_frame
+from urllib.parse import urlparse
+
 
 
 # @app.route('/api/get_all_streams', methods=['GET'])
@@ -276,7 +279,17 @@ def set_danger_zone():
     # get current ptz location (consider that the camera can be moved)
     try:
         data = json.loads(request.data)
+        image = data.get("image")
+        coords = data.get("coords")
         print(data)
+
+        parsed_url = urlparse(image)
+        path = parsed_url.path
+        file_name = os.path.basename(path)
+
+        image_path = os.path.join('main/static/frame_refs', file_name)
+        reference_frame = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+        safe_area_box = coords
 
         # Send response
         return tools.JsonResp({
