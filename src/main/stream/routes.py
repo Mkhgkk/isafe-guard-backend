@@ -325,23 +325,24 @@ def get_current_frame():
         if stream is not None:
             frame_buffer = stream.frame_buffer
 
-            # with frame_buffer.mutex:
-            if frame_buffer.qsize() > 0:
-                current_frame = frame_buffer.queue[-1]
+            while file_name is None:
+                # with frame_buffer.mutex:
+                if frame_buffer.qsize() > 0:
+                    current_frame = frame_buffer.queue[-1]
 
-                ret, buffer = cv2.imencode('.jpg', current_frame, [int(cv2.IMWRITE_JPEG_QUALITY), 90])
-                # current_frame = buffer.tobytes()
+                    ret, buffer = cv2.imencode('.jpg', current_frame, [int(cv2.IMWRITE_JPEG_QUALITY), 90])
+                    # current_frame = buffer.tobytes()
 
-                current_frame_bytes = buffer.tobytes()
+                    current_frame_bytes = buffer.tobytes()
 
-                file_directory = os.path.abspath(os.path.join(os.path.dirname(__file__), '../static/frame_refs'))
-                os.makedirs(file_directory, exist_ok=True)
+                    file_directory = os.path.abspath(os.path.join(os.path.dirname(__file__), '../static/frame_refs'))
+                    os.makedirs(file_directory, exist_ok=True)
 
-                file_name = f"frame_{int(time.time())}_{stream_id}.jpg"
-                file_path = os.path.join(file_directory, file_name)
+                    file_name = f"frame_{int(time.time())}_{stream_id}.jpg"
+                    file_path = os.path.join(file_directory, file_name)
 
-                with open(file_path, 'wb') as file:
-                    file.write(current_frame_bytes)
+                    with open(file_path, 'wb') as file:
+                        file.write(current_frame_bytes)
         else:
             # stream is not active
             return tools.JsonResp({
