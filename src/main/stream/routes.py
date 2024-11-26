@@ -19,6 +19,8 @@ from appwrite.id import ID
 
 import asyncio
 import os
+import cv2
+import time
 
 
 
@@ -288,3 +290,61 @@ def set_danger_zone():
         print("An error occurred: ", e)
         traceback.print_exc()
         return tools.JsonResp({"status": "error", "message": e}, 400)
+    
+@stream_blueprint.route("/get_current_frame", methods=['POST'])
+def get_current_frame():
+    # here we can also get default ptz location and store it (optional)
+
+    # obtain frame if stream is active
+    # -- get video streaming object
+    # -- get latest frame from the streaming object without deleting the frame
+
+    # send this frame 
+
+    try:
+        # get stream Id
+        data = json.loads(request.data)
+        stream_id = data.get('stream_id')
+
+        file_name = None
+
+        stream = streams[stream_id]
+        if stream is not None:
+            frame_buffer = stream.frame_buffer
+
+            # with frame_buffer.mutex:
+            if frame_buffer.qsize() > 0:
+                current_frame = frame_buffer.queue[-1]
+
+                ret, buffer = cv2.imencode('.jpg', current_frame, [int(cv2.IMWRITE_JPEG_QUALITY), 90])
+                # current_frame = buffer.tobytes()
+
+                current_frame_bytes = buffer.tobytes()
+
+                file_directory = os.path.abspath(os.path.join(os.path.dirname(__file__), '../static/frame_refs'))
+                os.makedirs(file_directory, exist_ok=True)
+
+                file_name = f"frame_{int(time.time())}_{stream_id}.jpg"
+                file_path = os.path.join(file_directory, file_name)
+
+                with open(file_path, 'wb') as file:
+                    file.write(current_frame_bytes)
+        else:
+            # stream is not active
+            return tools.JsonResp({
+                "status": "Error",
+                "message": "Stream inactive!"
+            }, 404)
+
+        # Send response
+        return tools.JsonResp({
+            "status": "Success",
+            "message": "ok",
+            "data": file_name
+        }, 200)
+
+
+    except Exception as e: 
+        print("An error occurred: ", e)
+        traceback.print_exc()
+        return tools.JsonResp({"status": "error", "message": str(e)}, 400)
