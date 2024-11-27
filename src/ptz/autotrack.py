@@ -41,6 +41,8 @@ class PTZAutoTracker:
         self.move_thread = threading.Thread(target=self._process_move_queue)
         self.move_thread.start()
 
+        self.is_at_default_position = False
+
         # PTZ state and metrics
         self.ptz_metrics = {
             "zoom_level": self.min_zoom,  # Start at minimum zoom level
@@ -221,15 +223,27 @@ class PTZAutoTracker:
         except exceptions.ONVIFError as e:
             print(f"Error moving to default position: {e}")
 
+    def reset_camera_position(self):
+        """Stop any current movement and move the camera to its default position."""
+        self.stop_movement()
+        self.move_to_default_position()
+
+    
+
     def track(self, frame_width, frame_height, bboxes=None):
         """Main tracking method."""
         if bboxes is None or len(bboxes) == 0:
             # No object detected
             current_time = time.time()
-            if current_time - self.last_detection_time > self.no_object_timeout:
+            if current_time - self.last_detection_time > self.no_object_timeout and not self.is_at_default_position:
                 # Zoom out to default position for broader monitoring
-                self.stop_movement()  # Stop any current movement
-                self.move_to_default_position()  # Move to default position
+                # self.stop_movement()  # Stop any current movement
+                # self.move_to_default_position()  # Move to default position
+                thread = threading.Thread(target=self.reset_camera_position, args=())
+                thread.start()
+
+                self.is_at_default_position = True
+                
                 print("No object detected. Moving to default zoom level.")
             else:
                 print("No object detected. Waiting...")
@@ -254,6 +268,7 @@ class PTZAutoTracker:
 
         # Update the last move time to current time
         self.last_move_time = time.time()
+        self.is_at_default_position = False
 
     def _enqueue_move(self, pan, tilt, zoom):
         """Enqueue a move command to the move queue."""
@@ -282,14 +297,3 @@ class PTZAutoTracker:
         combined_movement = abs(pan) + abs(tilt)
         return np.dot(self.move_coefficients, [1, combined_movement])
 
-# # Example usage
-# if __name__ == "__main__":
-#     tracker = PTZAutoTracker()
-
-#     # Dummy frame dimensions
-#     frame_width, frame_height = 1920, 1080
-
-#     # Example bounding boxes for multiple objects (x1, y1, x2, y2)
-#     bboxes = [(800, 450, 1120, 630), (400, 300, 600, 500)]
-
-#     tracker.track(frame_width, frame_height, bboxes)
