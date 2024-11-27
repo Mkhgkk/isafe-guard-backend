@@ -22,8 +22,12 @@ import os
 import cv2
 import time
 
-from intrusion.auto import safe_area_box, reference_frame
+# from intrusion.auto import safe_area_box, reference_frame
+from intrusion.auto import SafeAreaTracker
 from urllib.parse import urlparse
+
+# safe_area_tracker = SafeAreaTracker()
+from main.shared import safe_area_trackers
 
 
 
@@ -281,6 +285,7 @@ def set_danger_zone():
         data = json.loads(request.data)
         image = data.get("image")
         coords = data.get("coords")
+        stream_id = data.get("streamId")
         print(data)
 
         parsed_url = urlparse(image)
@@ -290,6 +295,11 @@ def set_danger_zone():
         image_path = os.path.join('main/static/frame_refs', file_name)
         reference_frame = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
         safe_area_box = coords
+
+        # safe_area_tracker.update_safe_area(reference_frame, safe_area_box)
+        safe_area_tracker = safe_area_trackers[stream_id]
+        safe_area_tracker.update_safe_area(reference_frame, safe_area_box)
+
 
         # Send response
         return tools.JsonResp({

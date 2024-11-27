@@ -3,91 +3,73 @@ import cv2
 import numpy as np
 from collections import deque
 
-script_directory = os.path.dirname(os.path.abspath(__file__))
-image_path = os.path.join('intrusion', 'captured_frame.jpg')
+class SafeAreaTracker:
+    # _instance = None
 
-# Load the reference frame
-safe_area_box = [[690, 167], [935, 167], [935, 444], [690, 444]]
-reference_frame = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+    # def __new__(cls, *args, **kwargs):
+    #     if not cls._instance:
+    #         cls._instance = super(SafeAreaTracker, cls).__new__(cls)
+    #     return cls._instance
 
-# Initialize the ORB detector
-orb = cv2.ORB_create()
+    def __init__(self):
+        # if not hasattr(self, 'initialized'):  
+        self.previous_safe_area = None
+        self.reference_frame = None
+        self.orb = cv2.ORB_create()
+        self.homography_buffer = deque(maxlen=50)
+        self.safe_area_box = None
+        # self.initialized = True
 
-# Initialize a buffer to store homography matrices for smoothing
-homography_buffer = deque(maxlen=5)  # Buffer size for smoothing
+    def update_safe_area(self, reference_frame, safe_area_box):
+        self.reference_frame = reference_frame
+        self.safe_area_box = safe_area_box
 
-# Initialize previous safe area for smoothing
-previous_safe_area = None
+        self.previous_safe_area = None
+        self.homography_buffer = deque(maxlen=50)
 
-def draw_safe_area(frame):
-    global previous_safe_area
+    def draw_safe_area(self, frame): 
+        if self.reference_frame is None or self.safe_area_box is None:
+            return frame
+        
+        current_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
-    # Convert current frame to grayscale
-    current_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        keypoints_ref, descriptors_ref = self.orb.detectAndCompute(self.reference_frame, None)
+        keypoints_curr, descriptors_curr = self.orb.detectAndCompute(current_frame, None)
 
-    # Detect keypoints and compute descriptors
-    keypoints_ref, descriptors_ref = orb.detectAndCompute(reference_frame, None)
-    keypoints_curr, descriptors_curr = orb.detectAndCompute(current_frame, None)
+        bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
+        matches = bf.match(descriptors_ref, descriptors_curr)
+        matches = sorted(matches, key=lambda x: x.distance)
 
-    # Match descriptors using BFMatcher
-    bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
-    matches = bf.match(descriptors_ref, descriptors_curr)
-    matches = sorted(matches, key=lambda x: x.distance)
+        good_matches = [m for m in matches if m.distance < 25] 
 
-    # Filter matches by distance
-    good_matches = [m for m in matches if m.distance < 25]  # Adjust threshold
+        if len(good_matches) < 10:
+            return frame
+        
+        pts_ref = np.float32([keypoints_ref[m.queryIdx].pt for m in good_matches]).reshape(-1, 1, 2)
+        pts_curr = np.float32([keypoints_curr[m.trainIdx].pt for m in good_matches]).reshape(-1, 1, 2)
 
-    # Proceed only if enough good matches are found
-    if len(good_matches) < 10:
+        homography_matrix, mask = cv2.findHomography(pts_ref, pts_curr, cv2.RANSAC, 3.0)
+
+        if homography_matrix is None:
+            return frame
+        
+        motion_magnitude = np.mean(np.linalg.norm(pts_curr - pts_ref, axis=2))
+        alpha = max(0.5, min(0.9, 1 - (motion_magnitude / 50)))
+
+        self.homography_buffer.append(homography_matrix)
+
+        # stabilized_homography = np.mean(self.homography_buffer, axis=0)
+        # stabilized_homography = alpha * stabilized_homography + (1 - alpha) * homography_matrix
+
+        safe_area_ref = np.float32(self.safe_area_box).reshape(-1, 1, 2)
+
+        safe_area_curr = cv2.perspectiveTransform(safe_area_ref, homography_matrix)
+
+        if self.previous_safe_area is not None:
+            safe_area_curr = alpha * safe_area_curr + (1 - alpha) * self.previous_safe_area
+
+        self.previous_safe_area = safe_area_curr
+
+        cv2.polylines(frame, [np.int32(safe_area_curr)], True, (0, 255, 255), 2)
+
         return frame
-
-    # Extract matched keypoint coordinates
-    pts_ref = np.float32([keypoints_ref[m.queryIdx].pt for m in good_matches]).reshape(-1, 1, 2)
-    pts_curr = np.float32([keypoints_curr[m.trainIdx].pt for m in good_matches]).reshape(-1, 1, 2)
-
-    # Estimate the homography matrix
-    homography_matrix, mask = cv2.findHomography(pts_ref, pts_curr, cv2.RANSAC, 3.0)
-
-    if homography_matrix is None:
-        return frame
-
-    # Compute motion magnitude
-    motion_magnitude = np.mean(np.linalg.norm(pts_curr - pts_ref, axis=2))
-    alpha = max(0.5, min(0.9, 1 - (motion_magnitude / 50)))  # Adjust for responsiveness
-
-    # Add homography matrix to the buffer for smoothing
-    homography_buffer.append(homography_matrix)
-
-    # Compute the stabilized homography matrix
-    stabilized_homography = np.mean(homography_buffer, axis=0)
-    stabilized_homography = alpha * stabilized_homography + (1 - alpha) * homography_matrix
-
-    # Define the safe area in the reference frame
-    safe_area_ref = np.float32(safe_area_box).reshape(-1, 1, 2)
-
-    # Transform the safe area coordinates to the current frame
-    safe_area_curr = cv2.perspectiveTransform(safe_area_ref, stabilized_homography)
-
-    # Apply smoothing to the safe area coordinates
-    if previous_safe_area is not None:
-        safe_area_curr = alpha * safe_area_curr + (1 - alpha) * previous_safe_area
-
-    previous_safe_area = safe_area_curr
-
-    # Draw the transformed safe area on the current frame
-    cv2.polylines(frame, [np.int32(safe_area_curr)], True, (0, 255, 255), 2)
-
-    # Add the text "Intrusion Zone"
-    # text_position = tuple(np.int32(safe_area_curr[0][0]))
-    # cv2.putText(
-    #     frame,
-    #     "Intrusion Zone",
-    #     text_position,
-    #     cv2.FONT_HERSHEY_SIMPLEX,
-    #     1,
-    #     (0, 255, 0),
-    #     2
-    # )
-
-    return frame
-
