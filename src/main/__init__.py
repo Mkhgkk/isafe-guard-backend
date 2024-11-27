@@ -27,15 +27,16 @@ def create_app():
   os.environ["TZ"] = app.config["TIMEZONE"]
 
   # Database Config
-  if app.config["ENVIRONMENT"] == "development":
-    # mongo = MongoClient(app.config["MONGO_HOSTNAME"], app.config["MONGO_PORT"])
-    # app.db = mongo[app.config["MONGO_APP_DATABASE"]]
-    mongo = MongoClient(app.config["MONGO_URI"])
-    app.db = mongo[app.config["MONGO_APP_DATABASE"]]
-  else:
-    mongo = MongoClient("localhost")
-    mongo[app.config["MONGO_AUTH_DATABASE"]].authenticate(app.config["MONGO_AUTH_USERNAME"], app.config["MONGO_AUTH_PASSWORD"])
-    app.db = mongo[app.config["MONGO_APP_DATABASE"]]
+  # if app.config["ENVIRONMENT"] == "development":
+  #   # mongo = MongoClient(app.config["MONGO_HOSTNAME"], app.config["MONGO_PORT"])
+  #   # app.db = mongo[app.config["MONGO_APP_DATABASE"]]
+
+  #   mongo = MongoClient(app.config["MONGO_URI"])
+  #   app.db = mongo[app.config["MONGO_APP_DATABASE"]]
+  # else:
+  #   mongo = MongoClient("localhost")
+  #   mongo[app.config["MONGO_AUTH_DATABASE"]].authenticate(app.config["MONGO_AUTH_USERNAME"], app.config["MONGO_AUTH_PASSWORD"])
+  #   app.db = mongo[app.config["MONGO_APP_DATABASE"]]
 
   
 
