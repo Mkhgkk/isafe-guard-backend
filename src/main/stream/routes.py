@@ -133,6 +133,14 @@ def change_autotrack():
             return tools.JsonResp({"status": "error", "message": "Stream with the give ID is not active!"}, 400)
         video_streaming.ptz_autotrack = not video_streaming.ptz_autotrack
 
+        if (video_streaming.ptz_autotrack and video_streaming.ptz_auto_tracker):
+            # obtain current ptz coordinates
+            camera_controller = camera_controllers[stream_id]
+            pan, tilt, zoom = camera_controller.get_current_position()
+
+            # set these coordinates and default position
+            video_streaming.ptz_auto_tracker.update_default_position(pan, tilt, zoom)
+
          # emit change autotrack change
         room = f"ptz-{stream_id}"
         app.socketio.emit(f'ptz-autotrack-change', {'ptz_autotrack': video_streaming.ptz_autotrack}, namespace='/video', room=room)

@@ -47,9 +47,15 @@ class PTZAutoTracker:
         }
         self.calibrating = False  # To track if the camera is calibrating
 
-        self.pan = 0
-        self.tilt = 0
-        self.zoom = self.min_zoom
+        self.home_pan = 0
+        self.home_tilt = 0
+        self.home_zoom = self.min_zoom
+
+    def update_default_position(self, pan, tilt, zoom):
+        self.home_pan = pan
+        self.home_tilt = tilt
+        self.home_zoom = zoom
+
 
     def get_ptz_status(self):
         """Get the current PTZ status."""
@@ -207,7 +213,8 @@ class PTZAutoTracker:
             request.Position.Zoom.x = self.home_zoom
 
             # Update zoom level metrics
-            self.ptz_metrics["zoom_level"] = self.default_position['zoom']
+            # self.ptz_metrics["zoom_level"] = self.default_position['zoom']
+            self.ptz_metrics["zoom_level"] = self.home_zoom
 
             # Send the absolute move command
             self.ptz_service.AbsoluteMove(request)
