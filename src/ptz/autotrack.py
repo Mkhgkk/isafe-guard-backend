@@ -5,10 +5,11 @@ import threading
 import numpy as np
 
 class PTZAutoTracker:
-    def __init__(self):
+    def __init__(self, cam_ip, ptz_port, ptz_username, ptz_password):
         # Initialize the ONVIF camera
         # self.camera = ONVIFCamera("192.168.0.149", 80, "root", "fsnetworks1!")
-        self.camera = ONVIFCamera("223.171.86.249", 80, "admin", "1q2w3e4r.")
+        # self.camera = ONVIFCamera("223.171.86.249", 80, "admin", "1q2w3e4r.")
+        self.camera = ONVIFCamera(cam_ip, ptz_port, ptz_username, ptz_password)
         self.ptz_service = self.camera.create_ptz_service()
         self.media_service = self.camera.create_media_service()
         self.profiles = self.media_service.GetProfiles()
@@ -45,6 +46,10 @@ class PTZAutoTracker:
             "zoom_level": self.min_zoom,  # Start at minimum zoom level
         }
         self.calibrating = False  # To track if the camera is calibrating
+
+        self.pan = 0
+        self.tilt = 0
+        self.zoom = self.min_zoom
 
     def get_ptz_status(self):
         """Get the current PTZ status."""
@@ -197,9 +202,9 @@ class PTZAutoTracker:
 
             # Initialize Position properly
             request.Position = self.ptz_service.GetStatus({'ProfileToken': self.profile_token}).Position
-            request.Position.PanTilt.x = home_pan
-            request.Position.PanTilt.y = home_tilt
-            request.Position.Zoom.x = home_zoom
+            request.Position.PanTilt.x = self.home_pan
+            request.Position.PanTilt.y = self.home_tilt
+            request.Position.Zoom.x = self.home_zoom
 
             # Update zoom level metrics
             self.ptz_metrics["zoom_level"] = self.default_position['zoom']

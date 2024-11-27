@@ -5,7 +5,7 @@ from ultralytics import YOLO
 from ptz.autotrack import PTZAutoTracker
 import numpy as np
 
-tracker = PTZAutoTracker()
+# tracker = PTZAutoTracker()
 
 class ObjectDetection:
     # _instance = None  # class attribute to hold the single instance
@@ -86,21 +86,23 @@ class ObjectDetection:
             for idx, reason in enumerate(reasons):
                 self.draw_text_with_background(image, reason, (40, 100 + (idx * 30)), font_scale, (0, 0, 255), thickness)
 
-        if ptz_autotrack:
-            # Because the track method expects this format
-            bboxes = [(box[0], box[1], box[2], box[3]) for box in person_boxes]
+        # if ptz_autotrack:
+        #     # Because the track method expects this format
+        #     bboxes = [(box[0], box[1], box[2], box[3]) for box in person_boxes]
 
-            # Initialize the tracker 
-            frame_height, frame_width = image.shape[:2]
+        #     # Initialize the tracker 
+        #     frame_height, frame_width = image.shape[:2]
 
-            if bboxes:
-                # Call the track method of PTZAutoTracker with detected person boxes
-                tracker.track(frame_width, frame_height, bboxes)
-            else:
-                # If no person is detected, inform the tracker to reset or move to default
-                tracker.track(frame_width, frame_height, None)
+        #     if bboxes:
+        #         # Call the track method of PTZAutoTracker with detected person boxes
+        #         tracker.track(frame_width, frame_height, bboxes)
+        #     else:
+        #         # If no person is detected, inform the tracker to reset or move to default
+        #         tracker.track(frame_width, frame_height, None)
 
-        return final_status , reasons
+        bboxes = [(box[0], box[1], box[2], box[3]) for box in person_boxes]
+
+        return final_status , reasons, bboxes
 
 #emma Code
     '''def detect_ppe(self, image, results, ptz_autotrack):

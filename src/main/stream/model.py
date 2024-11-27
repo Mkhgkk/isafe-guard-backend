@@ -13,6 +13,8 @@ import time
 import datetime
 from apscheduler.schedulers.background import BackgroundScheduler
 
+from ptz.autotrack import PTZAutoTracker
+
 scheduler = BackgroundScheduler()
 scheduler.start()
 
@@ -54,6 +56,12 @@ class Stream:
         """This function will be executed in a background thread to avoid blocking the loop."""
         camera_controller = CameraController(cam_ip, ptz_port, ptz_username, ptz_password)
         camera_controllers[stream_id] = camera_controller
+
+        # if camera controller is initialized successfully, then we initialize auto tracker
+        ptz_auto_tracker = PTZAutoTracker(cam_ip, ptz_port, ptz_username, ptz_password)
+        stream = streams[stream_id]
+        stream.ptz_auto_tracker = ptz_auto_tracker
+        
         print(f"PTZ configured for stream {stream_id}.")
     
     # @staticmethod

@@ -13,6 +13,7 @@ import os
 
 # from intrusion.auto import draw_safe_area
 from intrusion.auto import SafeAreaTracker
+from ptz.autotrack import PTZAutoTracker
 
 
 from appwrite.client import Client
@@ -32,7 +33,7 @@ client.set_key('standard_a5d6a12567fad8968cf5e2bc4482006c886d22e175e2d9bdabfea44
 databases = Databases(client)
 
 # safe_area_tracker = SafeAreaTracker()
-from main.shared import safe_area_trackers
+from main.shared import safe_area_trackers, ptz_auto_trackers
 
 class VideoStreaming:
     def __init__(self, rtsp_link, model_name, stream_id, ptz_autotrack=False):
@@ -57,6 +58,8 @@ class VideoStreaming:
         self.safe_area_tracker = SafeAreaTracker()
         safe_area_trackers[stream_id] = self.safe_area_tracker
 
+        self.ptz_auto_tracker = None
+
         # Variables to manage recording cooldown
         self.last_event_time = 0  # Track the time of the last unsafe event
         self.event_cooldown_seconds = 30  # Cooldown period in seconds
@@ -69,9 +72,10 @@ class VideoStreaming:
         results = model(frame)
         final_status = "Safe"
         reasons = []
+        bboxes = None
 
         if model_name == "PPE":
-            final_status = self.MODEL.detect_ppe(frame, results, self.ptz_autotrack)
+            final_status, reasons, bboxes = self.MODEL.detect_ppe(frame, results, self.ptz_autotrack)
         elif model_name == "Ladder":
             final_status = self.MODEL.detect_ladder(frame, results)
         elif model_name == "MobileScaffolding":
@@ -81,7 +85,7 @@ class VideoStreaming:
         elif model_name == "CuttingWelding":
             final_status = self.MODEL.detect_cutting_welding(frame, results)
 
-        return frame, final_status, [reasons]
+        return frame, final_status, [reasons], bboxes
 
     def create_video_writer(self, frame, timestamp, model_name, output_fps):
         video_directory = os.path.abspath(os.path.join(os.path.dirname(__file__), '../main/static/videos'))
@@ -266,7 +270,11 @@ class VideoStreaming:
             if not self.frame_buffer.empty():
                 frame = self.frame_buffer.get()
                 frame = self.safe_area_tracker.draw_safe_area(frame)
-                processed_frame, final_status, reasons = self.apply_model(frame, model_name)
+                processed_frame, final_status, reasons, bboxes = self.apply_model(frame, model_name)
+
+                # run auto tracker
+                if (self.ptz_autotrack and self.ptz_auto_tracker):
+                    self.ptz_auto_tracker.track(1280, 720, bboxes)
 
 
                 # Check if the frame is unsafe
