@@ -1,6 +1,9 @@
 from main import create_app
 import logging
 import time
+import sys
+import os 
+import signal
 
 from appwrite.client import Client
 from appwrite.query import Query
@@ -18,6 +21,8 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from socket_.socketio_instance import socketio
 
 import logging
+
+from main.shared import streams
 
 logging.getLogger('apscheduler').setLevel(logging.WARNING)
 
@@ -75,6 +80,31 @@ async def fetch_schedules():
 
   await asyncio.gather(*tasks)
 
+
+def main():
+    print(int(time.time()))
+    fetch_streams()
+    # fetch_schedules()
+    print("app starting...")
+    asyncio.run(fetch_schedules())
+    app = create_app()
+    app.databases = databases
+
+    scheduler = BackgroundScheduler()
+    scheduler.add_job(func=get_system_utilization, trigger="interval", seconds=2)
+    scheduler.start()
+    
+    try:
+        # This runs the Flask app, and it will be interrupted by a KeyboardInterrupt (Ctrl+C).
+        app.run(host=app.config["FLASK_DOMAIN"], port=app.config["FLASK_PORT"], debug=False, use_reloader=False, threaded=True)
+    except KeyboardInterrupt:
+        print("Server interrupted. Shutting down...")
+        scheduler.shutdown(wait=False)  
+        
+        for stream_id, video_stream in streams.items():
+           video_stream.stop_stream()
+
+        sys.exit(1)
     
 
 
@@ -92,6 +122,34 @@ if __name__ == "__main__":
   scheduler.add_job(func=get_system_utilization, trigger="interval", seconds=2)
   scheduler.start()
   
-  app.run(host=app.config["FLASK_DOMAIN"], port=app.config["FLASK_PORT"], debug=False, use_reloader=False)
-else:
-  logging.basicConfig(app.config["FLASK_DIRECTORY"] + "trace.log", level=logging.DEBUG)
+  # try:
+  #     # This runs the Flask app, and it will be interrupted by a KeyboardInterrupt (Ctrl+C).
+  #     app.run(host=app.config["FLASK_DOMAIN"], port=app.config["FLASK_PORT"], debug=False, use_reloader=False, threaded=True)
+  # except KeyboardInterrupt:
+  #     print("Server interrupted. Shutting down...")
+  #     scheduler.shutdown(wait=False)  
+      
+  #     for stream_id, video_stream in streams.items():
+  #         video_stream.stop_stream()
+
+  #     sys.exit(1)
+
+  app.run(host=app.config["FLASK_DOMAIN"], port=app.config["FLASK_PORT"], debug=False, use_reloader=False, threaded=True)
+
+
+
+  def handle_exit(signum, frame):
+    print("Received termination signal. Shutting down...")
+    try:
+        # if scheduler.running:
+        #     scheduler.shutdown(wait=True)
+        # for stream_id, video_stream in streams.items():
+        #     video_stream.stop_stream()
+        pass
+    except Exception as e:
+        print(f"Error during shutdown: {e}")
+    finally:
+        os._exit(0)  # Force exit to prevent lingering threads
+
+  signal.signal(signal.SIGINT, handle_exit)  # Handle Ctrl+C
+  signal.signal(signal.SIGTERM, handle_exit)  # Handle termination signals
