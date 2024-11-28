@@ -85,7 +85,7 @@ if __name__ == "__main__":
   app.databases = databases
 
   scheduler = BackgroundScheduler()
-  if scheduler.running:
+  if not scheduler.running:
     scheduler.add_job(func=get_system_utilization, trigger="interval", seconds=2)
     scheduler.start()
   

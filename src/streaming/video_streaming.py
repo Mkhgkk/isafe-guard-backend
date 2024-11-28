@@ -16,6 +16,14 @@ from database import get_database_instance
 
 databases = get_database_instance()
 
+EVENT_VIDEO_DIR = '../main/static/videos'
+EVENT_THUMBNAIL_DIR = '../main/static/thumbnails'
+FRAME_WIDTH = 1280
+FRAME_HEIGHT = 720
+
+RECONNECT_WAIT_TIME_IN_SECS = 5
+
+
 class StreamManager:
     def __init__(self, rtsp_link, model_name, stream_id, ptz_autotrack=False):
         self.MODEL = ObjectDetection()
@@ -31,7 +39,7 @@ class StreamManager:
         self.unsafe_frame_count = 0
         self.frames_written = 0
         self.video_name = None
-        self.last_event_time = 0  # 
+        self.last_event_time = 0 
         self.event_cooldown_seconds = 30  
 
         self.ptz_autotrack = ptz_autotrack
@@ -67,7 +75,7 @@ class StreamManager:
         return frame, final_status, [reasons], bboxes
 
     def create_video_writer(self, frame, timestamp, model_name, output_fps):
-        video_directory = os.path.abspath(os.path.join(os.path.dirname(__file__), '../main/static/videos'))
+        video_directory = os.path.abspath(os.path.join(os.path.dirname(__file__), EVENT_VIDEO_DIR))
         os.makedirs(video_directory, exist_ok=True)
 
         video_name = f"video_{self.stream_id}_{model_name}_{timestamp}.mp4"
@@ -111,16 +119,6 @@ class StreamManager:
             process.stdin.close()  # Close the stdin to signal FFmpeg to finish
             process.wait()  # Wait for FFmpeg to finish writing the video
 
-    # def finalize_video(self, process):
-    #     if process:
-    #         try:
-    #             process.stdin.close()  # Close the stdin to signal FFmpeg to finish
-    #             process.wait(timeout=5)  # Wait for FFmpeg to finish with a timeout
-    #         except subprocess.TimeoutExpired:
-    #             print("FFmpeg process did not terminate in time. Force terminating...")
-    #             process.kill()  # Force terminate if it doesn't close in time
-    #         except Exception as e:
-    #             print(f"Error finalizing video: {e}")
 
     def start_stream(self):
         self.running = True
@@ -140,11 +138,11 @@ class StreamManager:
 
             if not video_capture.isOpened():
                 print(f"Error: Unable to open video stream from {rtsp_link}. Retrying in 5 seconds...")
-                time.sleep(5)
+                time.sleep(RECONNECT_WAIT_TIME_IN_SECS)
                 continue
 
             fps = video_capture.get(cv2.CAP_PROP_FPS) or 20
-            desired_width, desired_height = 1280, 720
+            # desired_width, desired_height = 1280, 720
 
             # while self.running and video_capture.isOpened():
             while not self.stop_event.is_set() and video_capture.isOpened():
@@ -155,7 +153,7 @@ class StreamManager:
                     video_capture.release()
                     break
 
-                frame = cv2.resize(frame, (desired_width, desired_height))
+                frame = cv2.resize(frame, (FRAME_WIDTH, FRAME_HEIGHT))
 
                 try:
                     self.frame_buffer.put_nowait(frame)
@@ -167,12 +165,9 @@ class StreamManager:
 
             # if self.running:
             if not self.stop_event.is_set():
-                time.sleep(5)
+                time.sleep(RECONNECT_WAIT_TIME_IN_SECS)
 
     def send_watch_notification(self, reasons=["Wear helmet"]):
-        print("Sending notification now...")
-        print("REASONS: ", reasons)
-
         data = {
             "phone_id": "4b91e2ca33c3119c",
             "status": "UnSafe",
@@ -198,7 +193,7 @@ class StreamManager:
         timestamp_str = str(int(time.time()))
         image_filename = f"thumbnail_{timestamp_str}.jpg"
 
-        image_directory = os.path.abspath(os.path.join(os.path.dirname(__file__), '../main/static/thumbnails'))
+        image_directory = os.path.abspath(os.path.join(os.path.dirname(__file__), EVENT_THUMBNAIL_DIR))
         os.makedirs(image_directory, exist_ok=True)
 
         original_height, original_width = frame.shape[:2]
@@ -242,7 +237,6 @@ class StreamManager:
         self.unsafe_frame_count = 0
         start_time = None
         is_recording = False  # Flag to track if a recording is in progress
-        video_output_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../main/static/videos/hls_segments'))
 
         # while self.running:
         while not self.stop_event.is_set():
