@@ -78,6 +78,9 @@ async def fetch_schedules():
 
 
 if __name__ == "__main__":
+  # TODO:
+  # asyncio should run after app has started because of socket connection
+
   fetch_streams()
   print("app starting...")
   asyncio.run(fetch_schedules())
