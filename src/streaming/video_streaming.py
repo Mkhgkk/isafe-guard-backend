@@ -2,38 +2,21 @@ import cv2
 import datetime
 import threading
 import time
-import asyncio
-from collections import deque
-from queue import Queue
-from detection.object_detection import ObjectDetection
-from utils.camera_controller import CameraController
-from socket_.socketio_instance import socketio
-import base64
 import os
-
-# from intrusion.auto import draw_safe_area
-from intrusion.auto import SafeAreaTracker
-from ptz.autotrack import PTZAutoTracker
-
-
-from appwrite.client import Client
-from appwrite.query import Query
-from appwrite.services.databases import Databases
-from appwrite.id import ID
-
 import subprocess
 import requests
+from collections import deque
+from queue import Queue
+from appwrite.client import Client
+from appwrite.services.databases import Databases
+from appwrite.id import ID
+from detection.object_detection import ObjectDetection
+from socket_.socketio_instance import socketio
+from intrusion.auto import SafeAreaTracker
+from main.shared import safe_area_trackers
+from database import get_database_instance
 
-
-client = Client()
-client.set_endpoint('http://172.105.209.31/v1')
-client.set_project('66f4c2e6001ef89c0f5c')
-client.set_key('standard_a5d6a12567fad8968cf5e2bc4482006c886d22e175e2d9bdabfea4453958462e507effc6276fc3f9b6f766bf34bf5290a9cb56d8277003a4128de039fd5a5d7299c12ea831eccc96d04c50655e5f0a7df0a5fcd80532a664649f0fb9e34cdfe33f12d91035738668f6b2bbefb7ed665c8905eb0796038981498cd4e7a9bc22aa')
-
-databases = Databases(client)
-
-# safe_area_tracker = SafeAreaTracker()
-from main.shared import safe_area_trackers, ptz_auto_trackers
+databases = get_database_instance()
 
 class VideoStreaming:
     def __init__(self, rtsp_link, model_name, stream_id, ptz_autotrack=False):

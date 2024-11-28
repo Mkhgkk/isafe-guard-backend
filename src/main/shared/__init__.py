@@ -7,3 +7,5 @@ streams = {}
 camera_controllers = {}
 safe_area_trackers = {}
 ptz_auto_trackers = {}
+
+databases = None

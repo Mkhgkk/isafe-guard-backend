@@ -1,6 +1,5 @@
 from flask import Flask, request, Blueprint, send_from_directory, send_file, abort, Response
 from flask_cors import CORS
-from pymongo import MongoClient
 from main.tools import JsonResp
 # from jose import jwt
 import os
