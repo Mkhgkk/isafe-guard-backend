@@ -37,7 +37,8 @@ def setup_socketio_handlers(socketio):
     @socketio.on('join_ptz', namespace='/video')
     def join_ptz_room(data):
         stream_id = data["stream_id"]
-        camera_controller = camera_controllers[stream_id]
+        stream = streams[stream_id]
+        camera_controller = stream.camera_controller
 
         room = f"ptz-{stream_id}"
         join_room(room)
@@ -58,7 +59,8 @@ def setup_socketio_handlers(socketio):
         zoom_amount = data.get("zoom_amount", None)
         direction = data["direction"]
         stop = data.get("stop", False)
-        camera_controller = camera_controllers[stream_id]
+        stream = streams[stream_id]
+        camera_controller = stream.camera_controller
         room = f"ptz-{stream_id}"
 
         if direction == 'zoom_in':

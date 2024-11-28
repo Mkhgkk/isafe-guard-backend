@@ -59,6 +59,7 @@ class VideoStreaming:
         safe_area_trackers[stream_id] = self.safe_area_tracker
 
         self.ptz_auto_tracker = None
+        self.camera_controller = None
 
         # Variables to manage recording cooldown
         self.last_event_time = 0  # Track the time of the last unsafe event

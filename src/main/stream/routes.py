@@ -133,23 +133,26 @@ def change_autotrack():
             return tools.JsonResp({"status": "error", "message": "Stream with the give ID is not active!"}, 400)
         video_streaming.ptz_autotrack = not video_streaming.ptz_autotrack
 
-        if (video_streaming.ptz_autotrack and video_streaming.ptz_auto_tracker):
+        if (video_streaming.camera_controller and video_streaming.ptz_auto_tracker):
             # obtain current ptz coordinates
-            camera_controller = camera_controllers[stream_id]
+            camera_controller = video_streaming.camera_controller
             pan, tilt, zoom = camera_controller.get_current_position()
 
             # set these coordinates and default position
             video_streaming.ptz_auto_tracker.update_default_position(pan, tilt, zoom)
 
-         # emit change autotrack change
-        room = f"ptz-{stream_id}"
-        app.socketio.emit(f'ptz-autotrack-change', {'ptz_autotrack': video_streaming.ptz_autotrack}, namespace='/video', room=room)
+            # emit change autotrack change
+            room = f"ptz-{stream_id}"
+            app.socketio.emit(f'ptz-autotrack-change', {'ptz_autotrack': video_streaming.ptz_autotrack}, namespace='/video', room=room)
+            
+            return tools.JsonResp({
+                "status": "Success",
+                "message": "Autotrack changed successfully",
+                "data": {"ptz_autotrack": video_streaming.ptz_autotrack}
+            }, 200)
         
-        return tools.JsonResp({
-            "status": "Success",
-            "message": "Autotrack changed successfully",
-            "data": {"ptz_autotrack": video_streaming.ptz_autotrack}
-        }, 200)
+        else:
+            return tools.JsonResp({"status": "error", "message": "Failed to change auto tracking!"}, 400)
 
     except Exception as e:
         # print(video_streaming)

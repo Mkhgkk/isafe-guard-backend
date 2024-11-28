@@ -197,9 +197,6 @@ class PTZAutoTracker:
 
     def move_to_default_position(self):
         """Move the camera to the default 'home' position."""
-        # home_pan = -0.34133333
-        # home_tilt = -0.847708464
-        # home_zoom = 0.129928589
 
         home_pan = -0.550611138
         home_tilt = -0.531818211

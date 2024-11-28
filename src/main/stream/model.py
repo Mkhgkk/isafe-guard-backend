@@ -54,14 +54,15 @@ class Stream:
     @staticmethod
     def initialize_camera_controller(cam_ip, ptz_port, ptz_username, ptz_password, stream_id):
         """This function will be executed in a background thread to avoid blocking the loop."""
+        stream = streams[stream_id]
         camera_controller = CameraController(cam_ip, ptz_port, ptz_username, ptz_password)
-        camera_controllers[stream_id] = camera_controller
+        stream.camera_controller = camera_controller
+        # camera_controllers[stream_id] = camera_controller
 
         # if camera controller is initialized successfully, then we initialize auto tracker
         ptz_auto_tracker = PTZAutoTracker(cam_ip, ptz_port, ptz_username, ptz_password)
-        stream = streams[stream_id]
         stream.ptz_auto_tracker = ptz_auto_tracker
-        
+
         print(f"PTZ configured for stream {stream_id}.")
     
     # @staticmethod
@@ -98,14 +99,15 @@ class Stream:
             video_streaming = streams.get(stream_id)
             if video_streaming:
                 video_streaming.stop_streaming()
+                video_streaming.camera_controller = None
             else:
                 # raise ValueError(f"Stream ID {stream_id} is not active.")
                 return
 
             del streams[stream_id]
 
-            if stream_id in camera_controllers:
-                del camera_controllers[stream_id]
+            # if stream_id in camera_controllers:
+            #     del camera_controllers[stream_id]
         except Exception as e:
             raise RuntimeError(f"Failed to stop stream {stream_id}: {e}")
         
