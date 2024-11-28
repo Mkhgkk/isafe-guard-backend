@@ -1,17 +1,7 @@
-from flask_socketio import SocketIO, emit, join_room, leave_room, send
-# from utils.camera_controller import CameraController
-# from streaming.video_streaming import VideoStreaming
+from flask_socketio import join_room, leave_room, send
 from flask import request
-# from routes.api_routes import app
-
-# socketio = SocketIO(cors_allowed_origins="*", async_mode='threading')
-
 from main.shared import streams
-from main.shared import camera_controllers
 
-
-# streams = {}
-# camera_controllers = {}
 
 def setup_socketio_handlers(socketio):
     @socketio.on('connect', namespace='/video')

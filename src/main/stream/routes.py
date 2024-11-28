@@ -12,7 +12,7 @@ stream_blueprint = Blueprint("stream", __name__)
 import traceback
 
 from main.shared import streams
-from streaming.video_streaming import VideoStreaming
+from streaming.video_streaming import StreamManager
 from main.shared import camera_controllers
 from utils.camera_controller import CameraController
 from appwrite.id import ID
@@ -55,7 +55,7 @@ def start_stream():
                 "message": f"Stream with id {stream_id} already exists!"
             }, 400)
         
-        video_streaming = VideoStreaming(rtsp_link, model_name, stream_id, ptz_autotrack)
+        video_streaming = StreamManager(rtsp_link, model_name, stream_id, ptz_autotrack)
         video_streaming.start_stream()
         streams[stream_id] = video_streaming
 

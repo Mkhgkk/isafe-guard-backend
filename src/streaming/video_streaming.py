@@ -7,8 +7,6 @@ import subprocess
 import requests
 from collections import deque
 from queue import Queue
-from appwrite.client import Client
-from appwrite.services.databases import Databases
 from appwrite.id import ID
 from detection.object_detection import ObjectDetection
 from socket_.socketio_instance import socketio
@@ -18,35 +16,32 @@ from database import get_database_instance
 
 databases = get_database_instance()
 
-class VideoStreaming:
+class StreamManager:
     def __init__(self, rtsp_link, model_name, stream_id, ptz_autotrack=False):
-        self.VIDEO = None
         self.MODEL = ObjectDetection()
+        self.stream_id = stream_id
+        self.rtsp_link = rtsp_link
+        self.model_name = model_name
         self.fps_queue = deque(maxlen=30)
-        self.total_frame_count = 0
-        self.unsafe_frame_count = 0
-        self.frames_written = 0
-        self.video_name = None
-
         self.frame_buffer = Queue(maxsize=10)
         self.running = False
         self.stop_event = threading.Event()
 
-        self.stream_id = stream_id
-        self.rtsp_link = rtsp_link
-        self.model_name = model_name
+        self.total_frame_count = 0
+        self.unsafe_frame_count = 0
+        self.frames_written = 0
+        self.video_name = None
+        self.last_event_time = 0  # 
+        self.event_cooldown_seconds = 30  
 
         self.ptz_autotrack = ptz_autotrack
-        
+        self.ptz_auto_tracker = None
+
         self.safe_area_tracker = SafeAreaTracker()
         safe_area_trackers[stream_id] = self.safe_area_tracker
 
-        self.ptz_auto_tracker = None
         self.camera_controller = None
 
-        # Variables to manage recording cooldown
-        self.last_event_time = 0  # Track the time of the last unsafe event
-        self.event_cooldown_seconds = 30  # Cooldown period in seconds
 
     def apply_model(self, frame, model_name):
         model = self.MODEL.models.get(model_name)
