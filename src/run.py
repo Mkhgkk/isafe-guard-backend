@@ -81,59 +81,19 @@ async def fetch_schedules():
   await asyncio.gather(*tasks)
 
 
-def main():
-    print(int(time.time()))
-    fetch_streams()
-    # fetch_schedules()
-    print("app starting...")
-    asyncio.run(fetch_schedules())
-    app = create_app()
-    app.databases = databases
-
-    scheduler = BackgroundScheduler()
-    scheduler.add_job(func=get_system_utilization, trigger="interval", seconds=2)
-    scheduler.start()
-    
-    try:
-        # This runs the Flask app, and it will be interrupted by a KeyboardInterrupt (Ctrl+C).
-        app.run(host=app.config["FLASK_DOMAIN"], port=app.config["FLASK_PORT"], debug=False, use_reloader=False, threaded=True)
-    except KeyboardInterrupt:
-        print("Server interrupted. Shutting down...")
-        scheduler.shutdown(wait=False)  
-        
-        for stream_id, video_stream in streams.items():
-           video_stream.stop_stream()
-
-        sys.exit(1)
-    
-
-
 
 if __name__ == "__main__":
-  print(int(time.time()))
   fetch_streams()
-  # fetch_schedules()
   print("app starting...")
   asyncio.run(fetch_schedules())
   app = create_app()
   app.databases = databases
 
   scheduler = BackgroundScheduler()
-  scheduler.add_job(func=get_system_utilization, trigger="interval", seconds=2)
-  scheduler.start()
+  if scheduler.running:
+    scheduler.add_job(func=get_system_utilization, trigger="interval", seconds=2)
+    scheduler.start()
   
-  # try:
-  #     # This runs the Flask app, and it will be interrupted by a KeyboardInterrupt (Ctrl+C).
-  #     app.run(host=app.config["FLASK_DOMAIN"], port=app.config["FLASK_PORT"], debug=False, use_reloader=False, threaded=True)
-  # except KeyboardInterrupt:
-  #     print("Server interrupted. Shutting down...")
-  #     scheduler.shutdown(wait=False)  
-      
-  #     for stream_id, video_stream in streams.items():
-  #         video_stream.stop_stream()
-
-  #     sys.exit(1)
-
   app.run(host=app.config["FLASK_DOMAIN"], port=app.config["FLASK_PORT"], debug=False, use_reloader=False, threaded=True)
 
 
@@ -141,15 +101,16 @@ if __name__ == "__main__":
   def handle_exit(signum, frame):
     print("Received termination signal. Shutting down...")
     try:
-        # if scheduler.running:
-        #     scheduler.shutdown(wait=True)
+        if scheduler.running:
+            scheduler.shutdown(wait=False)
         # for stream_id, video_stream in streams.items():
         #     video_stream.stop_stream()
         pass
     except Exception as e:
         print(f"Error during shutdown: {e}")
     finally:
-        os._exit(0)  # Force exit to prevent lingering threads
+        # Force exit
+        os._exit(0)
 
-  signal.signal(signal.SIGINT, handle_exit)  # Handle Ctrl+C
-  signal.signal(signal.SIGTERM, handle_exit)  # Handle termination signals
+  signal.signal(signal.SIGINT, handle_exit)
+  signal.signal(signal.SIGTERM, handle_exit)
