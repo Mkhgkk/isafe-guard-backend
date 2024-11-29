@@ -329,6 +329,10 @@ def set_danger_zone():
 @stream_blueprint.route("/", methods=['POST'])
 def create_stream():
     return Stream().create_stream()
+
+@stream_blueprint.route("/<stream_id>", methods=['GET'])
+def get_stream(stream_id):
+    return Stream().get_stream(stream_id)
     
 @stream_blueprint.route("/get_current_frame", methods=['POST'])
 def get_current_frame():

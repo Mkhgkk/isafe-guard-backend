@@ -104,6 +104,14 @@ class Stream:
         # start stream once again
         pass
 
+    def get_stream(self, stream_id):
+        stream = app.db.streams.find_one({ "stream_id": stream_id })
+        
+        if stream:
+            return tools.JsonResp(stream, 200)
+        else:
+            return tools.JsonResp({ "message": "Stream not found!"}, 404)
+
 
     @staticmethod
     def get_all_streams():
