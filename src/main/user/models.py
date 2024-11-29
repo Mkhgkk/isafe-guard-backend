@@ -15,10 +15,7 @@ class User:
       "acct_active": True,
       "date_created": tools.nowDatetimeUTC(),
       "last_login": tools.nowDatetimeUTC(),
-      "first_name": "",
-      "last_name": "",
-      "email": "",
-      "plan": "basic"
+      "email": ""
     }
   
   def get(self):
@@ -61,8 +58,8 @@ class User:
       user = app.db.users.find_one({ "email": email }, { "_id": 0 })
 
       if user and pbkdf2_sha256.verify(data["password"], user["password"]):
-        access_token = auth.encodeAccessToken(user["id"], user["email"], user["plan"])
-        refresh_token = auth.encodeRefreshToken(user["id"], user["email"], user["plan"])
+        access_token = auth.encodeAccessToken(user["id"], user["email"])
+        refresh_token = auth.encodeRefreshToken(user["id"], user["email"])
 
         app.db.users.update({ "id": user["id"] }, { "$set": {
           "refresh_token": refresh_token,
@@ -72,9 +69,6 @@ class User:
         resp = tools.JsonResp({
           "id": user["id"],
           "email": user["email"],
-          "first_name": user["first_name"],
-          "last_name": user["last_name"],
-          "plan": user["plan"],
           "access_token": access_token,
           "refresh_token": refresh_token
         }, 200)
@@ -101,8 +95,6 @@ class User:
     data = json.loads(request.data)
 
     expected_data = {
-      "first_name": data['first_name'],
-      "last_name": data['last_name'],
       "email": data['email'].lower(),
       "password": data['password']
     }
@@ -127,8 +119,8 @@ class User:
       if app.db.users.insert_one(user):
         
         # Log the user in (create and return tokens)
-        access_token = auth.encodeAccessToken(user["id"], user["email"], user["plan"])
-        refresh_token = auth.encodeRefreshToken(user["id"], user["email"], user["plan"])
+        access_token = auth.encodeAccessToken(user["id"], user["email"])
+        refresh_token = auth.encodeRefreshToken(user["id"], user["email"])
 
         app.db.users.update_one({ "id": user["id"] }, {
           "$set": {
@@ -139,9 +131,6 @@ class User:
         resp = tools.JsonResp({
           "id": user["id"],
           "email": user["email"],
-          "first_name": user["first_name"],
-          "last_name": user["last_name"],
-          "plan": user["plan"],
           "access_token": access_token,
           "refresh_token": refresh_token
         }, 200)
