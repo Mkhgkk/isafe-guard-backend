@@ -330,9 +330,16 @@ def set_danger_zone():
 def create_stream():
     return Stream().create_stream()
 
-@stream_blueprint.route("/<stream_id>", methods=['GET'])
-def get_stream(stream_id):
-    return Stream().get_stream(stream_id)
+@stream_blueprint.route("/", methods=['GET'])
+def get_streams():
+    """
+        using query params to get either a single stream or a list of streams
+        format looks something like this /api/stream?stream_id=stream1
+    """
+    
+    stream_id = request.args.get('stream_id')
+    return Stream().get(stream_id)
+
     
 @stream_blueprint.route("/get_current_frame", methods=['POST'])
 def get_current_frame():

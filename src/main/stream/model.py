@@ -104,13 +104,21 @@ class Stream:
         # start stream once again
         pass
 
-    def get_stream(self, stream_id):
-        stream = app.db.streams.find_one({ "stream_id": stream_id })
+    def get(self, stream_id):
+        resp = tools.JsonResp({ "message": "Stream(s) not found!"}, 404)
+
+        if stream_id:
+            stream = app.db.streams.find_one({ "stream_id": stream_id })
+            if stream:
+                resp = tools.JsonResp(stream, 200)
         
-        if stream:
-            return tools.JsonResp(stream, 200)
+        
         else:
-            return tools.JsonResp({ "message": "Stream not found!"}, 404)
+            streams = list(app.db.streams.find())
+            if streams:
+                resp = tools.JsonResp(streams, 200)
+
+        return resp
 
 
     @staticmethod
