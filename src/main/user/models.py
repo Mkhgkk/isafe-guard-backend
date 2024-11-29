@@ -15,7 +15,8 @@ class User:
       "acct_active": True,
       "date_created": tools.nowDatetimeUTC(),
       "last_login": tools.nowDatetimeUTC(),
-      "email": ""
+      "email": "",
+      "username": ""
     }
   
   def get(self):
@@ -61,7 +62,7 @@ class User:
         access_token = auth.encodeAccessToken(user["id"], user["email"])
         refresh_token = auth.encodeRefreshToken(user["id"], user["email"])
 
-        app.db.users.update({ "id": user["id"] }, { "$set": {
+        app.db.users.update_one({ "id": user["id"] }, { "$set": {
           "refresh_token": refresh_token,
           "last_login": tools.nowDatetimeUTC()
         } })
@@ -81,7 +82,7 @@ class User:
   def logout(self):
     try:
       tokenData = jwt.decode(request.headers.get("AccessToken"), app.config["SECRET_KEY"])
-      app.db.users.update({ "id": tokenData["user_id"] }, { '$unset': { "refresh_token": "" } })
+      app.db.users.update_one({ "id": tokenData["user_id"] }, { '$unset': { "refresh_token": "" } })
       # Note: At some point I need to implement Token Revoking/Blacklisting
       # General info here: https://flask-jwt-extended.readthedocs.io/en/latest/blacklist_and_token_revoking.html
     except:
@@ -96,7 +97,8 @@ class User:
 
     expected_data = {
       "email": data['email'].lower(),
-      "password": data['password']
+      "password": data['password'],
+      "username": data['username']
     }
 
     # Merge the posted data with the default user attributes
@@ -131,6 +133,7 @@ class User:
         resp = tools.JsonResp({
           "id": user["id"],
           "email": user["email"],
+          "username": user["username"],
           "access_token": access_token,
           "refresh_token": refresh_token
         }, 200)
