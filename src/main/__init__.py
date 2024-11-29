@@ -8,6 +8,7 @@ import os
 # Import Routes
 from main.stream.routes import stream_blueprint
 from main.user.routes import user_blueprint
+from main.event.routes import event_blueprint
 
 from socket_.socketio_instance import socketio
 from socket_.socketio_handlers import setup_socketio_handlers
@@ -44,6 +45,7 @@ def create_app():
   # Register Blueprints
   app.register_blueprint(stream_blueprint, url_prefix="/api/stream")
   app.register_blueprint(user_blueprint, url_prefix="/api/user")
+  app.register_blueprint(event_blueprint, url_prefix="/api/event")
 
   # Socket initialization
   socketio.init_app(app, cors_allowed_origins="*", async_mode='threading')

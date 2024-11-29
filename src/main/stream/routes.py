@@ -32,11 +32,11 @@ from main.shared import safe_area_trackers
 
 
 # @app.route('/api/get_all_streams', methods=['GET'])
-@stream_blueprint.route("/get_all", methods=["GET"])
-def get_all_streams():
-    streams = Stream.get_all_streams()
-    resp = tools.JsonResp(list(streams), 200)
-    return resp
+# @stream_blueprint.route("/get_all", methods=["GET"])
+# def get_all_streams():
+#     streams = Stream.get_all_streams()
+#     resp = tools.JsonResp(list(streams), 200)
+#     return resp
 
 @stream_blueprint.route("/start_stream", methods=['POST'])
 def start_stream():
@@ -336,7 +336,7 @@ def get_streams():
         using query params to get either a single stream or a list of streams
         format looks something like this /api/stream?stream_id=stream1
     """
-    
+
     stream_id = request.args.get('stream_id')
     return Stream().get(stream_id)
 

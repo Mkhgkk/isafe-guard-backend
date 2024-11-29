@@ -95,6 +95,7 @@ class Stream:
         
     def delete_stream(self):
         # delete all related events 
+        # stop stream (if running)
         # delete the stream
         pass
 
@@ -121,10 +122,10 @@ class Stream:
         return resp
 
 
-    @staticmethod
-    def get_all_streams():
-        streams = app.db.streams.find()
-        return streams
+    # @staticmethod
+    # def get_all_streams():
+    #     streams = app.db.streams.find()
+    #     return streams
     
     @staticmethod
     async def start_stream(rtsp_link, model_name, stream_id, end_timestamp, cam_ip=None, ptz_port=None, ptz_username=None, ptz_password=None, home_pan=None, home_tilt=None, home_zoom=None):
