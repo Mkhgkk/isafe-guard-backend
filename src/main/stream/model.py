@@ -2,7 +2,7 @@
 
 # db = create_db_instance()
 from flask import current_app as app
-
+from flask import request
 from main.shared import streams
 from main.shared import camera_controllers
 from streaming.video_streaming import StreamManager
@@ -10,15 +10,101 @@ from utils.camera_controller import CameraController
 from main import tools
 import asyncio
 import time
+import json
 import datetime
 from apscheduler.schedulers.background import BackgroundScheduler
+
+from marshmallow import Schema, fields, ValidationError, validate
 
 from ptz.autotrack import PTZAutoTracker
 
 scheduler = BackgroundScheduler()
 scheduler.start()
 
+class StreamSchema(Schema):
+    stream_id = fields.String(required=True)
+    rtsp_link = fields.String(required=True)
+    model_name = fields.String(required=True, validate=validate.OneOf(['PPE', 'Ladder', 'Mobile Scaffolding', 'Cutting Welding']))
+    location = fields.String(required=True)
+    description = fields.String(required=True)
+    is_active = fields.Boolean(load_default=False)
+    ptz_autotrack = fields.Boolean(load_default=False)
+    supports_ptz = fields.Boolean()
+    cam_ip = fields.String()
+    ptz_password = fields.String()
+    ptz_port = fields.Integer(),
+    ptz_username = fields.String()
+
+stream_schema = StreamSchema()
+
 class Stream:
+    
+    # def __inti__(self):
+    #     self.defaults = {
+    #         "id": tools.randID(),
+    #         "stream_id": "",
+    #         "rtsp_link": "",
+    #         "model_name": "",
+    #         "location": "",
+    #         "description": "",
+    #         "is_active": False,
+    #         "ptz_autotrack": "",
+    #         "supports_ptz": "",
+    #         "cam_ip": "",
+    #         "ptz_password": "",
+    #         "ptz_port": "",
+    #         "ptz_username": "",
+    #     }
+
+    def create_stream(self):
+        data = json.loads(request.data)
+        validation_errors = stream_schema.validate(data)
+
+        # Validate data
+        if validation_errors:
+            return tools.JsonResp({
+                "message": "Validation failed!",
+                "data": validation_errors
+            }, 400)
+        
+        # Check if stream id is unique
+        stream_id = data['stream_id']
+        existing_stream_id  = app.db.streams.find_one({ "stream_id": stream_id})
+        if existing_stream_id:
+            return tools.JsonResp({
+                "message": "There is already a stream with the stream ID.",
+                "error": "stream_id_exists"
+            }, 400)
+        
+        try:
+            data = stream_schema.load(data)
+            stream = app.db.streams.insert_one(data)
+            inserted_id = str(stream.inserted_id)
+            data['_id'] = inserted_id
+
+            return tools.JsonResp({
+                "message": "Stream has been successfully created.",
+                "data": data
+            }, 200)
+        except Exception as e:
+            print(e)
+            return tools.JsonResp({
+                "message": "Stream could not be created",
+                "error": "creating_stream_failed"
+            }, 400)
+        
+    def delete_stream(self):
+        # delete all related events 
+        # delete the stream
+        pass
+
+    def update_stream(self):
+        # stop stream is it is running
+        # update stream 
+        # start stream once again
+        pass
+
+
     @staticmethod
     def get_all_streams():
         streams = app.db.streams.find()

@@ -115,10 +115,10 @@ def stream_video(file_path):
     return Response(generate(), mimetype="video/mp4")
     
 
-@stream_blueprint.route("/video_playback/<filename>", methods=['GET'])
-def stream_file(filename):
-    file_path = os.path.join('/home/Mkhgkk/Projects/Monitoring/src/main/static/videos', filename)
-    return stream_video(file_path)
+# @stream_blueprint.route("/video_playback/<filename>", methods=['GET'])
+# def stream_file(filename):
+#     file_path = os.path.join('/home/Mkhgkk/Projects/Monitoring/src/main/static/videos', filename)
+#     return stream_video(file_path)
     
 
     
@@ -324,6 +324,11 @@ def set_danger_zone():
         print("An error occurred: ", e)
         traceback.print_exc()
         return tools.JsonResp({"status": "error", "message": e}, 400)
+    
+
+@stream_blueprint.route("/", methods=['POST'])
+def create_stream():
+    return Stream().create_stream()
     
 @stream_blueprint.route("/get_current_frame", methods=['POST'])
 def get_current_frame():
