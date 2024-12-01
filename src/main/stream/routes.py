@@ -248,41 +248,42 @@ def delete_schedule():
 
 @stream_blueprint.route("/update_stream", methods=['POST'])
 def update_stream():
-    try:
-        data = json.loads(request.data)
-        stream_id = data['stream_id']
-        rtsp_link = data['rtsp_link']
-        stream_document_id = data['$id']
+    return Stream().update_stream()
+    # try:
+    #     data = json.loads(request.data)
+    #     stream_id = data['stream_id']
+    #     rtsp_link = data['rtsp_link']
+    #     stream_document_id = data['$id']
         
-        # Check if stream is running and stop  it before updating
-        stream = streams.get(stream_id)
-        if stream is not None:
-            # if stream.rtsp_link != rtsp_link:
-            #     Stream.update_rtsp_link(stream_id, rtsp_link)
-            # print(stream)
-            stream.stop_streaming()
+    #     # Check if stream is running and stop  it before updating
+    #     stream = streams.get(stream_id)
+    #     if stream is not None:
+    #         # if stream.rtsp_link != rtsp_link:
+    #         #     Stream.update_rtsp_link(stream_id, rtsp_link)
+    #         # print(stream)
+    #         stream.stop_streaming()
 
-        response = app.databases.update_document(
-            database_id="isafe-guard-db",
-            collection_id="66f504260003d64837e5",
-            document_id=stream_document_id,
-            data=data
-        )
+    #     response = app.databases.update_document(
+    #         database_id="isafe-guard-db",
+    #         collection_id="66f504260003d64837e5",
+    #         document_id=stream_document_id,
+    #         data=data
+    #     )
 
-        print("Document updated successfully.")
+    #     print("Document updated successfully.")
 
-        # Send response
-        return tools.JsonResp({
-            "status": "Success",
-            "message": "Stream updated successfully",
-            "data": response
-        }, 200)
+    #     # Send response
+    #     return tools.JsonResp({
+    #         "status": "Success",
+    #         "message": "Stream updated successfully",
+    #         "data": response
+    #     }, 200)
 
 
-    except Exception as e: 
-        print("An error occurred: ", e)
-        traceback.print_exc()
-        return tools.JsonResp({"status": "error", "message": e}, 400)
+    # except Exception as e: 
+    #     print("An error occurred: ", e)
+    #     traceback.print_exc()
+    #     return tools.JsonResp({"status": "error", "message": e}, 400)
     
 
 
@@ -304,7 +305,8 @@ def set_danger_zone():
         file_name = os.path.basename(path)
 
         image_path = os.path.join('main/static/frame_refs', file_name)
-        reference_frame = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+        # reference_frame = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+        reference_frame = cv2.imread(image_path)
         safe_area_box = coords
 
         # safe_area_tracker.update_safe_area(reference_frame, safe_area_box)
@@ -326,11 +328,11 @@ def set_danger_zone():
         return tools.JsonResp({"status": "error", "message": e}, 400)
     
 
-@stream_blueprint.route("/", methods=['POST'])
+@stream_blueprint.route("", methods=['POST'])
 def create_stream():
     return Stream().create_stream()
 
-@stream_blueprint.route("/", methods=['GET'])
+@stream_blueprint.route("", methods=['GET'])
 def get_streams():
     """
         using query params to get either a single stream or a list of streams

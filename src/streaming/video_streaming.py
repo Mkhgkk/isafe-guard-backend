@@ -127,7 +127,7 @@ class StreamManager:
         threading.Thread(target=self.process_and_emit_frames, args=(self.model_name,), daemon=True).start()
 
     def stop_streaming(self):
-        # self.running = False
+        self.running = False
         self.stop_event.set()
 
     def generate_frames(self, rtsp_link, model_name):

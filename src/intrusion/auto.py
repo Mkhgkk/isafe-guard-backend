@@ -31,6 +31,7 @@ class SafeAreaTracker:
         if self.reference_frame is None or self.safe_area_box is None:
             return frame
         
+        # current_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         current_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
         keypoints_ref, descriptors_ref = self.orb.detectAndCompute(self.reference_frame, None)

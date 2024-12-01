@@ -32,8 +32,11 @@ class StreamSchema(Schema):
     supports_ptz = fields.Boolean()
     cam_ip = fields.String()
     ptz_password = fields.String()
-    ptz_port = fields.Integer(),
+    ptz_port = fields.Integer()
     ptz_username = fields.String()
+
+    # class Meta:
+    #     unknown = INCLUDE
 
 stream_schema = StreamSchema()
 
@@ -101,9 +104,58 @@ class Stream:
 
     def update_stream(self):
         # stop stream is it is running
-        # update stream 
-        # start stream once again
-        pass
+        data = json.loads(request.data)
+        validation_errors = stream_schema.validate(data)
+
+        if validation_errors:
+            return tools.JsonResp({
+                "message": "Validation failed!",
+                "data": validation_errors
+            }, 400)
+        
+        stream_id = data['stream_id']
+        current_stream  = app.db.streams.find_one({ "stream_id": stream_id})
+
+        if not current_stream:
+            return tools.JsonResp({
+                "message": "Stream with the given ID doesn't exist.",
+                "error": "stream_not_found"
+            }, 404)
+        
+
+        # Check if rtsp link is different
+        # if current_stream['rtsp_link'].strip() != data['rtsp_link'].strip():
+            
+        # check if stream is running and stop it
+        stream_manager = streams.get(stream_id, None)
+        is_stream_running = stream_manager and stream_manager.running
+        print("IS STREAM RUNNING: ", is_stream_running)
+
+        if is_stream_running:
+            Stream.stop_stream(stream_id)
+
+
+        try:
+            _stream = stream_schema.load(data)
+            _stream = app.db.streams.replace_one({"stream_id": stream_id}, _stream)
+            # inserted_id = str(_stream.inserted_id)
+            # data['_id'] = inserted_id
+
+            return tools.JsonResp({
+                "message": "Stream has been successfully updated.",
+                "data": data
+            }, 200)
+        except Exception as e:
+            print(e)
+            return tools.JsonResp({
+                "message": "Stream could not be updated",
+                "error": "updating_stream_failed"
+            }, 400)
+        finally:
+            pass
+            if is_stream_running:
+                asyncio.create_task(Stream.start_stream(**data))
+        
 
     def get(self, stream_id):
         resp = tools.JsonResp({ "message": "Stream(s) not found!"}, 404)
@@ -128,7 +180,7 @@ class Stream:
     #     return streams
     
     @staticmethod
-    async def start_stream(rtsp_link, model_name, stream_id, end_timestamp, cam_ip=None, ptz_port=None, ptz_username=None, ptz_password=None, home_pan=None, home_tilt=None, home_zoom=None):
+    async def start_stream(rtsp_link, model_name, stream_id, end_timestamp, cam_ip=None, ptz_port=None, ptz_username=None, ptz_password=None, home_pan=None, home_tilt=None, home_zoom=None, *args, **kwargs):
         supports_ptz = all([cam_ip, ptz_port, ptz_username, ptz_password])
         ptz_autotrack = all([home_pan, home_tilt, home_zoom])
         
