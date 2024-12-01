@@ -12,14 +12,14 @@ import asyncio
 import time
 import json
 import datetime
-from apscheduler.schedulers.background import BackgroundScheduler
+# from apscheduler.schedulers.background import BackgroundScheduler
 
 from marshmallow import Schema, fields, ValidationError, validate
 
 from ptz.autotrack import PTZAutoTracker
 
-scheduler = BackgroundScheduler()
-scheduler.start()
+# scheduler = BackgroundScheduler()
+# scheduler.start()
 
 class StreamSchema(Schema):
     stream_id = fields.String(required=True)
@@ -97,10 +97,54 @@ class Stream:
             }, 400)
         
     def delete_stream(self):
-        # delete all related events 
+        # delete all related events
         # stop stream (if running)
         # delete the stream
         pass
+
+    def start(self):
+        data = json.loads(request.data)
+        stream_id_only = StreamSchema(only=('stream_id', ))
+        validation_errors = stream_id_only.validate(data)
+
+        if validation_errors:
+            print(validation_errors)
+            return tools.JsonResp({
+                "message": "Validation failed!",
+                "error": validation_errors
+            }, 400)
+        
+        stream_id = data["stream_id"]
+
+        
+        try:
+            # Find the stream in the database
+            stream = app.db.streams.find_one({"stream_id": stream_id}, {"_id": 0})
+            if not stream:
+                return tools.JsonResp({
+                    "message": "Stream with the given ID not found.",
+                    "error": "stream_not_found"
+                }, 404)
+            
+
+            asyncio.run(Stream.start_stream(**stream))
+
+            # Update the `is_active` status
+            app.db.streams.update_one({"stream_id": stream_id}, {"$set": {"is_active": True}})
+
+            return tools.JsonResp({
+                "message": "Stream started successfully.",
+                "data": "ok"
+            }, 500)
+
+        except Exception as e:
+            print(e)  
+            return tools.JsonResp({
+                "message": "Something went wrong",
+                "error": "internal_error"
+            }, 500)
+
+
 
     def update_stream(self):
         # stop stream is it is running
@@ -129,7 +173,7 @@ class Stream:
         # check if stream is running and stop it
         stream_manager = streams.get(stream_id, None)
         is_stream_running = stream_manager and stream_manager.running
-        print("IS STREAM RUNNING: ", is_stream_running)
+        # print("IS STREAM RUNNING: ", is_stream_running)
 
         if is_stream_running:
             Stream.stop_stream(stream_id)
@@ -180,7 +224,7 @@ class Stream:
     #     return streams
     
     @staticmethod
-    async def start_stream(rtsp_link, model_name, stream_id, end_timestamp, cam_ip=None, ptz_port=None, ptz_username=None, ptz_password=None, home_pan=None, home_tilt=None, home_zoom=None, *args, **kwargs):
+    async def start_stream(rtsp_link=None, model_name=None, stream_id=None, cam_ip=None, ptz_port=None, ptz_username=None, ptz_password=None, home_pan=None, home_tilt=None, home_zoom=None, *args, **kwargs):
         supports_ptz = all([cam_ip, ptz_port, ptz_username, ptz_password])
         ptz_autotrack = all([home_pan, home_tilt, home_zoom])
         
@@ -194,9 +238,9 @@ class Stream:
         streams[stream_id] = video_streaming
 
         # Schedule stop stream
-        stop_time = datetime.datetime.fromtimestamp(end_timestamp)
-        scheduler.add_job(Stream.stop_stream, 'date', run_date=stop_time, args=[stream_id])
-        print(f"Stream {stream_id} scheduled to stop at {stop_time}.")
+        # stop_time = datetime.datetime.fromtimestamp(end_timestamp)
+        # scheduler.add_job(Stream.stop_stream, 'date', run_date=stop_time, args=[stream_id])
+        # print(f"Stream {stream_id} scheduled to stop at {stop_time}.")
 
         # Asynchronously configure PTZ to avoid blocking the loop
         if supports_ptz:

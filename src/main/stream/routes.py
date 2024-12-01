@@ -40,47 +40,48 @@ from main.shared import safe_area_trackers
 
 @stream_blueprint.route("/start_stream", methods=['POST'])
 def start_stream():
-    try:
-        data = json.loads(request.data)
-        rtsp_link = data["rtsp_link"]
-        model_name = data["model_name"]
-        stream_id = data["stream_id"]
-        ptz_autotrack = data.get("ptz_autotrack", None)
+    return Stream().start()
+    # try:
+    #     data = json.loads(request.data)
+    #     rtsp_link = data["rtsp_link"]
+    #     model_name = data["model_name"]
+    #     stream_id = data["stream_id"]
+    #     ptz_autotrack = data.get("ptz_autotrack", None)
 
 
-        # Check if a stream with the same stream_id already exists
-        if stream_id in streams:
-            return tools.JsonResp({
-                "status": "error",
-                "message": f"Stream with id {stream_id} already exists!"
-            }, 400)
+    #     # Check if a stream with the same stream_id already exists
+    #     if stream_id in streams:
+    #         return tools.JsonResp({
+    #             "status": "error",
+    #             "message": f"Stream with id {stream_id} already exists!"
+    #         }, 400)
         
-        video_streaming = StreamManager(rtsp_link, model_name, stream_id, ptz_autotrack)
-        video_streaming.start_stream()
-        streams[stream_id] = video_streaming
+    #     video_streaming = StreamManager(rtsp_link, model_name, stream_id, ptz_autotrack)
+    #     video_streaming.start_stream()
+    #     streams[stream_id] = video_streaming
 
-        supports_ptz = data["supports_ptz"]
-        if supports_ptz:
-            cam_ip = data["cam_ip"]
-            ptz_port = data["ptz_port"]
-            ptz_username = data["ptz_username"]
-            ptz_password = data["ptz_password"]
+    #     supports_ptz = data["supports_ptz"]
+    #     if supports_ptz:
+    #         cam_ip = data["cam_ip"]
+    #         ptz_port = data["ptz_port"]
+    #         ptz_username = data["ptz_username"]
+    #         ptz_password = data["ptz_password"]
 
-            camera_controller = CameraController(cam_ip, ptz_port, ptz_username, ptz_password)
-            camera_controllers[stream_id] = camera_controller
+    #         camera_controller = CameraController(cam_ip, ptz_port, ptz_username, ptz_password)
+    #         camera_controllers[stream_id] = camera_controller
 
-        return tools.JsonResp({
-            "status": "Success",
-            "message": "Detector started successfully",
-            "data": data,
-            "supports_ptz": supports_ptz
-        }, 200)
+    #     return tools.JsonResp({
+    #         "status": "Success",
+    #         "message": "Detector started successfully",
+    #         "data": data,
+    #         "supports_ptz": supports_ptz
+    #     }, 200)
 
         
-    except Exception as e:
-        print("An error occurred:", e)
-        traceback.print_exc()
-        return tools.JsonResp({"status": "error", "message": "wrong data format!"}, 400)
+    # except Exception as e:
+    #     print("An error occurred:", e)
+    #     traceback.print_exc()
+    #     return tools.JsonResp({"status": "error", "message": "wrong data format!"}, 400)
     
 
 @stream_blueprint.route("/stop_stream", methods=['POST'])
