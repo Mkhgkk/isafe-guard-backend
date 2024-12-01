@@ -117,7 +117,7 @@ class Stream:
             return tools.JsonResp({
                 "message": "Stream stopped successfully.",
                 "data": "ok"
-            }, 500)
+            }, 200)
 
         except Exception as e:
             print(e)  
@@ -159,7 +159,7 @@ class Stream:
             return tools.JsonResp({
                 "message": "Stream started successfully.",
                 "data": "ok"
-            }, 500)
+            }, 200)
 
         except Exception as e:
             print(e)  
@@ -212,7 +212,8 @@ class Stream:
         finally:
             pass
             if is_stream_running:
-                asyncio.create_task(Stream.start_stream(**data))
+                # asyncio.create_task(Stream.start_stream(**data))
+                asyncio.run(Stream.start_stream(**data))
 
     def get(self, stream_id):
         resp = tools.JsonResp({ "message": "Stream(s) not found!"}, 404)
@@ -313,4 +314,21 @@ class Stream:
         except Exception as e:
             raise RuntimeError(f"Failed to update RTSP link for stream {stream_id}: {e}")
 
+    @staticmethod
+    async def start_active_streams_async():
+        tasks = [] 
+
+        streams = list(app.db.streams.find())
+
+        for stream in streams:
+            if stream["is_active"]:
+                print(stream)
+                task = Stream.start_stream(**stream)
+                tasks.append(task)
+
+        try:
+            await asyncio.gather(*tasks)
+        except Exception as e:
+            print(f"Error starting streams: {e}")
+        # asyncio.run(*tasks)
 

@@ -84,8 +84,13 @@ if __name__ == "__main__":
   # fetch_streams()
   print("app starting...")
   # asyncio.run(fetch_schedules())
+  # Stream.start_active_streams_async()
   app = create_app()
   app.databases = databases
+
+  # asyncio.run(Stream.start_active_streams_async())
+  with app.app_context():
+        asyncio.run(Stream.start_active_streams_async())
 
   scheduler = BackgroundScheduler()
   if not scheduler.running:
