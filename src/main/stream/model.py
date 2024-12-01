@@ -41,23 +41,6 @@ class StreamSchema(Schema):
 stream_schema = StreamSchema()
 
 class Stream:
-    
-    # def __inti__(self):
-    #     self.defaults = {
-    #         "id": tools.randID(),
-    #         "stream_id": "",
-    #         "rtsp_link": "",
-    #         "model_name": "",
-    #         "location": "",
-    #         "description": "",
-    #         "is_active": False,
-    #         "ptz_autotrack": "",
-    #         "supports_ptz": "",
-    #         "cam_ip": "",
-    #         "ptz_password": "",
-    #         "ptz_port": "",
-    #         "ptz_username": "",
-    #     }
 
     def create_stream(self):
         data = json.loads(request.data)
@@ -102,6 +85,47 @@ class Stream:
         # delete the stream
         pass
 
+    def stop(self):
+        data = json.loads(request.data)
+        stream_id_only = StreamSchema(only=('stream_id', ))
+        validation_errors = stream_id_only.validate(data)
+
+        if validation_errors:
+            print(validation_errors)
+            return tools.JsonResp({
+                "message": "Validation failed!",
+                "error": validation_errors
+            }, 400)
+        
+        stream_id = data["stream_id"]
+
+        try:
+            # Find the stream in the database
+            stream = app.db.streams.find_one({"stream_id": stream_id}, {"_id": 0})
+            if not stream:
+                return tools.JsonResp({
+                    "message": "Stream with the given ID not found.",
+                    "error": "stream_not_found"
+                }, 404)
+            
+            # asyncio.run(Stream.start_stream(**stream))
+            Stream.stop_stream(stream_id)
+
+            # Update the `is_active` status
+            app.db.streams.update_one({"stream_id": stream_id}, {"$set": {"is_active": False}})
+
+            return tools.JsonResp({
+                "message": "Stream stopped successfully.",
+                "data": "ok"
+            }, 500)
+
+        except Exception as e:
+            print(e)  
+            return tools.JsonResp({
+                "message": "Something went wrong",
+                "error": "internal_error"
+            }, 500)
+
     def start(self):
         data = json.loads(request.data)
         stream_id_only = StreamSchema(only=('stream_id', ))
@@ -144,10 +168,7 @@ class Stream:
                 "error": "internal_error"
             }, 500)
 
-
-
     def update_stream(self):
-        # stop stream is it is running
         data = json.loads(request.data)
         validation_errors = stream_schema.validate(data)
 
@@ -167,23 +188,16 @@ class Stream:
             }, 404)
         
 
-        # Check if rtsp link is different
-        # if current_stream['rtsp_link'].strip() != data['rtsp_link'].strip():
-            
         # check if stream is running and stop it
         stream_manager = streams.get(stream_id, None)
         is_stream_running = stream_manager and stream_manager.running
-        # print("IS STREAM RUNNING: ", is_stream_running)
 
         if is_stream_running:
             Stream.stop_stream(stream_id)
 
-
         try:
             _stream = stream_schema.load(data)
             _stream = app.db.streams.replace_one({"stream_id": stream_id}, _stream)
-            # inserted_id = str(_stream.inserted_id)
-            # data['_id'] = inserted_id
 
             return tools.JsonResp({
                 "message": "Stream has been successfully updated.",
@@ -199,7 +213,6 @@ class Stream:
             pass
             if is_stream_running:
                 asyncio.create_task(Stream.start_stream(**data))
-        
 
     def get(self, stream_id):
         resp = tools.JsonResp({ "message": "Stream(s) not found!"}, 404)
@@ -216,12 +229,6 @@ class Stream:
                 resp = tools.JsonResp(streams, 200)
 
         return resp
-
-
-    # @staticmethod
-    # def get_all_streams():
-    #     streams = app.db.streams.find()
-    #     return streams
     
     @staticmethod
     async def start_stream(rtsp_link=None, model_name=None, stream_id=None, cam_ip=None, ptz_port=None, ptz_username=None, ptz_password=None, home_pan=None, home_tilt=None, home_zoom=None, *args, **kwargs):
