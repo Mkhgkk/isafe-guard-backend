@@ -13,7 +13,7 @@ from main.event.routes import event_blueprint
 from socket_.socketio_instance import socketio
 from socket_.socketio_handlers import setup_socketio_handlers
 
-
+from database import MongoDatabase, initialize_database, get_database
 
 
 def create_app():
@@ -39,8 +39,11 @@ def create_app():
     # mongo = MongoClient(app.config["MONGO_HOSTNAME"], app.config["MONGO_PORT"])
     # app.db = mongo[app.config["MONGO_APP_DATABASE"]]
 
-    mongo = MongoClient(app.config["MONGO_URI"])
-    app.db = mongo[app.config["MONGO_APP_DATABASE"]]
+    # mongo = MongoClient(app.config["MONGO_URI"])
+    # app.db = mongo[app.config["MONGO_APP_DATABASE"]]
+
+    initialize_database(app.config["MONGO_URI"], app.config["MONGO_APP_DATABASE"])
+    app.db = get_database()
   else:
     mongo = MongoClient("localhost")
     mongo[app.config["MONGO_AUTH_DATABASE"]].authenticate(app.config["MONGO_AUTH_USERNAME"], app.config["MONGO_AUTH_PASSWORD"])

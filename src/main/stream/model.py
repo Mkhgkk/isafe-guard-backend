@@ -80,7 +80,9 @@ class Stream:
             }, 400)
         
     def delete_stream(self):
+        # TODO:
         # delete all related events
+        
         # stop stream (if running)
         # delete the stream
         pass

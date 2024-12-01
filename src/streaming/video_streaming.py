@@ -12,9 +12,13 @@ from detection.object_detection import ObjectDetection
 from socket_.socketio_instance import socketio
 from intrusion.auto import SafeAreaTracker
 from main.shared import safe_area_trackers
-from database import get_database_instance
+# from database import get_database_instance
 
-databases = get_database_instance()
+from flask import current_app as app
+
+from main.event.model import Event
+
+# databases = get_database_instance()
 
 EVENT_VIDEO_DIR = '../main/static/videos'
 EVENT_THUMBNAIL_DIR = '../main/static/thumbnails'
@@ -211,20 +215,34 @@ class StreamManager:
             return
 
         try:
-            response = databases.create_document(
-                database_id="isafe-guard-db",
-                collection_id="670d337f001f9ab7ff34",
-                document_id=ID.unique(),
-                data={
-                    "stream_id": self.stream_id,
-                    "title": title,
-                    "description": description,
-                    "timestamp": int(start_time),
-                    "thumbnail": image_filename,
-                    "video_filename": filename
-                }
-            )
+            data={
+                "stream_id": self.stream_id,
+                "title": title,
+                "description": description,
+                "timestamp": int(start_time),
+                "thumbnail": image_filename,
+                "video_filename": filename
+            }
+            # response = databases.create_document(
+            #     database_id="isafe-guard-db",
+            #     collection_id="670d337f001f9ab7ff34",
+            #     document_id=ID.unique(),
+            #     data={
+            #         "stream_id": self.stream_id,
+            #         "title": title,
+            #         "description": description,
+            #         "timestamp": int(start_time),
+            #         "thumbnail": image_filename,
+            #         "video_filename": filename
+            #     }
+            # )
+            # response = Event().create_event(data)
+            # with app.app_context():
+            response = Event().create_event(data)
             print("Event saved successfully with image path:", response)
+                
+
+            # print("Event saved successfully with image path:", response)
 
         except Exception as e:
             print(f"Error saving event to database: {e}")

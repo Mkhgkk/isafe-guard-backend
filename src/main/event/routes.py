@@ -18,7 +18,39 @@ def add():
 	
 
 
-@event_blueprint.route("/", methods=["GET"])
+# @event_blueprint.route("", methods=["GET"])
+# def get_events():
+# 	event_id = request.args.get('event_id')
+# 	return Event().get(event_id)
+
+@event_blueprint.route("/<event_id>", methods=["GET"])
+def get_event(event_id):
+	return Event().get_event(event_id)
+
+@event_blueprint.route("", methods=["GET"])
 def get_events():
-	event_id = request.args.get('event_id')
-	return Event().get(event_id)
+    stream_id = request.args.get("stream_id")
+    start_timestamp = request.args.get("start_timestamp")
+    end_timestamp = request.args.get("end_timestamp")
+    limit = int(request.args.get("limit", 20))
+    page = int(request.args.get("page", 1))
+
+    return Event().get_events(
+        stream_id=stream_id,
+        start_timestamp=start_timestamp,
+        end_timestamp=end_timestamp,
+        limit=limit,
+        page=page
+    )
+
+
+"""
+GET /event
+ -- all events
+ -- if no filter get everything
+ -- paginate by limit and page
+
+ -- filter by timestamp range, start and end
+
+ -- filter by stream by stream_id
+"""

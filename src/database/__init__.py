@@ -1,27 +1,49 @@
-from appwrite.client import Client
-from appwrite.services.databases import Databases
+# # database.py
+# from pymongo import MongoClient
 
-_databases = None
+# mongo_client = None
+# db = None
 
-def initialize_appwrite_client():
-    """
-    Initialize the Appwrite client and return the Databases instance.
-    Raises an exception if initialization fails.
-    """
-    try:
-        client = Client()
-        client.set_endpoint('http://172.105.209.31/v1')\
-            .set_project('66f4c2e6001ef89c0f5c')\
-            .set_key('standard_a5d6a12567fad8968cf5e2bc4482006c886d22e175e2d9bdabfea4453958462e507effc6276fc3f9b6f766bf34bf5290a9cb56d8277003a4128de039fd5a5d7299c12ea831eccc96d04c50655e5f0a7df0a5fcd80532a664649f0fb9e34cdfe33f12d91035738668f6b2bbefb7ed665c8905eb0796038981498cd4e7a9bc22aa')
-        return Databases(client)
-    except Exception as e:
-        raise ConnectionError(f"Failed to initialize Appwrite client: {e}")
+# def initialize_database(uri, db_name):
+#     global mongo_client, db
+#     mongo_client = MongoClient(uri)
+#     db = mongo_client[db_name]
+#     return db
 
-def get_database_instance():
-    """
-    Get the singleton Databases instance. Initialize it if it does not exist.
-    """
-    global _databases
-    if _databases is None:
-        _databases = initialize_appwrite_client()
-    return _databases
+
+from pymongo import MongoClient
+from threading import Lock
+
+class MongoDatabase:
+    _instance = None
+    _lock = Lock()
+
+    def __new__(cls, uri=None, db_name=None):
+        if not cls._instance:
+            with cls._lock:  # Ensure thread safety
+                if not cls._instance:
+                    if not uri or not db_name:
+                        raise ValueError("MongoDatabase not initialized. Provide 'uri' and 'db_name' on first call.")
+                    cls._instance = super().__new__(cls)
+                    cls._instance._initialize(uri, db_name)
+        return cls._instance
+
+    def _initialize(self, uri, db_name):
+        self.mongo_client = MongoClient(uri)
+        self.db = self.mongo_client[db_name]
+
+    @property
+    def database(self):
+        return self.db
+
+
+# Initialize the singleton
+def initialize_database(uri, db_name):
+    """Initializes the MongoDB singleton."""
+    return MongoDatabase(uri, db_name)
+
+
+# Access the database instance
+def get_database():
+    """Returns the shared MongoDB database instance."""
+    return MongoDatabase().database

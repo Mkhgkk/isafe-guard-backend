@@ -14,7 +14,7 @@ import asyncio
 
 from main.stream.model import Stream
 
-from database import get_database_instance
+# from database import get_database_instance
 
 import psutil
 import GPUtil
@@ -30,7 +30,7 @@ logging.getLogger('apscheduler').setLevel(logging.WARNING)
 
 stream_docs = {}
 
-databases = get_database_instance()
+# databases = get_database_instance()
 
 def get_system_utilization():
     """Function to fetch CPU and GPU utilization and emit to frontend."""
@@ -42,38 +42,38 @@ def get_system_utilization():
     socketio.emit('system_status', {'cpu': cpu_usage, 'gpu': gpu_usage}, namespace='/video')
 
 
-def fetch_streams():
-  streams = databases.list_documents(
-    database_id="isafe-guard-db",
-    collection_id="66f504260003d64837e5",
-  )
+# def fetch_streams():
+#   streams = databases.list_documents(
+#     database_id="isafe-guard-db",
+#     collection_id="66f504260003d64837e5",
+#   )
 
-  for stream in  streams['documents']:
-    stream_docs[stream["stream_id"]] = stream
+#   for stream in  streams['documents']:
+#     stream_docs[stream["stream_id"]] = stream
 
-async def fetch_schedules():
-  tasks = []
+# async def fetch_schedules():
+#   tasks = []
 
-  schedules = databases.list_documents(
-    database_id="isafe-guard-db",
-    collection_id="66fa20d600253c7d4503",
-    queries=[Query.greater_than('end_timestamp', int(time.time()))]
-  )
+#   schedules = databases.list_documents(
+#     database_id="isafe-guard-db",
+#     collection_id="66fa20d600253c7d4503",
+#     queries=[Query.greater_than('end_timestamp', int(time.time()))]
+#   )
 
-  for schedule in schedules['documents']:
-    # active schedules
-    if schedule["start_timestamp"] < int(time.time()):
+#   for schedule in schedules['documents']:
+#     # active schedules
+#     if schedule["start_timestamp"] < int(time.time()):
 
-      # if schedule['stream_id'] != 'stream1':
-      #   continue
+#       # if schedule['stream_id'] != 'stream1':
+#       #   continue
       
-      print(schedule)
-      stream = stream_docs[schedule['stream_id']]
+#       print(schedule)
+#       stream = stream_docs[schedule['stream_id']]
      
-      task = Stream.start_stream(stream['rtsp_link'], schedule['model_name'], stream['stream_id'], schedule['end_timestamp'], stream['cam_ip'], stream['ptz_port'], stream['ptz_username'], stream['ptz_password'])
-      tasks.append(task)
+#       task = Stream.start_stream(stream['rtsp_link'], schedule['model_name'], stream['stream_id'], schedule['end_timestamp'], stream['cam_ip'], stream['ptz_port'], stream['ptz_username'], stream['ptz_password'])
+#       tasks.append(task)
 
-  await asyncio.gather(*tasks)
+#   await asyncio.gather(*tasks)
 
 
 
@@ -86,7 +86,7 @@ if __name__ == "__main__":
   # asyncio.run(fetch_schedules())
   # Stream.start_active_streams_async()
   app = create_app()
-  app.databases = databases
+  # app.databases = databases
 
   # asyncio.run(Stream.start_active_streams_async())
   with app.app_context():
