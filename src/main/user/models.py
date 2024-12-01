@@ -5,6 +5,7 @@ from jose import jwt
 from main import tools
 from main import auth
 import json
+import traceback
 
 class User:
 
@@ -75,7 +76,9 @@ class User:
         }, 200)
       
     except Exception:
-      pass
+      print("Error in login:", e)
+      print(traceback.format_exc())
+      resp = tools.JsonResp({ "message": "Internal server error" }, 500)
     
     return resp
   

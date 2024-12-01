@@ -10,15 +10,15 @@ user_blueprint = Blueprint("user", __name__)
 def get():
 	return User().get()
 
-@user_blueprint.route("/auth/", methods=["GET"])
+@user_blueprint.route("/auth", methods=["GET"])
 def getAuth():
 	return User().getAuth()
 
-@user_blueprint.route("/login/", methods=["POST"])
+@user_blueprint.route("/login", methods=["POST"])
 def login():
 	return User().login()
 
-@user_blueprint.route("/logout/", methods=["GET"])
+@user_blueprint.route("/logout", methods=["GET"])
 def logout():
 	return User().logout()
 
