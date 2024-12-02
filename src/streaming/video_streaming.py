@@ -23,7 +23,7 @@ RECONNECT_WAIT_TIME_IN_SECS = 5
 
 class StreamManager:
     def __init__(self, rtsp_link, model_name, stream_id, ptz_autotrack=False):
-        self.MODEL = ObjectDetection()
+        self.DETECTOR = ObjectDetection(model_name)
         self.stream_id = stream_id
         self.rtsp_link = rtsp_link
         self.model_name = model_name
@@ -49,9 +49,7 @@ class StreamManager:
 
 
     def apply_model(self, frame, model_name):
-        model = self.MODEL.models.get(model_name)
-        if not model:
-            raise ValueError(f"Model '{model_name}' not found!")
+        model = self.DETECTOR.model
 
         results = model(frame)
         final_status = "Safe"
@@ -59,15 +57,15 @@ class StreamManager:
         bboxes = None
 
         if model_name == "PPE":
-            final_status, reasons, bboxes = self.MODEL.detect_ppe(frame, results, self.ptz_autotrack)
+            final_status, reasons, bboxes = self.DETECTOR.detect_ppe(frame, results, self.ptz_autotrack)
         elif model_name == "Ladder":
-            final_status = self.MODEL.detect_ladder(frame, results)
+            final_status = self.DETECTOR.detect_ladder(frame, results)
         elif model_name == "MobileScaffolding":
-            final_status = self.MODEL.detect_mobile_scaffolding(frame, results)
+            final_status = self.DETECTOR.detect_mobile_scaffolding(frame, results)
         elif model_name == "Scaffolding":
-            final_status, reasons = self.MODEL.detect_scaffolding(frame, results)
+            final_status, reasons = self.DETECTOR.detect_scaffolding(frame, results)
         elif model_name == "CuttingWelding":
-            final_status = self.MODEL.detect_cutting_welding(frame, results)
+            final_status = self.DETECTOR.detect_cutting_welding(frame, results)
 
         return frame, final_status, [reasons], bboxes
 

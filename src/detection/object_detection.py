@@ -2,31 +2,30 @@ import os
 import datetime
 import cv2
 from ultralytics import YOLO
-from ptz.autotrack import PTZAutoTracker
 import numpy as np
 
-# tracker = PTZAutoTracker()
+PROJECT_PATH = os.path.abspath(os.getcwd())
+MODELS_PATH = os.path.join(PROJECT_PATH, "models")
+
+# # Load models
+# models = models = {
+#         # "PPE": YOLO(os.path.join(MODELS_PATH, "PPEbest.pt")),
+#         "PPE": YOLO(os.path.join(MODELS_PATH, "PPEbest.engine")),
+#         # "PPE": YOLO("http://localhost:8000/PPEtrt", task="detect"),
+#         # "Ladder": YOLO(os.path.join(MODELS_PATH, "Ladder_yolov8.pt")),
+#         # # "Ladder": YOLO(os.path.join(MODELS_PATH, "Ladder_yolov8.engine")),
+#         # "MobileScaffolding": YOLO(os.path.join(MODELS_PATH, "MobileScaffoldingbest.pt")),
+#         # # "Scaffolding": YOLO(os.path.join(MODELS_PATH, "best_2024_scafolding.engine")),
+#         # # "Scaffolding": YOLO(os.path.join(MODELS_PATH, "scaffolding_yolov8.pt")),
+#         # "Scaffolding": YOLO(os.path.join(MODELS_PATH, "best_scaffolding.engine")),
+#         # # "CuttingWelding": YOLO(os.path.join(MODELS_PATH, "cutting_welding_yolov8.engine")),
+#         # "CuttingWelding": YOLO(os.path.join(MODELS_PATH, "cutting_welding_yolov8.pt")),
+#     }
 
 class ObjectDetection:
-    # _instance = None  # class attribute to hold the single instance
-
-    # def __new__(cls, *args, **kwargs):
-    #     # Check if an instance already exists
-    #     if cls._instance is None:
-    #         # Create a new instance and assign it to _instance
-    #         cls._instance = super(ObjectDetection, cls).__new__(cls)
-    #     return cls._instance
-
-    def __init__(self):
-        # This ensures the init code only runs once
-        if not hasattr(self, 'initialized'):
-            print("Has not been init...")
-            # Define paths for model storage
-            PROJECT_PATH = os.path.abspath(os.getcwd())
-            MODELS_PATH = os.path.join(PROJECT_PATH, "models")
-
-            # Load YOLO models
-            self.models = {
+    def __init__(self, model_name):
+        # Load models
+        models = models = {
                 # "PPE": YOLO(os.path.join(MODELS_PATH, "PPEbest.pt")),
                 "PPE": YOLO(os.path.join(MODELS_PATH, "PPEbest.engine")),
                 # "PPE": YOLO("http://localhost:8000/PPEtrt", task="detect"),
@@ -39,8 +38,11 @@ class ObjectDetection:
                 # # "CuttingWelding": YOLO(os.path.join(MODELS_PATH, "cutting_welding_yolov8.engine")),
                 # "CuttingWelding": YOLO(os.path.join(MODELS_PATH, "cutting_welding_yolov8.pt")),
             }
-            self.initialized = True  # Mark the instance as initialized
-        
+            
+        self.model = models.get(model_name)
+
+        if not self.model:
+            raise ValueError(f"Model '{model_name}' not found. Available models are: {', '.join(models.keys())}")
 
     def detect_ppe(self, image, results, ptz_autotrack):
         person_boxes = []
@@ -104,63 +106,6 @@ class ObjectDetection:
 
         return final_status , reasons, bboxes
 
-#emma Code
-    '''def detect_ppe(self, image, results, ptz_autotrack):
-        person_boxes = []
-        hat_boxes = []
-        final_status = "Safe"
-        
-
-        # if not results or all(len(result.boxes.data) == 0 for result in results):
-        #     tracker.track(1280, 720, None)  
-        # else:
-        #     tracker.track(1280, 720, )
-
-        for result in results:
-            for box in result.boxes.data:
-                coords = list(map(int, box[:4]))
-                confi = float(box[4])
-                clas = int(box[5])
-                if confi > 0.6:
-                    if clas == 1:
-                        cv2.rectangle(image, (coords[0], coords[1]), (coords[2], coords[3]), (0, 255, 0), 2)
-                        cv2.putText(image, f"Hard Hat {confi:.2f}", (coords[0], coords[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-                        hat_boxes.append(coords)
-                    elif clas == 2:
-                        person_boxes.append(coords)
-
-        for perBox in person_boxes:
-            hatDetected = any(perBox[0] <= (hatBox[0] + hatBox[2]) / 2 < perBox[2] and hatBox[1] >= perBox[1] - 20 for hatBox in hat_boxes)
-            if hatDetected:
-                cv2.rectangle(image, (perBox[0], perBox[1]), (perBox[2], perBox[3]), (0, 180, 0), 2)
-                cv2.putText(image, "Worker with helmet", (perBox[0], perBox[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 180, 0), 2)
-            else:
-                final_status = "UnSafe"
-                # autotrack from here
-                # desired_width, desired_height = 1280, 720 
-                # tracker.track(1280, 720, perBox)
-                cv2.rectangle(image, (perBox[0], perBox[1]), (perBox[2], perBox[3]), (0, 0, 255), 2)
-                cv2.putText(image, "Worker without helmet", (perBox[0], perBox[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
-
-        color_status = (0, 0, 255) if final_status == "UnSafe" else (0, 255, 0)
-        cv2.putText(image, final_status, (40, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, color_status, 3)
-
-        
-        if ptz_autotrack == True:
-            # Because the track method expects this format
-            bboxes = [(box[0], box[1], box[2], box[3]) for box in person_boxes]
-
-            # Initialize the tracker 
-            frame_height, frame_width = image.shape[:2]
-
-            if bboxes:
-                # Call the track method of PTZAutoTracker with detected person boxes
-                tracker.track(frame_width, frame_height, bboxes)
-            else:
-                # If no person is detected, inform the tracker to reset or move to default
-                tracker.track(frame_width, frame_height, None)
-
-        return final_status '''
 
     def detect_ladder(self, image, results):
         global_behaviour = "Safe"
@@ -331,152 +276,6 @@ class ObjectDetection:
         color_status = (0, 0, 255) if final_status == "UnSafe" else (0, 255, 0)
         cv2.putText(image, f"{final_status} : {' '.join(final_message)}", (20, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, color_status, 2)
         return final_status
-    # Emma Code
-    '''def detect_scaffolding(self, image, results):
-        person = []
-        hat = []
-        hook = []
-        o_hatch = 0
-        c_hatch = 0
-        final_status = ""
-
-        for result in results:
-            for (x0, y0, x1, y1, confi, clas) in result.boxes.data:
-                if confi > 0.6:
-                    box = [int(x0), int(y0), int(x1 - x0), int(y1 - y0)]
-                    box2 = [int(x0), int(y0), int(x1), int(y1)]
-                    box3 = [int(x0), int(y0), int(x1), int(y1)]
-                    if int(clas) == 3:
-                        cv2.rectangle(image, box, (0, 130, 0), 2)
-                        cv2.putText(image, "hook {:.2f}".format(confi), (box[0], box[1] - 10),
-                                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 200, 0), 2)
-                        hook.append(box3)
-                    elif int(clas) == 2:
-                        cv2.rectangle(image, box, (0, 255, 0), 2)
-                        cv2.putText(image, "Hard Hat {:.2f}".format(confi), (box[0], box[1] - 10),
-                                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
-                        hat.append(box2)
-                    elif int(clas) == 4:
-                        o_hatch += 1
-                        cv2.rectangle(image, box, (0, 0, 255), 2)
-                        cv2.putText(image, "opened_hatch {:.2f}".format(confi), (box[0], box[1] - 10),
-                                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
-                    elif int(clas) == 5:
-                        c_hatch += 1
-                        cv2.rectangle(image, box, (0, 255, 0), 2)
-                        cv2.putText(image, "closed_hatch {:.2f}".format(confi), (box[0], box[1] - 10),
-                                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
-                    elif int(clas) == 1:
-                        person.append(box2)
-
-        class_worker_count = len(person)
-        class_helmet_count = len(hat)
-        class_hook_count = len(hook)
-
-        missing_hooks = max(0, class_worker_count - class_hook_count)
-        missing_helmet = max(0, class_worker_count - class_helmet_count)
-
-        #final_status = "Safe" if missing_helmet == 0 and missing_hooks == 0 and c_hatch >= 0 else "UnSafe"
-        final_status = "Safe" if missing_helmet == 0 and missing_hooks == 0 else "UnSafe"
-
-        for perBox in person:
-            hatDetected = any(int(hatBox[0]) > int(perBox[0]) and int(hatBox[2]) < int(perBox[2]) and hatBox[1] >= perBox[1] - 20 for hatBox in hat)
-            color = (0, 180, 0) if hatDetected else (0, 0, 255)
-            cv2.rectangle(image, (perBox[0], perBox[1]), (perBox[2], perBox[3]), color, 2)
-            status_text = "Person with helmet" if hatDetected else "Person without helmet"
-            cv2.putText(image, status_text, (perBox[0], perBox[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.3, color, 2)
-            if not hatDetected:
-                final_status = "UnSafe"
-
-        color_status = (0, 0, 255) if final_status != "Safe" else (0, 255, 0)
-        color_hooks = (0, 255, 0) if missing_hooks == 0 else (0, 0, 255)
-        color_helmet = (0, 255, 0) if missing_helmet == 0 else (0, 0, 255)
-
-        cv2.putText(image, f"{final_status}", (40, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color_status, 3)
-        cv2.putText(image, f"[Missing {missing_hooks} hooks]", (135, 35), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color_hooks, 2)
-        cv2.putText(image, f"[Missing {missing_helmet} helmet]", (135, 70), cv2.FONT_HERSHEY_SIMPLEX, 0.4, color_helmet, 2)
-        return final_status'''
-
-# Sibtain Code
-    '''def detect_scaffolding(self, image, results):
-        person = []
-        hat = []
-        hook = []
-        o_hatch = 0
-        c_hatch = 0
-        final_status = ""
-        reason=[]
-
-        for result in results:
-            for (x0, y0, x1, y1, confi, clas) in result.boxes.data:
-                if confi > 0.6:
-                    box = [int(x0), int(y0), int(x1 - x0), int(y1 - y0)]
-                    box2 = [int(x0), int(y0), int(x1), int(y1)]
-                    box3 = [int(x0), int(y0), int(x1), int(y1)]
-                    if int(clas) == 5:
-                        cv2.rectangle(image, box, (0, 130, 0), 2)
-                        cv2.putText(image, "hook {:.2f}".format(confi), (box[0], box[1] - 10),
-                                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 200, 0), 2)
-                        hook.append(box3)
-                    elif int(clas) == 3:
-                        cv2.rectangle(image, box, (0, 255, 0), 2)
-                        cv2.putText(image, "Hard Hat {:.2f}".format(confi), (box[0], box[1] - 10),
-                                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
-                        hat.append(box2)
-                    elif int(clas) == 7:
-                        o_hatch += 1
-                        cv2.rectangle(image, box, (0, 0, 255), 2)
-                        cv2.putText(image, "opened_hatch {:.2f}".format(confi), (box[0], box[1] - 10),
-                                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
-                    elif int(clas) == 8:
-                        c_hatch += 1
-                        cv2.rectangle(image, box, (0, 255, 0), 2)
-                        cv2.putText(image, "closed_hatch {:.2f}".format(confi), (box[0], box[1] - 10),
-                                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
-                    elif int(clas) == 1:
-                        person.append(box2)
-
-        class_worker_count = len(person)
-        class_helmet_count = len(hat)
-        class_hook_count = len(hook)
-
-        missing_hooks = max(0, class_worker_count - class_hook_count)
-        missing_helmet = max(0, class_worker_count - class_helmet_count)
-
-        final_status = "Safe" if missing_helmet == 0 and missing_hooks == 0 else "UnSafe"
-
-        for perBox in person:
-            hatDetected = any(
-                int(hatBox[0]) > int(perBox[0]) and int(hatBox[2]) < int(perBox[2]) and hatBox[1] >= perBox[1] - 20 for
-                hatBox in hat)
-            color = (0, 180, 0) if hatDetected else (0, 0, 255)
-            cv2.rectangle(image, (perBox[0], perBox[1]), (perBox[2], perBox[3]), color, 2)
-            status_text = "Worker with helmet" if hatDetected else "Worker without helmet"
-            cv2.putText(image, status_text, (perBox[0], perBox[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.3, color, 2)
-            if not hatDetected:
-                final_status = "UnSafe"
-        vertical_person = False
-        for i, perBox1 in enumerate(person):
-            for j, perBox2 in enumerate(person):
-                # Skip comparing the same box with itself
-                if i != j:
-                    if perBox1[1] > perBox2[3] or perBox2[1] > perBox1[3]:
-
-                        if (perBox1[0] < perBox2[2] and perBox1[2] > perBox2[0]):
-                            vertical_person = True
-
-        color_status = (0, 0, 255) if final_status != "Safe" else (0, 255, 0)
-        color_hooks = (0, 255, 0) if missing_hooks == 0 else (0, 0, 255)
-        color_helmet = (0, 255, 0) if missing_helmet == 0 else (0, 0, 255)
-
-        cv2.putText(image, f"{final_status}", (40, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color_status, 3)
-        cv2.putText(image, f"[Missing {missing_hooks} hooks]", (135, 35), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color_hooks, 2)
-        cv2.putText(image, f"[Missing {missing_helmet} helmet]", (135, 70), cv2.FONT_HERSHEY_SIMPLEX, 0.4, color_helmet,
-                    2)
-        if vertical_person:
-            cv2.putText(image, f"Working in same vertical area ", (135, 150), cv2.FONT_HERSHEY_SIMPLEX, 0.4,
-                        (0, 0, 255), 2)
-        return final_status'''
     
     # Farhan bbox with black bg text
     def detect_scaffolding(self, image, results):
