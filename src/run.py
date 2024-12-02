@@ -10,7 +10,6 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from main import create_app
 from main.stream.model import Stream
 from socket_.socketio_instance import socketio
-# from main.shared import streams
 
 logging.getLogger('apscheduler').setLevel(logging.WARNING)
 logging.getLogger('ultralytics').setLevel(logging.WARNING)
@@ -31,7 +30,7 @@ if __name__ == "__main__":
   # TODO:
   # asyncio should run after app has started because of socket connection
 
-  print("app starting...")
+  logging.info("App starting...")
   app = create_app()
 
   with app.app_context():
