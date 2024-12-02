@@ -1,15 +1,11 @@
-from marshmallow import Schema, fields, ValidationError, validate
 import json
+from bson import ObjectId
+from datetime import datetime
 from flask import current_app as app
 from flask import request
-
-from main import tools
-
-from bson import ObjectId
-
-from datetime import datetime
 from pymongo import ASCENDING, DESCENDING
-
+from marshmallow import Schema, fields, ValidationError, validate
+from main import tools
 from database import MongoDatabase, get_database
 
 class EventSchema(Schema):

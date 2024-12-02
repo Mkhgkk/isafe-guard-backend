@@ -1,9 +1,9 @@
+import json
 from flask import Blueprint, request
 from flask import current_app as app
 from main.auth import token_required
 from main.event.model import Event
 from main import tools 
-import json
 
 event_blueprint = Blueprint("event", __name__)
 
@@ -16,13 +16,6 @@ def add():
 	except Exception as e:
 		return tools.JsonResp(e, 400)
 	
-
-
-# @event_blueprint.route("", methods=["GET"])
-# def get_events():
-# 	event_id = request.args.get('event_id')
-# 	return Event().get(event_id)
-
 @event_blueprint.route("/<event_id>", methods=["GET"])
 def get_event(event_id):
 	return Event().get_event(event_id)
@@ -42,15 +35,3 @@ def get_events():
         limit=limit,
         page=page
     )
-
-
-"""
-GET /event
- -- all events
- -- if no filter get everything
- -- paginate by limit and page
-
- -- filter by timestamp range, start and end
-
- -- filter by stream by stream_id
-"""
