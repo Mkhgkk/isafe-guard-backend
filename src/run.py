@@ -13,6 +13,7 @@ from socket_.socketio_instance import socketio
 # from main.shared import streams
 
 logging.getLogger('apscheduler').setLevel(logging.WARNING)
+logging.getLogger('ultralytics').setLevel(logging.WARNING)
 
 stream_docs = {}
 

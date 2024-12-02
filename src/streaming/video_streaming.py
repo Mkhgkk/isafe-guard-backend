@@ -155,7 +155,8 @@ class StreamManager:
                 try:
                     self.frame_buffer.put_nowait(frame)
                 except:
-                    print("Frame buffer is full; dropping frame.")
+                    # print("Frame buffer is full; dropping frame.")
+                    pass
 
             video_capture.release()
             print(f"Stream from {rtsp_link} disconnected. Reconnecting in 5 seconds...")
