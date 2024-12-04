@@ -7,20 +7,6 @@ import numpy as np
 PROJECT_PATH = os.path.abspath(os.getcwd())
 MODELS_PATH = os.path.join(PROJECT_PATH, "models")
 
-# # Load models
-# models = models = {
-#         # "PPE": YOLO(os.path.join(MODELS_PATH, "PPEbest.pt")),
-#         "PPE": YOLO(os.path.join(MODELS_PATH, "PPEbest.engine")),
-#         # "PPE": YOLO("http://localhost:8000/PPEtrt", task="detect"),
-#         # "Ladder": YOLO(os.path.join(MODELS_PATH, "Ladder_yolov8.pt")),
-#         # # "Ladder": YOLO(os.path.join(MODELS_PATH, "Ladder_yolov8.engine")),
-#         # "MobileScaffolding": YOLO(os.path.join(MODELS_PATH, "MobileScaffoldingbest.pt")),
-#         # # "Scaffolding": YOLO(os.path.join(MODELS_PATH, "best_2024_scafolding.engine")),
-#         # # "Scaffolding": YOLO(os.path.join(MODELS_PATH, "scaffolding_yolov8.pt")),
-#         # "Scaffolding": YOLO(os.path.join(MODELS_PATH, "best_scaffolding.engine")),
-#         # # "CuttingWelding": YOLO(os.path.join(MODELS_PATH, "cutting_welding_yolov8.engine")),
-#         # "CuttingWelding": YOLO(os.path.join(MODELS_PATH, "cutting_welding_yolov8.pt")),
-#     }
 
 class ObjectDetection:
     def __init__(self, model_name):
@@ -87,20 +73,6 @@ class ObjectDetection:
         if reasons:
             for idx, reason in enumerate(reasons):
                 self.draw_text_with_background(image, reason, (40, 100 + (idx * 30)), font_scale, (0, 0, 255), thickness)
-
-        # if ptz_autotrack:
-        #     # Because the track method expects this format
-        #     bboxes = [(box[0], box[1], box[2], box[3]) for box in person_boxes]
-
-        #     # Initialize the tracker 
-        #     frame_height, frame_width = image.shape[:2]
-
-        #     if bboxes:
-        #         # Call the track method of PTZAutoTracker with detected person boxes
-        #         tracker.track(frame_width, frame_height, bboxes)
-        #     else:
-        #         # If no person is detected, inform the tracker to reset or move to default
-        #         tracker.track(frame_width, frame_height, None)
 
         bboxes = [(box[0], box[1], box[2], box[3]) for box in person_boxes]
 
