@@ -30,6 +30,9 @@ def setup_socketio_handlers(socketio):
         stream = streams[stream_id]
         camera_controller = stream.camera_controller
 
+        if camera_controller is None:
+            return
+
         room = f"ptz-{stream_id}"
         join_room(room)
 
