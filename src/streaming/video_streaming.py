@@ -224,6 +224,8 @@ class StreamManager:
         except Exception as e:
             print(f"Error saving event to database: {e}")
 
+    
+
     def process_and_emit_frames(self, model_name):
         process = None
         record_duration_seconds = 10  # Duration in seconds for each video segment
@@ -233,17 +235,32 @@ class StreamManager:
         start_time = None
         is_recording = False  # Flag to track if a recording is in progress
 
-        # while self.running:
+        # Start FFmpeg process for streaming
+        ffmpeg_command = [
+            'ffmpeg',
+            '-y',                        # Overwrite output files
+            '-f', 'rawvideo',            # Input format
+            '-vcodec', 'rawvideo',       # Video codec
+            '-pix_fmt', 'bgr24',         # Pixel format (OpenCV uses BGR)
+            '-s', '1280x720',            # Frame size
+            '-r', '20',                  # Frame rate
+            '-i', '-',                   # Input from stdin
+            '-c:v', 'libx264',           # Output codec
+            '-preset', 'ultrafast',      # Encoding speed
+            '-f', 'flv',                 # Output format
+            f'rtmp://localhost:1935/live/{self.stream_id}'  # MediaMTX RTMP URL
+        ]
+        ffmpeg_process = subprocess.Popen(ffmpeg_command, stdin=subprocess.PIPE)
+
         while not self.stop_event.is_set():
             if not self.frame_buffer.empty():
                 frame = self.frame_buffer.get()
                 frame = self.safe_area_tracker.draw_safe_area(frame)
                 processed_frame, final_status, reasons, bboxes = self.apply_model(frame, model_name)
 
-                # run auto tracker
-                if (self.ptz_autotrack and self.ptz_auto_tracker):
+                # PTZ auto-tracker
+                if self.ptz_autotrack and self.ptz_auto_tracker:
                     self.ptz_auto_tracker.track(1280, 720, bboxes)
-
 
                 # Check if the frame is unsafe
                 if final_status != "Safe":
@@ -259,43 +276,36 @@ class StreamManager:
                     fps = 20.0
                 cv2.putText(processed_frame, f"FPS: {fps:.2f}", (1100, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
 
-                # Encode the frame for streaming
-                ret, buffer = cv2.imencode('.jpg', processed_frame, [int(cv2.IMWRITE_JPEG_QUALITY), 90])
-                frame_data = buffer.tobytes()
-                socketio.emit(f'frame-{self.stream_id}', {'image': frame_data}, namespace='/video', room=self.stream_id)
+                # Send the frame to FFmpeg
+                try:
+                    ffmpeg_process.stdin.write(processed_frame.tobytes())
+                except BrokenPipeError:
+                    print("FFmpeg process has stopped unexpectedly. Exiting...")
+                    break
 
-                # Check if we should start or continue saving the video, but only if not already recording
+                # Handle recording logic (if necessary)
                 if not is_recording and self.total_frame_count % frame_interval == 0:
                     unsafe_ratio = self.unsafe_frame_count / frame_interval if frame_interval else 0
                     if unsafe_ratio >= 0.7 and (time.time() - self.last_event_time) > self.event_cooldown_seconds:
-                        # Start the FFmpeg process if it's not already running
                         timestamp = datetime.datetime.now().strftime('%Y%m%d%H%M%S')
                         process, video_name = self.create_video_writer(frame, timestamp, model_name, fps)
                         start_time = time.time()  # Set start_time when the recording starts
-                        is_recording = True  # Set the recording flag to True
-                        self.last_event_time = time.time()  # Update last event time
+                        is_recording = True
+                        self.last_event_time = time.time()
 
-                        # Start a background thread to save the event to the database
                         save_thread = threading.Thread(target=self.save_event_to_database, args=(processed_frame, "Missing Head-hat", "PPE", start_time, video_name))
                         notification_thread = threading.Thread(target=self.send_watch_notification, args=(reasons))
 
                         save_thread.start()
-                        # notification_thread.start()
-
                         print(f"Started recording video at {timestamp}, start_time set to {start_time}")
-
-                # Write the frame to the FFmpeg process
-                if process is not None:
-                    self.write_frames_to_ffmpeg(process, processed_frame)
 
                 # Stop recording if the current video segment has reached the specified duration
                 if process is not None and start_time is not None:
                     if (time.time() - start_time) >= record_duration_seconds:
                         self.finalize_video(process)
                         process = None
-                        start_time = None  # Reset start_time after releasing the video writer
-                        is_recording = False  # Reset the recording flag
-
+                        start_time = None
+                        is_recording = False
                         print(f"Stopped recording video, total duration: {record_duration_seconds} seconds")
 
                 # Reset the unsafe frame count for the next interval
@@ -305,6 +315,8 @@ class StreamManager:
             else:
                 time.sleep(0.01)  # Increase sleep time slightly to reduce CPU usage
 
-        # Release the video writer when stopping
-        if process is not None:
-            self.finalize_video(process)
+        # Release the FFmpeg process
+        if ffmpeg_process:
+            ffmpeg_process.stdin.close()
+            ffmpeg_process.wait()
+
