@@ -67,8 +67,8 @@ class CameraController:
             }
 
             # Define the speed for each direction
-            pan_speed = 0.3  # Speed for pan movement
-            tilt_speed = 0.3  # Speed for tilt movement
+            pan_speed = 0.8  # Speed for pan movement
+            tilt_speed = 0.8  # Speed for tilt movement
 
             # Set the speed for each direction
             if direction == 'up':
