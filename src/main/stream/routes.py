@@ -14,6 +14,8 @@ from main.shared import safe_area_trackers
 from main.shared import streams
 from .model import Stream
 
+from socket_.socketio_instance import socketio
+
 stream_blueprint = Blueprint("stream", __name__)
 
 REFERENCE_FRAME_DIR = '../static/frame_refs'
@@ -136,6 +138,21 @@ def get_streams():
 
     stream_id = request.args.get('stream_id')
     return Stream().get(stream_id)
+
+
+@stream_blueprint.route("/alert", methods=['GET'])
+def alert():
+    """
+        using query params to get either a single stream or a list of streams
+        format looks something like this /api/stream?stream_id=stream1
+    """
+
+    stream_id = request.args.get('stream_id')
+
+    socketio.emit(f'alert-{stream_id}', {'type': "intrusion"}, namespace='/video', room=stream_id)
+    
+    return tools.JsonResp({"data": "ok"}, 200)
+
 
     
 @stream_blueprint.route("/get_current_frame", methods=['POST'])
