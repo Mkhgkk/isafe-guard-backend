@@ -64,6 +64,8 @@ class StreamManager:
             final_status = self.DETECTOR.detect_mobile_scaffolding(frame, results)
         elif model_name == "Scaffolding":
             final_status, reasons = self.DETECTOR.detect_scaffolding(frame, results)
+        elif model_name == "Fire":
+            final_status, reasons = self.DETECTOR.detect_fire_smoke(frame, results)
         elif model_name == "CuttingWelding":
             final_status = self.DETECTOR.detect_cutting_welding(frame, results)
 
