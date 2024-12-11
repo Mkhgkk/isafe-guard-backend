@@ -5,8 +5,10 @@ from ultralytics import YOLO
 import numpy as np
 import time
 
-PROJECT_PATH = os.path.abspath(os.getcwd())
-MODELS_PATH = os.path.join(PROJECT_PATH, "models")
+# PROJECT_PATH = os.path.abspath(os.getcwd())
+# PROJECT_PATH = os.path.abspath(os.getcwd())
+# MODELS_PATH = os.path.join(PROJECT_PATH, "models")
+MODELS_PATH = video_directory = os.path.abspath(os.path.join(os.path.dirname(__file__), '../models'))
 
 
 class ObjectDetection:
