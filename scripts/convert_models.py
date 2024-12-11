@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import os
 import requests
 from ultralytics import YOLO
@@ -6,7 +7,8 @@ model_urls = {
     "PPEbest.pt": "https://storage.googleapis.com/isafe-models/PPEbest.pt"
 }
 
-models_dir = "models"
+# models_dir = "models"
+models_dir = video_directory = os.path.abspath(os.path.join(os.path.dirname(__file__), '../src/models'))
 os.makedirs(models_dir, exist_ok=True)
 
 for model_name, url in model_urls.items():
