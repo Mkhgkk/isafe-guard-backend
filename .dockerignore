@@ -1,0 +1,94 @@
+# Ignore Python cache and compiled files
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+
+# Ignore .engine models because we have to build those for specific environment
+# *.engine
+
+# Ignore virtual environment directories
+venv/
+.venv/
+
+# Ignore system files and IDE-specific files
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*.swn
+*.bak
+*.tmp
+
+# Ignore log files and runtime files
+*.log
+*.out
+*.pid
+
+# Ignore environment files with secrets
+.env
+.env.*
+
+# Ignore Docker-related files (except Dockerfile)
+.dockerignore
+docker-compose.yml
+docker-compose.override.yml
+
+# Ignore test files and directories
+tests/
+test/
+__tests__/
+
+# Ignore version control directories and files
+.git/
+.gitignore
+
+# Ignore coverage reports
+.coverage
+coverage.xml
+htmlcov/
+
+# Ignore build and distribution directories
+build/
+dist/
+*.egg-info/
+*.egg
+.eggs/
+
+# Ignore cache directories
+.cache/
+pip-wheel-metadata/
+*.whl
+
+# Ignore editor and IDE specific files
+.idea/
+.vscode/
+*.code-workspace
+
+# Ignore all static and media files (customize if needed)
+src/main/static/
+src/main/media/
+
+# Ignore node_modules if the project has any frontend part
+node_modules/
+
+# Ignore backup files
+*.bak
+*.orig
+*.tmp
+*.swp
+
+# Ignore compiled C/C++ extensions if any
+*.so
+*.dll
+
+# Ignore other temporary files
+*.tmp
+*.temp
+*.log.*
+
+# Keep specific files
+!Dockerfile
+!requirements.txt
+!app.py

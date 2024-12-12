@@ -26,9 +26,9 @@ python-jose = "3.3.0"
 passlib = "1.7.4"
 torch = "2.5.1"
 onnx = "1.17.0"
-tensorrt = "10.7.0"
-tensorrt-cu12-bindings = "10.7.0"
-tensorrt-cu12-libs = "10.7.0"
+tensorrt = "10.6.0"
+tensorrt-cu12-bindings = "10.6.0"
+tensorrt-cu12-libs = "10.6.0"
 
 [build-system]
 requires = ["poetry-core"]
