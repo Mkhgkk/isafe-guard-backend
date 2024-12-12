@@ -1,4 +1,3 @@
-# Use the CUDA runtime image instead of the devel image to reduce image size
 FROM nvidia/cuda:12.6.0-runtime-ubuntu22.04
 
 # Set environment variables
@@ -57,17 +56,17 @@ RUN curl -sSL https://install.python-poetry.org | python3.9 - \
 # Add Poetry to the PATH for all subsequent commands
 ENV PATH="/root/.local/bin:$PATH"
 
-# Copy Poetry files and install dependencies
+
 COPY pyproject.toml poetry.lock /app/
 WORKDIR /app
 RUN poetry config virtualenvs.create false \
     && poetry install --no-root
 
-# Copy the application code to the container
+
 COPY . /app
 
-# Expose port (change if your app uses a different port)
+
 EXPOSE 5000
 
-# Set the default command to run the application
-CMD ["/bin/bash", "-c", "poetry run scripts/convert_models.py && poetry run src/run.py"]
+
+CMD ["/bin/bash", "-c", "poetry run src/run.py"]

@@ -6,7 +6,7 @@ __pycache__/
 
 
 # Ignore .engine models because we have to build those for specific environment
-# *.engine
+*.engine
 
 # Ignore virtual environment directories
 venv/
@@ -69,6 +69,7 @@ pip-wheel-metadata/
 # Ignore all static and media files (customize if needed)
 src/main/static/
 src/main/media/
+src/models
 
 # Ignore node_modules if the project has any frontend part
 node_modules/
