@@ -6,13 +6,13 @@ import psutil
 import GPUtil
 from ultralytics import YOLO
 from socket_.socketio_instance import socketio
+from config import MODEL_REPOSITORY_URL, DEFAULT_PRECISION
 
 logger = logging.getLogger(__name__)
 
-MODEL_REPOSITORY_URL = "https://storage.googleapis.com/isafe-models"
 MODELS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '../models'))
 
-def configure_models(precision="fp16"):
+def configure_models(precision=DEFAULT_PRECISION):
     """
       - Check if .pt models exist; if not download the models
       - Check respective precision directory for .engine model; if not export .engine
@@ -29,7 +29,7 @@ def configure_models(precision="fp16"):
 
         # Check if the .pt file exists, if not, download it
         if not os.path.isfile(model_path):
-            model_url = f"{MODEL_REPOSITORY_URL}/isafe-models/{model}/model.pt"
+            model_url = f"{MODEL_REPOSITORY_URL}/{model}/model.pt"
             try:
                 print(f"Downloading {model} model from {model_url}...")
                 response = requests.get(model_url, stream=True)

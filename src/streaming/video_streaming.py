@@ -13,13 +13,10 @@ from socket_.socketio_instance import socketio
 from intrusion.auto import SafeAreaTracker
 from main.shared import safe_area_trackers
 from main.event.model import Event
+from config import FRAME_HEIGHT, FRAME_WIDTH, RECONNECT_WAIT_TIME_IN_SECS
 
 EVENT_VIDEO_DIR = '../main/static/videos'
 EVENT_THUMBNAIL_DIR = '../main/static/thumbnails'
-FRAME_WIDTH = 1280
-FRAME_HEIGHT = 720
-
-RECONNECT_WAIT_TIME_IN_SECS = 5
 
 class StreamManager:
     def __init__(self, rtsp_link, model_name, stream_id, ptz_autotrack=False):
