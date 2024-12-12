@@ -1,32 +1,24 @@
 import os
-import datetime
 import cv2
-from ultralytics import YOLO
-import numpy as np
 import time
+import datetime
+import numpy as np
+from ultralytics import YOLO
 
-# PROJECT_PATH = os.path.abspath(os.getcwd())
-# PROJECT_PATH = os.path.abspath(os.getcwd())
-# MODELS_PATH = os.path.join(PROJECT_PATH, "models")
 MODELS_PATH = video_directory = os.path.abspath(os.path.join(os.path.dirname(__file__), '../models'))
-
+PRECISION = 'fp16'
 
 class ObjectDetection:
     def __init__(self, model_name):
         # Load models
         models = models = {
-                # "PPE": YOLO(os.path.join(MODELS_PATH, "PPEbest.pt")),
-                "PPE": YOLO(os.path.join(MODELS_PATH, "PPEbest.engine")),
+                "PPE": YOLO(os.path.join(MODELS_PATH, f"ppe/{PRECISION}/model.engine")),
                 # "PPE": YOLO("http://localhost:8000/PPEtrt", task="detect"),
-                # "Ladder": YOLO(os.path.join(MODELS_PATH, "Ladder_yolov8.pt")),
-                # # "Ladder": YOLO(os.path.join(MODELS_PATH, "Ladder_yolov8.engine")),
-                # "MobileScaffolding": YOLO(os.path.join(MODELS_PATH, "MobileScaffoldingbest.pt")),
-                # # "Scaffolding": YOLO(os.path.join(MODELS_PATH, "best_2024_scafolding.engine")),
-                # # "Scaffolding": YOLO(os.path.join(MODELS_PATH, "scaffolding_yolov8.pt")),
-                "Scaffolding": YOLO(os.path.join(MODELS_PATH, "best_scaffolding.engine")),
-                # # "CuttingWelding": YOLO(os.path.join(MODELS_PATH, "cutting_welding_yolov8.engine")),
-                # "CuttingWelding": YOLO(os.path.join(MODELS_PATH, "cutting_welding_yolov8.pt")),
-                "Fire": YOLO(os.path.join(MODELS_PATH, "best_fire.engine"))
+                "Ladder": YOLO(os.path.join(MODELS_PATH, f"ladder/{PRECISION}/model.engine")),
+                "MobileScaffolding": YOLO(os.path.join(MODELS_PATH, f"mobile_scaffolding/{PRECISION}/model.engine")),
+                "Scaffolding": YOLO(os.path.join(MODELS_PATH, f"scaffolding/{PRECISION}/model.engine")),
+                "CuttingWelding": YOLO(os.path.join(MODELS_PATH, f"cutting_welding/{PRECISION}/model.engine")),
+                "Fire": YOLO(os.path.join(MODELS_PATH, f"fire_smoke/{PRECISION}/model.engine"))
             }
             
         self.model = models.get(model_name)
@@ -253,106 +245,6 @@ class ObjectDetection:
         cv2.putText(image, f"{final_status} : {' '.join(final_message)}", (20, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, color_status, 2)
         return final_status
     
-    # Farhan bbox with black bg text
-    # def detect_scaffolding(self, image, results):
-    #     person = []
-    #     hat = []
-    #     hook = []
-    #     o_hatch = 0
-    #     c_hatch = 0
-    #     final_status = "Safe"
-    #     reasons = []
-
-    #     # Get image dimensions to scale the font and other elements accordingly
-    #     img_height, img_width = image.shape[:2]
-    #     font_scale = 0.8#max(0.1, img_width / 1000)
-    #     thickness = max(1, int(img_width / 500))
-
-    #     for result in results:
-    #         for (x0, y0, x1, y1, confi, clas) in result.boxes.data:
-    #             if confi > 0.3:
-    #                 box = [int(x0), int(y0), int(x1 - x0), int(y1 - y0)]
-    #                 box2 = [int(x0), int(y0), int(x1), int(y1)]
-    #                 box3 = [int(x0), int(y0), int(x1), int(y1)]
-    #                 if int(clas) == 3:
-    #                     cv2.rectangle(image, box, (0, 150, 0), 2)
-    #                     self.draw_text_with_background(image, f"hook", (box[0], box[1] - 10), font_scale, (0, 200, 0), thickness)
-    #                     hook.append(box3)
-    #                 elif int(clas) == 2:
-    #                     cv2.rectangle(image, box, (0, 255, 0), 2)
-    #                     self.draw_text_with_background(image, f"Hard Hat", (box[0], box[1] - 10), font_scale, (0, 255, 0), thickness)
-    #                     hat.append(box2)
-    #                 elif int(clas) == 4:
-    #                     o_hatch += 1
-    #                     cv2.rectangle(image, box, (0, 0, 255), 2)
-    #                     self.draw_text_with_background(image, f"opened_hatch", (box[0], box[1] - 10), font_scale, (0, 0, 255), thickness)
-    #                 elif int(clas) == 5:
-    #                     c_hatch += 1
-    #                     cv2.rectangle(image, box, (0, 255, 0), 2)
-    #                     self.draw_text_with_background(image, f"closed_hatch", (box[0], box[1] - 10), font_scale, (0, 255, 0), thickness)
-    #                 elif int(clas) == 1:
-    #                     person.append(box2)
-
-    #     class_worker_count = len(person)
-    #     class_helmet_count = len(hat)
-    #     class_hook_count = len(hook)
-
-    #     missing_hooks = max(0, class_worker_count - class_hook_count)
-    #     missing_helmet = max(0, class_worker_count - class_helmet_count)
-
-        
-
-        
-
-    #     for perBox in person:
-    #         hatDetected = any(
-    #             int(hatBox[0]) > int(perBox[0]) and int(hatBox[2]) < int(perBox[2]) and hatBox[1] >= perBox[1] - 20 for
-    #             hatBox in hat)
-    #         color = (0, 120, 0) if hatDetected else (0, 0, 255)
-    #         cv2.rectangle(image, (perBox[0], perBox[1]), (perBox[2], perBox[3]), color, 2)
-    #         #status_text = "작업자 안전모 착용" if hatDetected else "작업자 안전모 미착용"
-    #         status_text = "Worker with Helmet" if hatDetected else "Worker Without Helmet"
-    #         self.draw_text_with_background(image, status_text, (perBox[0], perBox[1] - 10), font_scale, color, thickness)
-    #         if not hatDetected:
-    #             final_status = "UnSafe"
-    #             #reasons.append("작업자 안전모 미착용")
-
-    #     vertical_person = False
-    #     for i, perBox1 in enumerate(person):
-    #         for j, perBox2 in enumerate(person):
-    #             if i != j:
-    #                 if perBox1[1] > perBox2[3] or perBox2[1] > perBox1[3]:
-    #                     if (perBox1[0] < perBox2[2] and perBox1[2] > perBox2[0]):
-    #                         vertical_person = True
-
-    #     if vertical_person:
-    #         reasons.append("작업자 상하 동시 작업 진행 중")
-
-    #     #color_status = (0, 0, 255) if final_status != "Safe" else (0, 128, 0)
-    #     color_hooks = (0, 120, 0) if missing_hooks == 0 else (0, 0, 255)
-    #     color_helmet = (0, 120, 0) if missing_helmet == 0 else (0, 0, 255)
-
-        
-    #     if missing_hooks > 0:
-    #         final_status = "UnSafe"
-    #         reasons.append (f"안전고리 미체결")#(f"Missing {missing_hooks} hooks")
-    #         self.draw_text_with_background(image, f"Missing Hook", (50, 90), font_scale, color_hooks, thickness)
-    #     if missing_helmet > 0:
-    #         final_status = "UnSafe"
-    #         reasons.append (f"안전모 미착용") #(f"Missing {missing_helmet} helmets")
-    #         self.draw_text_with_background(image, f"Missing Helmet", (50, 130), font_scale, color_helmet, thickness)
-        
-    #     if vertical_person:
-    #         final_status = "UnSafe"
-    #         self.draw_text_with_background(image, f"Working in same Vertical Area", (50, 170), font_scale, (0, 0, 255), thickness)
-    #     final_status = "Safe" if not reasons else "UnSafe"
-    #     color_status = (0, 0, 255) if final_status != "Safe" else (0, 120, 0)
-
-    #     #self.draw_text_with_background(image, "안전" if (final_status == "Safe") else "위험", (40, 50), font_scale, color_status, thickness)
-    #     self.draw_text_with_background(image, final_status, (40, 50), 1.0, color_status, thickness)
-
-    #     return final_status, reasons
-
     def detect_scaffolding(self, image, results):
         # results = model(image)
         person = []

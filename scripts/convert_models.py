@@ -8,7 +8,7 @@ model_urls = {
 }
 
 # models_dir = "models"
-models_dir = video_directory = os.path.abspath(os.path.join(os.path.dirname(__file__), '../src/models'))
+models_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../src/models'))
 os.makedirs(models_dir, exist_ok=True)
 
 for model_name, url in model_urls.items():
