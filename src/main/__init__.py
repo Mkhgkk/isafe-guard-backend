@@ -14,6 +14,7 @@ from socket_.socketio_handlers import setup_socketio_handlers
 from database import MongoDatabase, initialize_database, get_database
 
 
+
 def create_app():
   app = Flask(__name__, static_folder='static')
   app.config.from_pyfile("config/config.cfg")
@@ -37,7 +38,8 @@ def create_app():
     # mongo = MongoClient(app.config["MONGO_URI"])
     # app.db = mongo[app.config["MONGO_APP_DATABASE"]]
 
-    initialize_database(app.config["MONGO_URI"], app.config["MONGO_APP_DATABASE"])
+    DB_HOST = os.getenv('DB_HOST', app.config["MONGO_URI"])
+    initialize_database(DB_HOST, app.config["MONGO_APP_DATABASE"])
     app.db = get_database()
   else:
     mongo = MongoClient("localhost")

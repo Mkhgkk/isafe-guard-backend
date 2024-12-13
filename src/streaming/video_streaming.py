@@ -18,6 +18,8 @@ from config import FRAME_HEIGHT, FRAME_WIDTH, RECONNECT_WAIT_TIME_IN_SECS
 EVENT_VIDEO_DIR = '../main/static/videos'
 EVENT_THUMBNAIL_DIR = '../main/static/thumbnails'
 
+RTMP_MEDIA_SERVER = os.getenv('RTMP_MEDIA_SERVER', 'rtmp://localhost:1935')
+
 class StreamManager:
     def __init__(self, rtsp_link, model_name, stream_id, ptz_autotrack=False):
         self.DETECTOR = ObjectDetection(model_name)
@@ -247,7 +249,7 @@ class StreamManager:
             '-c:v', 'libx264',           # Output codec
             '-preset', 'ultrafast',      # Encoding speed
             '-f', 'flv',                 # Output format
-            f'rtmp://localhost:1935/live/{self.stream_id}'  # MediaMTX RTMP URL
+            f'{RTMP_MEDIA_SERVER}/live/{self.stream_id}'  # MediaMTX RTMP URL
         ]
         ffmpeg_process = subprocess.Popen(ffmpeg_command, stdin=subprocess.PIPE)
 
