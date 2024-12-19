@@ -101,7 +101,7 @@ def set_danger_zone():
         path = parsed_url.path
         file_name = os.path.basename(path)
 
-        image_path = os.path.join(os.path.abspath(os.path.join(os.path.dirname(__file__), REFERENCE_FRAME_DIR)), file_name)
+        image_path = os.path.join(os.path.dirname(__file__), REFERENCE_FRAME_DIR, file_name)
         # reference_frame = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
         reference_frame = cv2.imread(image_path)
         safe_area_box = coords
