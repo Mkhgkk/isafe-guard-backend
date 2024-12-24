@@ -227,16 +227,7 @@ class StreamManager:
 
     
 
-    def process_and_emit_frames(self, model_name):
-        process = None
-        record_duration_seconds = 10  # Duration in seconds for each video segment
-        frame_interval = 30           # Interval to check unsafe condition
-        self.total_frame_count = 0
-        self.unsafe_frame_count = 0
-        start_time = None
-        is_recording = False  # Flag to track if a recording is in progress
-
-        # Start FFmpeg process for streaming
+    def start_ffmpeg_process(self):
         ffmpeg_command = [
             'ffmpeg',
             '-y',                        # Overwrite output files
@@ -251,7 +242,19 @@ class StreamManager:
             '-f', 'flv',                 # Output format
             f'{RTMP_MEDIA_SERVER}/live/{self.stream_id}'  # MediaMTX RTMP URL
         ]
-        ffmpeg_process = subprocess.Popen(ffmpeg_command, stdin=subprocess.PIPE)
+        return subprocess.Popen(ffmpeg_command, stdin=subprocess.PIPE)
+
+    def process_and_emit_frames(self, model_name):
+        process = None
+        record_duration_seconds = 10  # Duration in seconds for each video segment
+        frame_interval = 30           # Interval to check unsafe condition
+        self.total_frame_count = 0
+        self.unsafe_frame_count = 0
+        start_time = None
+        is_recording = False  # Flag to track if a recording is in progress
+
+        # Start FFmpeg process
+        ffmpeg_process = self.start_ffmpeg_process()
 
         while not self.stop_event.is_set():
             if not self.frame_buffer.empty():
@@ -281,8 +284,10 @@ class StreamManager:
                 try:
                     ffmpeg_process.stdin.write(processed_frame.tobytes())
                 except BrokenPipeError:
-                    print("FFmpeg process has stopped unexpectedly. Exiting...")
-                    break
+                    print("FFmpeg process has stopped unexpectedly. Restarting...")
+                    ffmpeg_process.stdin.close()
+                    ffmpeg_process.wait()
+                    ffmpeg_process = self.start_ffmpeg_process()
 
                 # Handle recording logic (if necessary)
                 if not is_recording and self.total_frame_count % frame_interval == 0:
@@ -320,4 +325,5 @@ class StreamManager:
         if ffmpeg_process:
             ffmpeg_process.stdin.close()
             ffmpeg_process.wait()
+
 
