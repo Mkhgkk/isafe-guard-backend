@@ -1,76 +1,87 @@
-import os
 import cv2
 import numpy as np
 from collections import deque
+from threading import Thread
+import torch
+from .models.matching import Matching
+from .models.utils import frame2tensor
+
 
 class SafeAreaTracker:
-    # _instance = None
-
-    # def __new__(cls, *args, **kwargs):
-    #     if not cls._instance:
-    #         cls._instance = super(SafeAreaTracker, cls).__new__(cls)
-    #     return cls._instance
-
     def __init__(self):
-        # if not hasattr(self, 'initialized'):  
         self.previous_safe_area = None
         self.reference_frame = None
-        self.orb = cv2.ORB_create()
         self.homography_buffer = deque(maxlen=50)
         self.safe_area_box = None
-        # self.initialized = True
+        self.ref_tensor = None
+
+        # SuperGlue configuration
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        config = {
+            'superpoint': {
+                'nms_radius': 4,
+                'keypoint_threshold': 0.01,  # Increased threshold for fewer keypoints
+                'max_keypoints': 500  # Limit keypoints
+            },
+            'superglue': {
+                'weights': 'indoor',
+                'sinkhorn_iterations': 10,  # Reduced iterations
+                'match_threshold': 0.3  # Looser threshold
+            }
+        }
+        self.device = device
+        self.matching = Matching(config).eval().to(device)
 
     def update_safe_area(self, reference_frame, safe_area_box):
         self.reference_frame = reference_frame
         self.safe_area_box = safe_area_box
 
-        self.previous_safe_area = None
-        self.homography_buffer = deque(maxlen=50)
+        ref_gray = cv2.cvtColor(self.reference_frame, cv2.COLOR_BGR2GRAY)
+        self.ref_tensor = frame2tensor(ref_gray, self.device)
 
-    def draw_safe_area(self, frame): 
+        self.previous_safe_area = None
+        self.homography_buffer.clear()
+
+    def draw_safe_area(self, frame):
         if self.reference_frame is None or self.safe_area_box is None:
             return frame
         
-        # current_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        current_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-
-        keypoints_ref, descriptors_ref = self.orb.detectAndCompute(self.reference_frame, None)
-        keypoints_curr, descriptors_curr = self.orb.detectAndCompute(current_frame, None)
-
-        bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
-        matches = bf.match(descriptors_ref, descriptors_curr)
-        matches = sorted(matches, key=lambda x: x.distance)
-
-        good_matches = [m for m in matches if m.distance < 25] 
-
-        if len(good_matches) < 10:
-            return frame
+        ref_gray = cv2.cvtColor(self.reference_frame, cv2.COLOR_BGR2GRAY)
+        curr_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         
-        pts_ref = np.float32([keypoints_ref[m.queryIdx].pt for m in good_matches]).reshape(-1, 1, 2)
-        pts_curr = np.float32([keypoints_curr[m.trainIdx].pt for m in good_matches]).reshape(-1, 1, 2)
+        curr_tensor = frame2tensor(curr_gray, self.device)
 
-        homography_matrix, mask = cv2.findHomography(pts_ref, pts_curr, cv2.RANSAC, 3.0)
+        with torch.no_grad():
+            pred = self.matching({'image0': self.ref_tensor, 'image1': curr_tensor})
+
+        kpts_ref = pred['keypoints0'][0].cpu().numpy()
+        kpts_curr = pred['keypoints1'][0].cpu().numpy()
+        matches = pred['matches0'][0].cpu().numpy()
+
+        valid = matches > -1
+        matched_kpts_ref = kpts_ref[valid]
+        matched_kpts_curr = kpts_curr[matches[valid]]
+
+        if len(matched_kpts_ref) < 10:
+            return frame
+
+        homography_matrix, _ = cv2.findHomography(
+            matched_kpts_ref, matched_kpts_curr, cv2.RANSAC, 2.0  # Reduced threshold
+        )
 
         if homography_matrix is None:
             return frame
-        
-        motion_magnitude = np.mean(np.linalg.norm(pts_curr - pts_ref, axis=2))
-        alpha = max(0.5, min(0.9, 1 - (motion_magnitude / 50)))
-
-        self.homography_buffer.append(homography_matrix)
-
-        # stabilized_homography = np.mean(self.homography_buffer, axis=0)
-        # stabilized_homography = alpha * stabilized_homography + (1 - alpha) * homography_matrix
 
         safe_area_ref = np.float32(self.safe_area_box).reshape(-1, 1, 2)
-
         safe_area_curr = cv2.perspectiveTransform(safe_area_ref, homography_matrix)
 
-        if self.previous_safe_area is not None:
-            safe_area_curr = alpha * safe_area_curr + (1 - alpha) * self.previous_safe_area
-
         self.previous_safe_area = safe_area_curr
+        overlay = frame.copy()
+        cv2.fillPoly(overlay, [np.int32(safe_area_curr)], (0, 255, 255))
+        alpha = 0.4
+        frame = cv2.addWeighted(overlay, alpha, frame, 1 - alpha, 0)
 
+        # Draw the outline of the polygon
         cv2.polylines(frame, [np.int32(safe_area_curr)], True, (0, 255, 255), 2)
 
         return frame
