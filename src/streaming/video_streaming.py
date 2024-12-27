@@ -314,8 +314,32 @@ class StreamManager:
                         save_thread.start()
                         print(f"Started recording video at {timestamp}, start_time set to {start_time}")
 
+                # # Stop recording if the current video segment has reached the specified duration
+                # if process is not None and start_time is not None:
+                #     if (time.time() - start_time) >= record_duration_seconds:
+                #         self.finalize_video(process)
+                #         process = None
+                #         start_time = None
+                #         is_recording = False
+                #         print(f"Stopped recording video, total duration: {record_duration_seconds} seconds")
+
+                # # Reset the unsafe frame count for the next interval
+                # if self.total_frame_count % frame_interval == 0:
+                #     self.unsafe_frame_count = 0
+
+                 # Write frames continuously if recording
+                 
+                if is_recording and process is not None:
+                    try:
+                        process.stdin.write(processed_frame.tobytes())
+                    except BrokenPipeError:
+                        print("Recording process has stopped unexpectedly.")
+                        is_recording = False
+                        self.finalize_video(process)
+                        process = None
+
                 # Stop recording if the current video segment has reached the specified duration
-                if process is not None and start_time is not None:
+                if is_recording and process is not None and start_time is not None:
                     if (time.time() - start_time) >= record_duration_seconds:
                         self.finalize_video(process)
                         process = None
