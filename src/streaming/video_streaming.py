@@ -259,8 +259,11 @@ class StreamManager:
         while not self.stop_event.is_set():
             if not self.frame_buffer.empty():
                 frame = self.frame_buffer.get()
-                frame = self.safe_area_tracker.draw_safe_area(frame)
+                transformed_hazard_zones = self.safe_area_tracker.get_transformed_safe_areas(frame)
+                # frame = self.safe_area_tracker.draw_safe_area(frame)
                 processed_frame, final_status, reasons, bboxes = self.apply_model(frame, model_name)
+
+                processed_frame = self.safe_area_tracker.draw_safe_area_on_frame(processed_frame, transformed_hazard_zones)
 
                 # PTZ auto-tracker
                 if self.ptz_autotrack and self.ptz_auto_tracker:

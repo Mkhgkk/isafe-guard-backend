@@ -89,3 +89,64 @@ class SafeAreaTracker:
         frame = cv2.addWeighted(overlay, alpha, frame, 1 - alpha, 0)
 
         return frame
+
+    def get_transformed_safe_areas(self, frame):
+        transformed_hazard_zones = []
+        if self.reference_frame is None or not self.safe_area_box:
+            return []
+
+        ref_gray = cv2.cvtColor(self.reference_frame, cv2.COLOR_BGR2GRAY)
+        curr_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+        curr_tensor = frame2tensor(curr_gray, self.device)
+
+        with torch.no_grad():
+            pred = self.matching({'image0': self.ref_tensor, 'image1': curr_tensor})
+
+        kpts_ref = pred['keypoints0'][0].cpu().numpy()
+        kpts_curr = pred['keypoints1'][0].cpu().numpy()
+        matches = pred['matches0'][0].cpu().numpy()
+
+        valid = matches > -1
+        matched_kpts_ref = kpts_ref[valid]
+        matched_kpts_curr = kpts_curr[matches[valid]]
+
+        if len(matched_kpts_ref) < 10:
+            return []
+
+        homography_matrix, _ = cv2.findHomography(
+            matched_kpts_ref, matched_kpts_curr, cv2.RANSAC, 2.0  # Reduced threshold
+        )
+
+        if homography_matrix is None:
+            return []
+
+        transformed_hazard_zones = []
+
+        for safe_area_box in self.safe_area_box:
+            safe_area_ref = np.float32(safe_area_box).reshape(-1, 1, 2)
+            safe_area_curr = cv2.perspectiveTransform(safe_area_ref, homography_matrix)
+            transformed_hazard_zones.append(np.int32(safe_area_curr))
+
+        return transformed_hazard_zones
+    
+
+    def draw_safe_area_on_frame(self, frame, transformed_hazard_zones):
+        if not transformed_hazard_zones:
+            return frame
+        
+        overlay = frame.copy()
+        
+        for safe_area_curr in transformed_hazard_zones:
+            # Fill the polygon on the overlay
+            cv2.fillPoly(overlay, [safe_area_curr], (0, 255, 255))
+            # Draw the outline of the polygon
+            cv2.polylines(frame, [safe_area_curr], True, (0, 255, 255), 2)
+        
+        # Blend the overlay with the original frame
+        alpha = 0.4
+        frame = cv2.addWeighted(overlay, alpha, frame, 1 - alpha, 0)
+        
+        return frame
+
+
