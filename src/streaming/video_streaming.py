@@ -10,6 +10,7 @@ from flask import current_app as app
 from queue import Queue
 from detection.object_detection import ObjectDetection
 from socket_.socketio_instance import socketio
+from intrusion import detect_intrusion
 from intrusion.auto import SafeAreaTracker
 from main.shared import safe_area_trackers
 from main.event.model import Event
@@ -260,14 +261,19 @@ class StreamManager:
             if not self.frame_buffer.empty():
                 frame = self.frame_buffer.get()
                 transformed_hazard_zones = self.safe_area_tracker.get_transformed_safe_areas(frame)
-                # frame = self.safe_area_tracker.draw_safe_area(frame)
-                processed_frame, final_status, reasons, bboxes = self.apply_model(frame, model_name)
-
+                processed_frame, final_status, reasons, person_bboxes = self.apply_model(frame, model_name)
                 processed_frame = self.safe_area_tracker.draw_safe_area_on_frame(processed_frame, transformed_hazard_zones)
+
+                # Check for instrusion
+                intruders = detect_intrusion(transformed_hazard_zones, person_bboxes)
+                if len(intruders) > 0:
+                    final_status = "Unsafe"
+                    # update reasons
+                    socketio.emit(f'alert-{self.stream_id}', {'type': "intrusion"}, namespace='/video', room=self.stream_id)
 
                 # PTZ auto-tracker
                 if self.ptz_autotrack and self.ptz_auto_tracker:
-                    self.ptz_auto_tracker.track(1280, 720, bboxes)
+                    self.ptz_auto_tracker.track(1280, 720, person_bboxes)
 
                 # Check if the frame is unsafe
                 if final_status != "Safe":
