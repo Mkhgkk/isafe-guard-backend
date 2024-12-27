@@ -9,7 +9,7 @@ from .models.utils import frame2tensor
 
 class SafeAreaTracker:
     def __init__(self):
-        self.previous_safe_area = None
+        # self.previous_safe_area = None
         self.reference_frame = None
         self.homography_buffer = deque(maxlen=50)
         self.safe_area_box = None
@@ -39,16 +39,16 @@ class SafeAreaTracker:
         ref_gray = cv2.cvtColor(self.reference_frame, cv2.COLOR_BGR2GRAY)
         self.ref_tensor = frame2tensor(ref_gray, self.device)
 
-        self.previous_safe_area = None
+        # self.previous_safe_area = None
         self.homography_buffer.clear()
 
     def draw_safe_area(self, frame):
-        if self.reference_frame is None or self.safe_area_box is None:
+        if self.reference_frame is None or not self.safe_area_box:
             return frame
-        
+
         ref_gray = cv2.cvtColor(self.reference_frame, cv2.COLOR_BGR2GRAY)
         curr_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        
+
         curr_tensor = frame2tensor(curr_gray, self.device)
 
         with torch.no_grad():
@@ -72,16 +72,20 @@ class SafeAreaTracker:
         if homography_matrix is None:
             return frame
 
-        safe_area_ref = np.float32(self.safe_area_box).reshape(-1, 1, 2)
-        safe_area_curr = cv2.perspectiveTransform(safe_area_ref, homography_matrix)
-
-        self.previous_safe_area = safe_area_curr
         overlay = frame.copy()
-        cv2.fillPoly(overlay, [np.int32(safe_area_curr)], (0, 255, 255))
+
+        for safe_area_box in self.safe_area_box:
+            safe_area_ref = np.float32(safe_area_box).reshape(-1, 1, 2)
+            safe_area_curr = cv2.perspectiveTransform(safe_area_ref, homography_matrix)
+
+            # Fill the polygon on the overlay
+            cv2.fillPoly(overlay, [np.int32(safe_area_curr)], (0, 255, 255))
+
+            # Draw the outline of the polygon
+            cv2.polylines(frame, [np.int32(safe_area_curr)], True, (0, 255, 255), 2)
+
+        # Blend the overlay with the original frame
         alpha = 0.4
         frame = cv2.addWeighted(overlay, alpha, frame, 1 - alpha, 0)
-
-        # Draw the outline of the polygon
-        cv2.polylines(frame, [np.int32(safe_area_curr)], True, (0, 255, 255), 2)
 
         return frame
