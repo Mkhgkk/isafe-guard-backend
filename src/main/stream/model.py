@@ -212,10 +212,11 @@ class Stream:
                 "error": "updating_stream_failed"
             }, 400)
         finally:
-            pass
             if is_stream_running:
                 # asyncio.create_task(Stream.start_stream(**data))
                 asyncio.run(Stream.start_stream(**data))
+                # Update the `is_active` status
+                app.db.streams.update_one({"stream_id": stream_id}, {"$set": {"is_active": True}})
 
     def get(self, stream_id):
         resp = tools.JsonResp({ "message": "Stream(s) not found!"}, 404)
