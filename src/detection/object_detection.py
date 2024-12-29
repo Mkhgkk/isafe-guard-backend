@@ -96,7 +96,7 @@ class ObjectDetection:
                     elif int(clas) == 1:
                         global_behaviour = "UnSafe"
                         if "Ladder without Outtrigger" not in reason:
-                            reason.append("Ladder without Outtrigger")
+                            reason.append("ladder_without_outtrigger")
                             ladder.append(box2)
                         cv2.rectangle(image, box, (0, 0, 255), 2)
                         cv2.putText(image, "ladder_without_outriggers {:.2f}".format(confi), (box[0], box[1] - 10),
@@ -106,7 +106,7 @@ class ObjectDetection:
                         if int(clas) == 3:
                             global_behaviour = "UnSafe"
                             if 'Worker Without Helmet' not in reason:
-                                reason.append("Worker Without Helmet")
+                                reason.append("missing_helment")
 
         worker_height = 0
         co_worker = 0
@@ -185,7 +185,7 @@ class ObjectDetection:
             cv2.putText(image, f"{finalStatus}  Height : {worker_height} ", (50, 50), cv2.FONT_HERSHEY_SIMPLEX,
                         1.25, (0, 255, 0), 2)
 
-        return finalStatus
+        return finalStatus, reason
 
     def detect_mobile_scaffolding(self, image, results):
         worker_with_helmet = []
@@ -204,13 +204,13 @@ class ObjectDetection:
                         cv2.putText(image, "Missing Guardrail {:.2f}".format(confi), (box[0], box[1] - 10),
                                     cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
                         final_status = "UnSafe"
-                        final_message.append("Missing Guardrail")
+                        final_message.append("missing_guardrail")
                     elif int(clas) == 1:
                         cv2.rectangle(image, box, (0, 0, 255), 2)
                         cv2.putText(image, "mobile_scaffold_no_outtrigger {:.2f}".format(confi), (box[0], box[1] - 10),
                                     cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
                         final_status = "UnSafe"
-                        final_message.append("No outrigger")
+                        final_message.append("mobile_scaffold_no_outtrigger")
                         mobile_scaffold_outrigger.append(box2)
                     elif int(clas) == 2:
                         cv2.rectangle(image, box, (0, 255, 0), 2)
@@ -227,7 +227,7 @@ class ObjectDetection:
                         cv2.putText(image, "worker_without_helmet {:.2f}".format(confi), (box[0], box[1] - 10),
                                     cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
                         final_status = "UnSafe"
-                        final_message.append("Missing Helmet")
+                        final_message.append("missing_helment")
 
         total_no_person_on_scaffolding = 0
         for scaff_box in mobile_scaffold_outrigger:
@@ -243,7 +243,7 @@ class ObjectDetection:
 
         color_status = (0, 0, 255) if final_status == "UnSafe" else (0, 255, 0)
         cv2.putText(image, f"{final_status} : {' '.join(final_message)}", (20, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, color_status, 2)
-        return final_status
+        return final_status, final_message
     
     def detect_scaffolding(self, image, results):
         # results = model(image)
@@ -312,6 +312,7 @@ class ObjectDetection:
                 if not hatDetected:
                     final_status = "UnSafe"
                     # reasons.append("작업자 안전모 미착용")
+                    # reasons.append("missing_helment")
 
         missing_helmet = max(0, class_worker_count - class_helmet_count)
         vertical_person = False
@@ -325,7 +326,8 @@ class ObjectDetection:
                             vertical_person = True
 
         if vertical_person:
-            reasons.append("작업자 상하 동시 작업 진행 중")
+            # reasons.append("작업자 상하 동시 작업 진행 중")
+            reasons.append("same_vertical_area")
 
         # color_status = (0, 0, 255) if final_status != "Safe" else (0, 128, 0)
         color_hooks = (0, 120, 0) if missing_hooks == 0 else (0, 0, 255)
@@ -333,11 +335,13 @@ class ObjectDetection:
 
         if missing_hooks > 0:
             final_status = "UnSafe"
-            reasons.append(f"안전고리 미체결")  # (f"Missing {missing_hooks} hooks")
+            # reasons.append(f"안전고리 미체결")  # (f"Missing {missing_hooks} hooks")
+            reasons.append(f"missing_hook")  # (f"Missing {missing_hooks} hooks")
             self.draw_text_with_background(image, f"Missing Hook", (50, 90), font_scale, color_hooks, thickness)
         if missing_helmet > 0:
             final_status = "UnSafe"
-            reasons.append(f"안전모 미착용")  # (f"Missing {missing_helmet} helmets")
+            # reasons.append(f"안전모 미착용")  # (f"Missing {missing_helmet} helmets")
+            reasons.append(f"missing_helmet")  # (f"Missing {missing_helmet} helmets")
             self.draw_text_with_background(image, f"Missing Helmet", (50, 130), font_scale, color_helmet, thickness)
 
         if vertical_person:
@@ -368,14 +372,14 @@ class ObjectDetection:
                         cv2.putText(image, f"Fire {confi:.2f}", (coords[0], coords[1] - 10), cv2.FONT_HERSHEY_SIMPLEX,
                                     0.5, (0, 0, 255), 2)
                         final_status = "UnSafe"
-                        reason.add("Fire Detected")
+                        reason.add("fire")
 
                     elif clas == 1:
                         cv2.rectangle(image, (coords[0], coords[1]), (coords[2], coords[3]), (0, 128, 255), 2)
                         cv2.putText(image, f"Smoke {confi:.2f}", (coords[0], coords[1] - 10), cv2.FONT_HERSHEY_SIMPLEX,
                                     0.5, (0, 128, 255), 2)
                         final_status = "UnSafe"
-                        reason.add("Smoke Detected")
+                        reason.add("smoke")
 
         color_status = (0, 0, 255) if final_status == "UnSafe" else (0, 255, 0)
         cv2.putText(image, final_status, (30, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color_status, 3)
@@ -403,6 +407,7 @@ class ObjectDetection:
         hat = []
         final_status = "Safe"
         saw = fire_extinguisher = fire_prevention_net = False
+        reasons = []
 
         for result in results:
             for (x0, y0, x1, y1, confi, clas) in result.boxes.data:
@@ -436,12 +441,14 @@ class ObjectDetection:
             cv2.putText(image, status_text, (perBox[0], perBox[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
             if not hatDetected:
                 final_status = "UnSafe"
+                reasons.append("missing_helmet")
 
         if fire_extinguisher:
             cv2.putText(image, "Fire Extinguisher: Detected", (50, 100), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 3)
         else:
             final_status = "UnSafe"
             cv2.putText(image, "Fire Extinguisher: Missing", (50, 100), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 3)
+            reasons.append("missing_fire_extinguisher")
 
         if saw:
             if fire_prevention_net:
@@ -449,10 +456,11 @@ class ObjectDetection:
             else:
                 final_status = "UnSafe"
                 cv2.putText(image, "Cutting: Fire Prevention Net Missing", (50, 150), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 3)
+                reasons.append("missing_fire_net")
 
         color_status = (0, 0, 255) if final_status != "Safe" else (0, 255, 0)
         cv2.putText(image, f"{final_status} ", (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, color_status, 3)
-        return final_status
+        return final_status, reasons
 
     def detectObj(self, image, timestamp, model_name):
         print(f"Processing frame with model: {model_name}")
