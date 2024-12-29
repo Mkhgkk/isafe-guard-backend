@@ -14,10 +14,10 @@ from intrusion import detect_intrusion
 from intrusion.auto import SafeAreaTracker
 from main.shared import safe_area_trackers
 from main.event.model import Event
-from config import FRAME_HEIGHT, FRAME_WIDTH, RECONNECT_WAIT_TIME_IN_SECS
+from config import FRAME_HEIGHT, FRAME_WIDTH, RECONNECT_WAIT_TIME_IN_SECS, STATIC_DIR
 
-EVENT_VIDEO_DIR = '../main/static/videos'
-EVENT_THUMBNAIL_DIR = '../main/static/thumbnails'
+# EVENT_VIDEO_DIR = '../main/static/videos'
+# EVENT_THUMBNAIL_DIR = '../main/static/thumbnails'
 
 RTMP_MEDIA_SERVER = os.getenv('RTMP_MEDIA_SERVER', 'rtmp://localhost:1935')
 
@@ -47,6 +47,9 @@ class StreamManager:
 
         self.camera_controller = None
 
+        self.EVENT_VIDEO_DIR = os.path.join(STATIC_DIR, self.stream_id, "videos")
+        self.EVENT_THUMBNAIL_DIR = os.path.join(STATIC_DIR, self.stream_id, "thumbnails")
+
 
     def apply_model(self, frame, model_name):
         model = self.DETECTOR.model
@@ -73,7 +76,7 @@ class StreamManager:
         return frame, final_status, reasons, bboxes
 
     def create_video_writer(self, frame, timestamp, model_name, output_fps):
-        video_directory = os.path.abspath(os.path.join(os.path.dirname(__file__), EVENT_VIDEO_DIR))
+        video_directory = os.path.abspath(os.path.join(os.path.dirname(__file__), self.EVENT_VIDEO_DIR))
         os.makedirs(video_directory, exist_ok=True)
 
         video_name = f"video_{self.stream_id}_{model_name}_{timestamp}.mp4"
@@ -192,7 +195,7 @@ class StreamManager:
         timestamp_str = str(int(time.time()))
         image_filename = f"thumbnail_{timestamp_str}.jpg"
 
-        image_directory = os.path.abspath(os.path.join(os.path.dirname(__file__), EVENT_THUMBNAIL_DIR))
+        image_directory = os.path.abspath(os.path.join(os.path.dirname(__file__), self.EVENT_THUMBNAIL_DIR))
         os.makedirs(image_directory, exist_ok=True)
 
         original_height, original_width = frame.shape[:2]
