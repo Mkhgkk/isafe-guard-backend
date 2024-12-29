@@ -69,7 +69,8 @@ class StreamManager:
         elif model_name == "CuttingWelding":
             final_status = self.DETECTOR.detect_cutting_welding(frame, results)
 
-        return frame, final_status, [reasons], bboxes
+        # return frame, final_status, [reasons], bboxes
+        return frame, final_status, reasons, bboxes
 
     def create_video_writer(self, frame, timestamp, model_name, output_fps):
         video_directory = os.path.abspath(os.path.join(os.path.dirname(__file__), EVENT_VIDEO_DIR))
@@ -187,7 +188,7 @@ class StreamManager:
             print(f"Error occurred: {e}")
 
 
-    def save_event_to_database(self, frame, title, description, start_time, filename):
+    def save_event_to_database(self, frame, reasons, model_name, start_time, filename):
         timestamp_str = str(int(time.time()))
         image_filename = f"thumbnail_{timestamp_str}.jpg"
 
@@ -211,8 +212,8 @@ class StreamManager:
         try:
             data={
                 "stream_id": self.stream_id,
-                "title": title,
-                "description": description,
+                "reasons": reasons,
+                "model_name": model_name,
                 "timestamp": int(start_time),
                 "thumbnail": image_filename,
                 "video_filename": filename
@@ -269,6 +270,7 @@ class StreamManager:
                 if len(intruders) > 0:
                     final_status = "Unsafe"
                     # update reasons
+                    reasons.append("intrusion")
                     socketio.emit(f'alert-{self.stream_id}', {'type': "intrusion"}, namespace='/video', room=self.stream_id)
 
                 # PTZ auto-tracker
@@ -308,7 +310,7 @@ class StreamManager:
                         is_recording = True
                         self.last_event_time = time.time()
 
-                        save_thread = threading.Thread(target=self.save_event_to_database, args=(processed_frame, "Missing Head-hat", "PPE", start_time, video_name))
+                        save_thread = threading.Thread(target=self.save_event_to_database, args=(processed_frame, reasons, self.model_name, start_time, video_name))
                         notification_thread = threading.Thread(target=self.send_watch_notification, args=(reasons))
 
                         save_thread.start()

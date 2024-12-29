@@ -57,7 +57,7 @@ class ObjectDetection:
                 self.draw_text_with_background(image, "Worker with helmet", (perBox[0], perBox[1] - 10), font_scale, (0, 180, 0), thickness)
             else:
                 final_status = "UnSafe"
-                reasons.append("Worker without helmet")
+                reasons.append("missing_helmet")
                 cv2.rectangle(image, (perBox[0], perBox[1]), (perBox[2], perBox[3]), (0, 0, 255), 2)
                 self.draw_text_with_background(image, "Worker without helmet", (perBox[0], perBox[1] - 10), font_scale, (0, 0, 255), thickness)
 

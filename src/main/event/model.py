@@ -10,8 +10,8 @@ from database import MongoDatabase, get_database
 
 class EventSchema(Schema):
     stream_id = fields.String(required=True)
-    title = fields.String(required=True)
-    description = fields.String(required=True)
+    reasons = fields.List(fields.String(), required=True)
+    model_name = fields.String(required=True)
     timestamp = fields.Integer(required=True)
     thumbnail = fields.String(required=True)
     video_filename = fields.String(required=True)
