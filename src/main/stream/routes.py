@@ -83,6 +83,10 @@ def change_autotrack():
 def update_stream():
     return Stream().update_stream()
 
+@stream_blueprint.route("/delete_stream", methods=['POST'])
+def delete_stream():
+    return Stream().delete_stream()
+
 @stream_blueprint.route("/set_danger_zone", methods=['POST'])
 def set_danger_zone():
     """

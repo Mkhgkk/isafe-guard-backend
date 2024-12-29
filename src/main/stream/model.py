@@ -1,6 +1,5 @@
-# from database.db import create_db_instance
-
-# db = create_db_instance()
+import os
+import shutil
 from flask import current_app as app
 from flask import request
 from main.shared import streams
@@ -12,6 +11,7 @@ import asyncio
 import time
 import json
 import datetime
+from config import STATIC_DIR
 # from apscheduler.schedulers.background import BackgroundScheduler
 
 from marshmallow import Schema, fields, ValidationError, validate
@@ -80,12 +80,46 @@ class Stream:
             }, 400)
         
     def delete_stream(self):
-        # TODO:
-        # delete all related events
+        # # TODO:
+        # # delete all related events
         
-        # stop stream (if running)
-        # delete the stream
-        pass
+        # # stop stream (if running)
+        # # delete the stream
+        # pass
+
+        data = json.loads(request.data)
+        stream_id = data.get("stream_id")
+        stream_dir = os.path.join(STATIC_DIR, stream_id)
+
+        try:
+            if os.path.exists(stream_dir):
+                shutil.rmtree(stream_dir,)
+            else:
+                print(f"Directory does not exist: {stream_dir}")
+
+            # check if stream is running and stop it
+            stream_manager = streams.get(stream_id, None)
+            is_stream_running = stream_manager and stream_manager.running
+
+            if is_stream_running:
+                Stream.stop_stream(stream_id)
+
+            
+            # delete event videos
+            app.db.events.delete_many({"stream_id": stream_id})
+            app.db.streams.delete_one({"stream_id": stream_id})
+
+            return tools.JsonResp({
+                "message": "Stream deleted successfully.",
+                "data": "ok"
+            }, 200)
+        
+        except Exception as e:
+            return tools.JsonResp({
+                "message": "Deletion failed!",
+                "error": "stream_deletion_failed"
+            }, 400)
+
 
     def stop(self):
         data = json.loads(request.data)
