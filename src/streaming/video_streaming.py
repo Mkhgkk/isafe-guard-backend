@@ -313,7 +313,7 @@ class StreamManager:
                         is_recording = True
                         self.last_event_time = time.time()
 
-                        save_thread = threading.Thread(target=self.save_event_to_database, args=(processed_frame, reasons, self.model_name, start_time, video_name))
+                        save_thread = threading.Thread(target=self.save_event_to_database, args=(processed_frame, list(set(reasons)), self.model_name, start_time, video_name))
                         notification_thread = threading.Thread(target=self.send_watch_notification, args=(reasons))
 
                         save_thread.start()
