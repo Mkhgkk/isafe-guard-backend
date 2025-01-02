@@ -233,21 +233,45 @@ class StreamManager:
     
 
     def start_ffmpeg_process(self):
-        ffmpeg_command = [
-            'ffmpeg',
-            '-y',                        # Overwrite output files
-            '-f', 'rawvideo',            # Input format
-            '-vcodec', 'rawvideo',       # Video codec
-            '-pix_fmt', 'bgr24',         # Pixel format (OpenCV uses BGR)
-            '-s', '1280x720',            # Frame size
-            '-r', '20',                  # Frame rate
-            '-i', '-',                   # Input from stdin
-            '-c:v', 'libx264',           # Output codec
-            '-preset', 'ultrafast',      # Encoding speed
-            '-f', 'flv',                 # Output format
-            f'{RTMP_MEDIA_SERVER}/live/{self.stream_id}'  # MediaMTX RTMP URL
+        # ffmpeg_command = [
+        #     'ffmpeg',
+        #     '-y',                        # Overwrite output files
+        #     '-f', 'rawvideo',            # Input format
+        #     '-vcodec', 'rawvideo',       # Video codec
+        #     '-pix_fmt', 'bgr24',         # Pixel format (OpenCV uses BGR)
+        #     '-s', '1280x720',            # Frame size
+        #     '-r', '20',                  # Frame rate
+        #     '-i', '-',                   # Input from stdin
+        #     '-c:v', 'libx264',           # Output codec
+        #     '-preset', 'ultrafast',      # Encoding speed
+        #     '-f', 'flv',                 # Output format
+        #     f'{RTMP_MEDIA_SERVER}/live/{self.stream_id}'  # MediaMTX RTMP URL
+        # ]
+        # return subprocess.Popen(ffmpeg_command, stdin=subprocess.PIPE)
+        gst_command = [
+            "gst-launch-1.0",
+            "fdsrc",
+            "!",
+            "videoparse",
+            "width=1280",
+            "height=720",
+            "framerate=30/1",
+            "format=bgr",             # matches bgr24 input
+            "!",
+            "videoconvert",
+            "!",
+            "x264enc",
+            "tune=zerolatency",
+            "speed-preset=ultrafast", # similar to -preset ultrafast in FFmpeg
+            "!",
+            "flvmux",
+            "streamable=true",
+            "!",
+            "rtmpsink",
+            f"location={RTMP_MEDIA_SERVER}/live/{self.stream_id}"
         ]
-        return subprocess.Popen(ffmpeg_command, stdin=subprocess.PIPE)
+        
+        return subprocess.Popen(gst_command, stdin=subprocess.PIPE)
 
     def process_and_emit_frames(self, model_name):
         process = None
