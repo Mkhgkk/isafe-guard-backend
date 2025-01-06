@@ -24,7 +24,7 @@ from ptz.autotrack import PTZAutoTracker
 class StreamSchema(Schema):
     stream_id = fields.String(required=True)
     rtsp_link = fields.String(required=True)
-    model_name = fields.String(required=True, validate=validate.OneOf(['PPE', 'Ladder', 'Scaffolding', 'Mobile Scaffolding', 'Cutting Welding', 'Fire']))
+    model_name = fields.String(required=True, validate=validate.OneOf(['PPE', 'Ladder', 'Scaffolding', 'MobileScaffolding', 'CuttingWelding', 'Fire']))
     location = fields.String(required=True)
     description = fields.String(required=True)
     is_active = fields.Boolean(load_default=False)
