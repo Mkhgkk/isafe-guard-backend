@@ -13,6 +13,12 @@ def detect_intrusion(hazard_zones, person_bboxes=[]):
     """
     intrusions = []
 
+    if hazard_zones is None:
+        return  intrusions
+    
+    if person_bboxes is None:
+        return  intrusions
+
     for box in person_bboxes:
         # Calculate the bottom mid-point of the person box
         x_min, y_min, x_max, y_max = box
