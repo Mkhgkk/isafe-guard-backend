@@ -199,7 +199,7 @@ class StreamManager:
         os.makedirs(image_directory, exist_ok=True)
 
         original_height, original_width = frame.shape[:2]
-        target_width = 150
+        target_width = 450
         aspect_ratio = original_height / original_width
         target_height = int(target_width * aspect_ratio)
         resized_frame = cv2.resize(frame, (target_width, target_height), interpolation=cv2.INTER_AREA)
