@@ -168,4 +168,24 @@ class User:
       traceback.print_exc()
       return tools.JsonResp({"message": f"An unexpected error occurred: {str(e)}"}, 500)
     
- 
+  def update_password(self):
+    try:
+      # TODO: validate data from client
+      data = json.loads(request.data)
+      current_password = data.get("current_password")
+      new_password = data.get("new_password")
+
+      token_data = jwt.decode(request.headers.get('AccessToken'), app.config['SECRET_KEY'])
+      user = app.db.users.find_one({"id": token_data["user_id"]}, { "_id": 0 })
+
+      if user and pbkdf2_sha256.verify(current_password, user["password"]):
+        new_password_enc = pbkdf2_sha256.encrypt(new_password, rounds=20000, salt_size=16)
+        app.db.users.update_one({"id": token_data["user_id"]}, {"$set": {"password": new_password_enc}})
+        return tools.JsonResp({"message": "Password updated."}, 200)
+      else:
+        return tools.JsonResp({"message": "Incorrect password."}, 400)
+
+    except Exception as e:
+      traceback.print_exc()
+      return tools.JsonResp({"message": f"An unexpected error occurred: {str(e)}"}, 500)
+    

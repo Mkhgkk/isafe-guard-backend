@@ -30,3 +30,8 @@ def add():
 @token_required
 def update_username():
 	return User().update_username()
+
+@user_blueprint.route("/password", methods=["POST"])
+@token_required
+def update_password():
+	return User().update_password()
