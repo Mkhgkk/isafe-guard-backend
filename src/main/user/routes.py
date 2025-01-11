@@ -25,3 +25,8 @@ def logout():
 @user_blueprint.route("/", methods=["POST"])
 def add():
 	return User().add()
+
+@user_blueprint.route("/username", methods=["POST"])
+@token_required
+def update_username():
+	return User().update_username()

@@ -145,3 +145,27 @@ class User:
         resp = tools.JsonResp({ "message": "User could not be added" }, 400)
 
     return resp
+  
+  def update_username(self):
+    try:
+      data = json.loads(request.data)
+      username = data.get("username")
+      token_data = jwt.decode(request.headers.get('AccessToken'), app.config['SECRET_KEY'])
+
+      user = app.db.users.find_one({ "id": token_data['user_id'] }, {
+        "_id": 0,
+        "password": 0
+      })
+
+      if user:
+        app.db.users.update_one({"id": token_data["user_id"]}, {"$set": {"username": username}})
+        resp = tools.JsonResp(user, 200)
+      else:
+        resp = tools.JsonResp({ "message": "User not found" }, 404)
+
+      return resp
+    except Exception as e: 
+      traceback.print_exc()
+      return tools.JsonResp({"message": f"An unexpected error occurred: {str(e)}"}, 500)
+    
+ 

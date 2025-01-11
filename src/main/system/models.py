@@ -105,7 +105,7 @@ class System:
             data = json.loads(request.data)
             retention = data.get("retention")
 
-            # validate retention
+            # TODO: validate retention
 
             self.collection.update_one({"_id": DOCUMENT_ID}, {"$set": {"video_retention_days": retention}})
 
