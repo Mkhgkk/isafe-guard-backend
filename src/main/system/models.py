@@ -11,6 +11,11 @@ from datetime import datetime, timedelta
 from utils import df, du
 from config import STATIC_DIR, MODELS_DIR, BASE_DIR
 
+from database import get_database
+
+COLLECTION_NAME = "system"
+DOCUMENT_ID = "system_config"
+
 
 class System:
     _instance = None  
@@ -22,6 +27,8 @@ class System:
 
     def __init__(self):
         if not hasattr(self, "initialized"): 
+            self.collection = get_database()[COLLECTION_NAME]
+
             self.disk_available = None
             self.disk_used = None
             self.disk_free = None
@@ -32,6 +39,20 @@ class System:
 
             self.last_disk_check = None
             self.initialized = True
+
+            existing_config = self.collection.find_one({"_id": DOCUMENT_ID})
+            if not existing_config:
+                default_config = {
+                    "_id": "system_config",
+                    "disk_check_interval": 5,  
+                    "logging_level": "info",  
+                    "video_retention_days": 30, 
+                    "features": {
+                        "enable_notification": True,
+                    },
+                    "last_updated": datetime.utcnow()
+                }
+                self.collection.insert_one(default_config)
 
     def get_disk(self):
         try:
@@ -70,3 +91,25 @@ class System:
         except Exception as e:
             print(f"Error: {e}")
             return tools.JsonResp({"data": str(e)}, 401)
+
+    def get_retention(self):
+        try:
+            system_config = self.collection.find_one({"_id": DOCUMENT_ID}, {"video_retention_days": 1, "_id": 0} )
+            return tools.JsonResp({"retention": system_config.get("video_retention_days")}, 200)
+        except Exception as e: 
+            print(f"Error: {e}")
+            return tools.JsonResp({"error": str(e)}, 401)
+        
+    def update_retention(self):
+        try:
+            data = json.loads(request.data)
+            retention = data.get("retention")
+
+            # validate retention
+
+            self.collection.update_one({"_id": DOCUMENT_ID}, {"$set": {"video_retention_days": retention}})
+
+            return tools.JsonResp({"retention": retention}, 200)
+        except Exception as e:
+            print(f"Error: {e}")
+            return tools.JsonResp({"error": str(e)}, 401)
