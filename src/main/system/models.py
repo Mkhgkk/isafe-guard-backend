@@ -43,7 +43,7 @@ class System:
             existing_config = self.collection.find_one({"_id": DOCUMENT_ID})
             if not existing_config:
                 default_config = {
-                    "_id": "system_config",
+                    "_id": DOCUMENT_ID,
                     "disk_check_interval": 5,  
                     "logging_level": "info",  
                     "video_retention_days": 30, 
@@ -119,6 +119,34 @@ class System:
             self.collection.update_one({"_id": DOCUMENT_ID}, {"$set": {"video_retention_days": retention}})
 
             return tools.JsonResp({"retention": retention}, 200)
+        except Exception as e:
+            print(f"Error: {e}")
+            return tools.JsonResp({"error": str(e)}, 401)
+        
+    def update_watch_notif(self):
+        try:
+            data = json.loads(request.data)
+            enable = data.get("enable")
+
+            # TODO: validate eable; should be true or false
+
+            self.collection.update_one({"_id": DOCUMENT_ID}, {"$set": {"features.enable_watch_notif": enable}})
+
+            return tools.JsonResp({"features.enable_watch_notif": enable}, 200)
+        except Exception as e:
+            print(f"Error: {e}")
+            return tools.JsonResp({"error": str(e)}, 401)
+        
+    def update_email_notif(self):
+        try:
+            data = json.loads(request.data)
+            enable = data.get("enable")
+
+            # TODO: validate eable; should be true or false
+
+            self.collection.update_one({"_id": DOCUMENT_ID}, {"$set": {"features.enable_email_notif": enable}})
+
+            return tools.JsonResp({"features.enable_email_notif": enable}, 200)
         except Exception as e:
             print(f"Error: {e}")
             return tools.JsonResp({"error": str(e)}, 401)
