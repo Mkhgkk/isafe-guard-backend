@@ -48,11 +48,20 @@ class System:
                     "logging_level": "info",  
                     "video_retention_days": 30, 
                     "features": {
-                        "enable_notification": True,
+                        "enable_watch_notif": False,
+                        "enable_email_notif": False,
                     },
                     "last_updated": datetime.utcnow()
                 }
                 self.collection.insert_one(default_config)
+
+    def get(self):
+        try:
+            system_config = self.collection.find_one({"_id": DOCUMENT_ID}, {"video_retention_days": 1, "features": 1, "_id": 0} )
+            return tools.JsonResp(system_config, 200)
+        except Exception as e:
+            print(f"Error: {e}")
+            return tools.JsonResp({"error": str(e)}, 401)
 
     def get_disk(self):
         try:
