@@ -58,19 +58,23 @@ class StreamManager:
         bboxes = None
 
         if model_name == "PPE":
-            final_status, reasons, bboxes = self.DETECTOR.detect_ppe(
-                frame, results, self.ptz_autotrack
-            )
+            result = self.DETECTOR.detect_ppe(frame, results)
         elif model_name == "Ladder":
-            final_status = self.DETECTOR.detect_ladder(frame, results)
+            result = self.DETECTOR.detect_ladder(frame, results)
         elif model_name == "MobileScaffolding":
-            final_status = self.DETECTOR.detect_mobile_scaffolding(frame, results)
+            result = self.DETECTOR.detect_mobile_scaffolding(frame, results)
         elif model_name == "Scaffolding":
-            final_status, reasons = self.DETECTOR.detect_scaffolding(frame, results)
+            result = self.DETECTOR.detect_scaffolding(frame, results)
         elif model_name == "Fire":
-            final_status, reasons = self.DETECTOR.detect_fire_smoke(frame, results)
+            result = self.DETECTOR.detect_fire_smoke(frame, results)
         elif model_name == "CuttingWelding":
-            final_status = self.DETECTOR.detect_cutting_welding(frame, results)
+            result = self.DETECTOR.detect_cutting_welding(frame, results)
+        else:
+            result = (final_status, reasons, bboxes)
+
+        final_status = result[0]
+        reasons = result[1] if len(result) > 1 else []
+        bboxes = result[2] if len(result) > 2 else None
 
         # return frame, final_status, [reasons], bboxes
         return frame, final_status, reasons, bboxes
@@ -167,7 +171,9 @@ class StreamManager:
                     )
 
                 if self.ptz_autotrack and self.ptz_auto_tracker:
-                    self.ptz_auto_tracker.track(1280, 720, person_bboxes)
+                    self.ptz_auto_tracker.track(
+                        FRAME_WIDTH, FRAME_HEIGHT, person_bboxes
+                    )
 
                 if final_status != "Safe":
                     self.unsafe_frame_count += 1
