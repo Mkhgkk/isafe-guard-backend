@@ -7,7 +7,7 @@ import logging
 from collections import deque
 from flask import current_app as app
 from queue import Queue
-from detection.object_detection import ObjectDetection
+from detection.detector import Detector
 from socket_.socketio_instance import socketio
 from intrusion import detect_intrusion
 from intrusion.auto import SafeAreaTracker
@@ -22,7 +22,7 @@ RTMP_MEDIA_SERVER = os.getenv("RTMP_MEDIA_SERVER", "rtmp://localhost:1935")
 
 class StreamManager:
     def __init__(self, rtsp_link, model_name, stream_id, ptz_autotrack=False):
-        self.DETECTOR = ObjectDetection(model_name)
+        self.DETECTOR = Detector(model_name)
         self.stream_id = stream_id
         self.rtsp_link = rtsp_link
         self.model_name = model_name
@@ -48,36 +48,6 @@ class StreamManager:
 
         # self.EVENT_VIDEO_DIR = os.path.join(STATIC_DIR, self.stream_id, "videos")
         # self.EVENT_THUMBNAIL_DIR = os.path.join(STATIC_DIR, self.stream_id, "thumbnails")
-
-    def apply_model(self, frame, model_name):
-        model = self.DETECTOR.model
-
-        results = model(frame)
-        final_status = "Safe"
-        reasons = []
-        bboxes = None
-
-        if model_name == "PPE":
-            result = self.DETECTOR.detect_ppe(frame, results)
-        elif model_name == "Ladder":
-            result = self.DETECTOR.detect_ladder(frame, results)
-        elif model_name == "MobileScaffolding":
-            result = self.DETECTOR.detect_mobile_scaffolding(frame, results)
-        elif model_name == "Scaffolding":
-            result = self.DETECTOR.detect_scaffolding(frame, results)
-        elif model_name == "Fire":
-            result = self.DETECTOR.detect_fire_smoke(frame, results)
-        elif model_name == "CuttingWelding":
-            result = self.DETECTOR.detect_cutting_welding(frame, results)
-        else:
-            result = (final_status, reasons, bboxes)
-
-        final_status = result[0]
-        reasons = result[1] if len(result) > 1 else []
-        bboxes = result[2] if len(result) > 2 else None
-
-        # return frame, final_status, [reasons], bboxes
-        return frame, final_status, reasons, bboxes
 
     def start_stream(self):
         self.running = True
@@ -153,7 +123,7 @@ class StreamManager:
                     self.safe_area_tracker.get_transformed_safe_areas(frame)
                 )
                 processed_frame, final_status, reasons, person_bboxes = (
-                    self.apply_model(frame, model_name)
+                    self.DETECTOR.detect(frame)
                 )
                 processed_frame = self.safe_area_tracker.draw_safe_area_on_frame(
                     processed_frame, transformed_hazard_zones
@@ -167,7 +137,7 @@ class StreamManager:
                         f"alert-{self.stream_id}",
                         {"type": "intrusion"},
                         namespace="/video",
-                        room=self.stream_id,
+                        room=self.stream_id,  # type: ignore
                     )
 
                 if self.ptz_autotrack and self.ptz_auto_tracker:
