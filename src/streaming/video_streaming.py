@@ -10,7 +10,7 @@ from queue import Queue
 from detection.detector import Detector
 from socket_.socketio_instance import socketio
 from intrusion import detect_intrusion
-from intrusion.auto import SafeAreaTracker
+from intrusion.tracking import SafeAreaTracker
 from main.shared import safe_area_trackers
 from main.event.model import Event
 from utils import create_video_writer, start_gstreamer_process
@@ -173,7 +173,7 @@ class StreamManager:
                     )
                     streamer_process.stdin.close()
                     streamer_process.wait()
-                    streamer_process = start_gstreamer_process()
+                    streamer_process = start_gstreamer_process(self.stream_id)
 
                 if not is_recording and self.total_frame_count % frame_interval == 0:
                     unsafe_ratio = (
