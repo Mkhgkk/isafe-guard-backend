@@ -1,10 +1,9 @@
-from typing import List, Tuple, Optional, Dict, Union
-from onvif import ONVIFCamera, exceptions
 import time
 import queue
 import threading
 import numpy as np
-import sys
+from typing import List, Tuple, Optional, Dict, Union
+from onvif import ONVIFCamera, exceptions
 
 
 class PTZAutoTracker:
