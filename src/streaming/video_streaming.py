@@ -166,14 +166,16 @@ class StreamManager:
                 )
 
                 try:
-                    streamer_process.stdin.write(processed_frame.tobytes())
+                    if streamer_process.stdin is not None:
+                        streamer_process.stdin.write(processed_frame.tobytes())
                 except BrokenPipeError:
                     logging.info(
                         f"Streamer process for {self.stream_id} has stopped unexpectedly. Restarting..."
                     )
-                    streamer_process.stdin.close()
-                    streamer_process.wait()
-                    streamer_process = start_gstreamer_process(self.stream_id)
+                    if streamer_process.stdin is not None:
+                        streamer_process.stdin.close()
+                        streamer_process.wait()
+                        streamer_process = start_gstreamer_process(self.stream_id)
 
                 if not is_recording and self.total_frame_count % frame_interval == 0:
                     unsafe_ratio = (
@@ -216,7 +218,8 @@ class StreamManager:
 
                 if is_recording and process is not None:
                     try:
-                        process.stdin.write(processed_frame.tobytes())
+                        if process.stdin is not None:
+                            process.stdin.write(processed_frame.tobytes())
                     except BrokenPipeError:
                         logging.error(
                             f"Recording process for {self.stream_id} has stopped unexpectedly."
@@ -243,8 +246,9 @@ class StreamManager:
                 time.sleep(0.01)
 
         if streamer_process:
-            streamer_process.stdin.close()
-            streamer_process.wait()
+            if streamer_process.stdin is not None:
+                streamer_process.stdin.close()
+                streamer_process.wait()
 
     def finalize_video(self, process):
         if process:
