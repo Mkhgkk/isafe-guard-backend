@@ -3,7 +3,7 @@ from flask import request, Request as FlaskRequest
 from typing import cast, Optional
 from main.shared import streams
 
-NAMESPACE = "/video"
+NAMESPACE = "/default"
 
 
 class SocketIORequest(FlaskRequest):

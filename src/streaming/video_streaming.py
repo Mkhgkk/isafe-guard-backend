@@ -18,6 +18,7 @@ from utils.notifications import send_watch_notification
 from config import FRAME_HEIGHT, FRAME_WIDTH, RECONNECT_WAIT_TIME_IN_SECS, STATIC_DIR
 
 RTMP_MEDIA_SERVER = os.getenv("RTMP_MEDIA_SERVER", "rtmp://localhost:1935")
+NAMESPACE = "/default"
 
 
 class StreamManager:
@@ -136,7 +137,7 @@ class StreamManager:
                     socketio.emit(
                         f"alert-{self.stream_id}",
                         {"type": "intrusion"},
-                        namespace="/video",
+                        namespace=NAMESPACE,
                         room=self.stream_id,  # type: ignore
                     )
 
