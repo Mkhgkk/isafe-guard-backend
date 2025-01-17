@@ -29,19 +29,19 @@ zookeeper = ["kazoo"]
 
 [[package]]
 name = "attrs"
-version = "24.2.0"
+version = "24.3.0"
 description = "Classes Without Boilerplate"
 optional = false
-python-versions = ">=3.7"
+python-versions = ">=3.8"
 files = [
-    {file = "attrs-24.2.0-py3-none-any.whl", hash = "sha256:81921eb96de3191c8258c199618104dd27ac608d9366f5e35d011eae1867ede2"},
-    {file = "attrs-24.2.0.tar.gz", hash = "sha256:5cfb1b9148b5b086569baec03f20d7b6bf3bcacc9a42bebf87ffaaca362f6346"},
+    {file = "attrs-24.3.0-py3-none-any.whl", hash = "sha256:ac96cd038792094f438ad1f6ff80837353805ac950cd2aa0e0625ef19850c308"},
+    {file = "attrs-24.3.0.tar.gz", hash = "sha256:8f5c07333d543103541ba7be0e2ce16eeee8130cb0b3f9238ab904ce1e85baff"},
 ]
 
 [package.extras]
 benchmark = ["cloudpickle", "hypothesis", "mypy (>=1.11.1)", "pympler", "pytest (>=4.3.0)", "pytest-codspeed", "pytest-mypy-plugins", "pytest-xdist[psutil]"]
 cov = ["cloudpickle", "coverage[toml] (>=5.3)", "hypothesis", "mypy (>=1.11.1)", "pympler", "pytest (>=4.3.0)", "pytest-mypy-plugins", "pytest-xdist[psutil]"]
-dev = ["cloudpickle", "hypothesis", "mypy (>=1.11.1)", "pre-commit", "pympler", "pytest (>=4.3.0)", "pytest-mypy-plugins", "pytest-xdist[psutil]"]
+dev = ["cloudpickle", "hypothesis", "mypy (>=1.11.1)", "pre-commit-uv", "pympler", "pytest (>=4.3.0)", "pytest-mypy-plugins", "pytest-xdist[psutil]"]
 docs = ["cogapp", "furo", "myst-parser", "sphinx", "sphinx-notfound-page", "sphinxcontrib-towncrier", "towncrier (<24.7)"]
 tests = ["cloudpickle", "hypothesis", "mypy (>=1.11.1)", "pympler", "pytest (>=4.3.0)", "pytest-mypy-plugins", "pytest-xdist[psutil]"]
 tests-mypy = ["mypy (>=1.11.1)", "pytest-mypy-plugins"]
@@ -1420,17 +1420,22 @@ protobuf = ">=3.20.2"
 reference = ["Pillow", "google-re2"]
 
 [[package]]
-name = "onvif-zeep"
+name = "onvif_zeep"
 version = "0.2.12"
 description = "Python Client for ONVIF Camera"
 optional = false
 python-versions = "*"
-files = [
-    {file = "onvif_zeep-0.2.12.tar.gz", hash = "sha256:aa8bbc02a73eaa50894b0c18e39fa8d318a583a664c65bf35b3c8029d1c40b49"},
-]
+files = []
+develop = false
 
 [package.dependencies]
 zeep = ">=3.0.0"
+
+[package.source]
+type = "git"
+url = "https://github.com/Mkhgkk/python-onvif-zeep.git"
+reference = "fix/update-xaddr-url-handling"
+resolved_reference = "7ed0a820ae5fd2fd3b33d2c8b29d2b1c096801be"
 
 [[package]]
 name = "opencv-python"
@@ -2544,4 +2549,4 @@ type = ["pytest-mypy"]
 [metadata]
 lock-version = "2.0"
 python-versions = "3.9.19"
-content-hash = "cf70bf02948eb0efbd90e653d1d72a6da817bf63477c85aa930b216ca1b5988a"
+content-hash = "39c194742fe25a7c820b81fc2d328b44c16afba587ab2194494f78e3272cadce"

@@ -21,7 +21,7 @@ opencv-python = "4.10.0.84"
 ultralytics = "8.3.48"
 flask-socketio = "5.4.1"
 marshmallow = "3.23.1"
-onvif-zeep = "0.2.12"
+onvif-zeep = {git="https://github.com/Mkhgkk/python-onvif-zeep.git", branch="fix/update-xaddr-url-handling"}
 python-jose = "3.3.0"
 passlib = "1.7.4"
 torch = "2.5.1"
