@@ -95,7 +95,7 @@ class StreamManager:
                 try:
                     self.frame_buffer.put_nowait(frame)
                 except:
-                    # print("Frame buffer is full; dropping frame.")
+                    # logging.info("Frame buffer is full; dropping frame.")
                     pass
 
             video_capture.release()

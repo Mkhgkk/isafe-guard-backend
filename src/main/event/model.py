@@ -96,8 +96,7 @@ class Event:
             return data
 
         except Exception as e:
-            print("ERROR")
-            print(e)
+            logging.error("An error occured: ", e)
             raise RuntimeError(
                 "An error occurred while saving the event to the database."
             ) from e
@@ -140,7 +139,7 @@ class Event:
 
             return tools.JsonResp({"message": "Success.", "data": events}, 200)
         except Exception as e:
-            print(e)
+            logging.error("An error occured: ", e)
             return tools.JsonResp(
                 {"message": "Failed to fetch events from db.", "error": "db_error"}, 500
             )

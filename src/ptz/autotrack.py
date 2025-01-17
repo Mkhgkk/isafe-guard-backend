@@ -1,5 +1,6 @@
 import time
 import queue
+import logging
 import threading
 import numpy as np
 from typing import List, Tuple, Optional, Dict, Union
@@ -73,7 +74,7 @@ class PTZAutoTracker:
             status = self.ptz_service.GetStatus({"ProfileToken": self.profile_token})
             return status
         except exceptions.ONVIFError as e:
-            print(f"Error getting PTZ status: {e}")
+            logging.error(f"Error getting PTZ status: {e}")
             return None
 
     def calculate_movement(
@@ -223,7 +224,7 @@ class PTZAutoTracker:
             self.ptz_service.ContinuousMove(request)
             self.is_moving = True
         except exceptions.ONVIFError as e:
-            print(f"Error in continuous move: {e}")
+            logging.error(f"Error in continuous move: {e}")
 
     def stop_movement(self) -> None:
         if self.is_moving:
@@ -235,7 +236,7 @@ class PTZAutoTracker:
                 self.ptz_service.Stop(request)
                 self.is_moving = False
             except exceptions.ONVIFError as e:
-                print(f"Error stopping PTZ movement: {e}")
+                logging.error(f"Error stopping PTZ movement: {e}")
 
     def move_to_default_position(self) -> None:
         # home_pan = -0.550611138
@@ -265,7 +266,7 @@ class PTZAutoTracker:
 
             self.ptz_service.AbsoluteMove(request)
         except exceptions.ONVIFError as e:
-            print(f"Error moving to default position: {e}")
+            logging.error(f"Error moving to default position: {e}")
 
     def reset_camera_position(self) -> None:
         self.stop_movement()
@@ -291,9 +292,10 @@ class PTZAutoTracker:
 
                 self.is_at_default_position = True
 
-                print("No object detected. Moving to default zoom level.")
+                # logging.info("No object detected. Moving to default zoom level.")
             else:
-                print("No object detected. Waiting...")
+                # logging.info("No object detected. Waiting...")
+                pass
             return
 
         # object(s) detected; update last detection time
@@ -301,7 +303,7 @@ class PTZAutoTracker:
 
         # throtle movement commands to prevent jitter
         if time.time() - self.last_move_time < self.move_throttle_time:
-            print("Throttling movement to prevent jitter.")
+            logging.info("Throttling movement to prevent jitter.")
             return
 
         pan, tilt, zoom = self.calculate_movement(frame_width, frame_height, bboxes)

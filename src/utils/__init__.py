@@ -1,4 +1,5 @@
 import os
+import logging
 import numpy as np
 import subprocess
 from typing import Tuple, Optional
@@ -18,7 +19,7 @@ def df() -> Optional[str]:
         )
         return result.strip()
     except subprocess.CalledProcessError as e:
-        print(f"Error: {e}")
+        logging.error(f"Error: {e}")
         return None
 
 

@@ -1,3 +1,4 @@
+import logging
 from flask_socketio import join_room, leave_room, send
 from flask import request, Request as FlaskRequest
 from typing import cast, Optional
@@ -13,11 +14,11 @@ class SocketIORequest(FlaskRequest):
 def setup_socketio_handlers(socketio):
     @socketio.on("connect", namespace=NAMESPACE)
     def video_connect():
-        print("Client connected")
+        logging.info("Client connected")
 
     @socketio.on("disconnect", namespace=NAMESPACE)
     def video_disconnect():
-        print("Client disconnected")
+        logging.info("Client disconnected")
 
     @socketio.on("join", namespace=NAMESPACE)
     def handle_join(data):
