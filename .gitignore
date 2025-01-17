@@ -57,7 +57,12 @@ venv.bak/
 # Docker
 *.pid
 
-# Models
-models/*
+# Ignore Model Files
+*.pt
+*.pth
+*.onnx
+*.pb
+*.plan
+*.engine
 
 static/
