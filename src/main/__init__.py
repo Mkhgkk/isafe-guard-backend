@@ -1,7 +1,12 @@
 import os
 from flask_cors import CORS
-from flask import Flask, request, Blueprint, send_from_directory, send_file, abort, Response
-from pymongo import MongoClient
+from typing import Optional
+from flask import (
+    Flask,
+    send_from_directory,
+)
+from pymongo.database import Database
+from flask_socketio import SocketIO
 
 from main.tools import JsonResp
 from main.stream.routes import stream_blueprint
@@ -11,65 +16,50 @@ from main.system.routes import system_blueprint
 
 from socket_.socketio_instance import socketio
 from socket_.socketio_handlers import setup_socketio_handlers
+from database import initialize_database, get_database
 
-from database import MongoDatabase, initialize_database, get_database
 
+class IsafeFlask(Flask):
+    db: Optional[Database] = None
+    socketio: Optional[SocketIO] = None
 
 
 def create_app():
-  app = Flask(__name__, static_folder='static')
-  app.config.from_pyfile("config/config.cfg")
-  # cors = CORS(app, resources={r"/*": { "origins": app.config["FRONTEND_DOMAIN"] }})
-  # cors = CORS(app, resources={r"/*": { "origins": "*" }})
+    app = IsafeFlask(__name__, static_folder="static")
+    app.config.from_pyfile("config/config.cfg")
 
-  cors = CORS(app, resources={r"/*": { "origins": "*" }})
-  CORS(user_blueprint, resources={r"/*": {"origins": "*"}})
-  CORS(stream_blueprint, resources={r"/*": {"origins": "*"}})
-  CORS(event_blueprint, resources={r"/*": {"origins": "*"}})
+    cors = CORS(app, resources={r"/*": {"origins": "*"}})
+    CORS(user_blueprint, resources={r"/*": {"origins": "*"}})
+    CORS(stream_blueprint, resources={r"/*": {"origins": "*"}})
+    CORS(event_blueprint, resources={r"/*": {"origins": "*"}})
 
+    os.environ["TZ"] = app.config["TIMEZONE"]
 
-  # Misc Config
-  os.environ["TZ"] = app.config["TIMEZONE"]
-
-  # Database Config
-  if app.config["ENVIRONMENT"] == "development":
-    # mongo = MongoClient(app.config["MONGO_HOSTNAME"], app.config["MONGO_PORT"])
-    # app.db = mongo[app.config["MONGO_APP_DATABASE"]]
-
-    # mongo = MongoClient(app.config["MONGO_URI"])
-    # app.db = mongo[app.config["MONGO_APP_DATABASE"]]
-
-    DB_HOST = os.getenv('DB_HOST', app.config["MONGO_URI"])
+    DB_HOST = os.getenv("DB_HOST", app.config["MONGO_URI"])
     initialize_database(DB_HOST, app.config["MONGO_APP_DATABASE"])
     app.db = get_database()
-  else:
-    mongo = MongoClient("localhost")
-    mongo[app.config["MONGO_AUTH_DATABASE"]].authenticate(app.config["MONGO_AUTH_USERNAME"], app.config["MONGO_AUTH_PASSWORD"])
-    app.db = mongo[app.config["MONGO_APP_DATABASE"]]
 
-  # Register Blueprints
-  app.register_blueprint(stream_blueprint, url_prefix="/api/stream")
-  app.register_blueprint(user_blueprint, url_prefix="/api/user")
-  app.register_blueprint(event_blueprint, url_prefix="/api/event")
-  app.register_blueprint(system_blueprint, url_prefix="/api/system")
+    app.register_blueprint(stream_blueprint, url_prefix="/api/stream")
+    app.register_blueprint(user_blueprint, url_prefix="/api/user")
+    app.register_blueprint(event_blueprint, url_prefix="/api/event")
+    app.register_blueprint(system_blueprint, url_prefix="/api/system")
 
-  # Socket initialization
-  socketio.init_app(app, cors_allowed_origins="*", async_mode='threading')
-  setup_socketio_handlers(socketio)
-  app.socketio = socketio
+    socketio.init_app(app, cors_allowed_origins="*", async_mode="threading")
+    setup_socketio_handlers(socketio)
+    app.socketio = socketio
 
-  @app.route('/static/<path:filename>')
-  def serve_static_file(filename):
-      return send_from_directory(app.static_folder, filename)
-  
-  @app.route('/video/<path:filename>')
-  def serve_video(filename):
-      return send_from_directory(app.static_folder, filename, mimetype='video/mp4')
+    @app.route("/static/<path:filename>")
+    def serve_static_file(filename):
+        assert app.static_folder is not None, "static_folder must be set in Flask app"
+        return send_from_directory(app.static_folder, filename)
 
-  # Index Route
-  @app.route("/")
-  def index():
-    return JsonResp({ "status": "Online" }, 200)
-  
-  
-  return app
+    @app.route("/video/<path:filename>")
+    def serve_video(filename):
+        assert app.static_folder is not None, "static_folder must be set in Flask app"
+        return send_from_directory(app.static_folder, filename, mimetype="video/mp4")
+
+    @app.route("/")
+    def index():
+        return JsonResp({"status": "Online"}, 200)
+
+    return app

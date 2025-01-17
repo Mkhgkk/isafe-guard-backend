@@ -55,7 +55,6 @@ if __name__ == "__main__":
         except Exception as e:
             logging.error(f"Error during shutdown: {e}")
         finally:
-            # Force exit
             os._exit(0)
 
     signal.signal(signal.SIGINT, handle_exit)
