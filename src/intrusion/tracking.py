@@ -5,7 +5,7 @@ from threading import Thread
 import torch
 from .models.matching import Matching
 from .models.utils import frame2tensor
-from typing import Optional, List, Tuple
+from typing import Optional, List, Tuple, Sequence
 
 
 class SafeAreaTracker:
@@ -80,8 +80,11 @@ class SafeAreaTracker:
                 safe_area_ref, homography_matrix
             )
 
-            cv2.fillPoly(overlay, [np.int32(safe_area_curr)], (0, 255, 255))
-            cv2.polylines(frame, [np.int32(safe_area_curr)], True, (0, 255, 255), 2)
+            safe_area_curr_int = safe_area_curr.reshape(-1, 1, 2).astype(np.int32)
+            cv2.fillPoly(
+                overlay, [np.array(safe_area_curr, dtype=np.int32)], (0, 255, 255)
+            )
+            cv2.polylines(frame, [safe_area_curr_int], True, (0, 255, 255), 2)
 
         alpha: float = 0.4
         frame = cv2.addWeighted(overlay, alpha, frame, 1 - alpha, 0)
@@ -124,7 +127,8 @@ class SafeAreaTracker:
             safe_area_curr: np.ndarray = cv2.perspectiveTransform(
                 safe_area_ref, homography_matrix
             )
-            transformed_hazard_zones.append(np.int32(safe_area_curr))
+            safe_area_curr_int = safe_area_curr.astype(np.int32)
+            transformed_hazard_zones.append(safe_area_curr_int)
 
         return transformed_hazard_zones
 
