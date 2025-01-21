@@ -6,7 +6,11 @@ import asyncio
 from apscheduler.schedulers.background import BackgroundScheduler
 from main import create_app
 from main.stream.model import Stream
-from startup import configure_models, get_system_utilization
+from startup import (
+    configure_detection_models,
+    get_system_utilization,
+    configure_matching_models,
+)
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
@@ -20,7 +24,8 @@ logger = logging.getLogger(__name__)
 stream_docs = {}
 
 if __name__ == "__main__":
-    configure_models()
+    configure_detection_models()
+    configure_matching_models()
     logger.info("Models successfully configured!")
 
     # TODO:

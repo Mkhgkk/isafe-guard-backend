@@ -1,7 +1,6 @@
 import os
 
 DEFAULT_PRECISION = "fp16"
-MODEL_REPOSITORY_URL = "https://storage.googleapis.com/isafe-models"
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 STATIC_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "main/static"))
