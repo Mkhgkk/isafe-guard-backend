@@ -6,7 +6,7 @@ import logging
 import requests
 from typing import List
 from bson import ObjectId
-from config import WATCH_NOTIFICATION_URL
+from config import WATCH_NOTIFICATION_URL, RECEIVER_EMAILS, SENDER_EMAIL, EMAIL_PASSWORD
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
@@ -40,16 +40,19 @@ def send_email_notification(
     PROTOCOL = os.getenv("PROTOCOL", "http")
     DOMAIN = os.getenv("DOMAIN", "isafe.re.kr")
 
-    sender_email = "contilabcau@gmail.com"
-    receiver_email = "emmachalz745@outlook.com"
-    password = "lbzf dykm dvgz yzuk"
+    if not RECEIVER_EMAILS or len(RECEIVER_EMAILS) == 0:
+        return
+
+    sender_email = SENDER_EMAIL
+    receiver_emails = RECEIVER_EMAILS
+    password = EMAIL_PASSWORD
 
     subject = "Unsafe Event Notification"
     body = f"Unsafe event occured. You can review the event in the link below:\n{PROTOCOL}://{DOMAIN}/events/{str(event_id)}."
 
     message = MIMEMultipart()
     message["From"] = sender_email
-    message["To"] = receiver_email
+    message["To"] = ", ".join(receiver_emails)
     message["Subject"] = subject
     message.attach(MIMEText(body, "plain"))
 
@@ -57,7 +60,7 @@ def send_email_notification(
         with smtplib.SMTP("smtp.gmail.com", 587) as server:
             server.starttls()
             server.login(sender_email, password)
-            server.sendmail(sender_email, receiver_email, message.as_string())
+            server.sendmail(sender_email, receiver_emails, message.as_string())
             logging.info("Email sent successfully!")
     except Exception as e:
         logging.error(f"Failed to send email: {e}")

@@ -13,3 +13,8 @@ FRAME_HEIGHT = 720
 RECONNECT_WAIT_TIME_IN_SECS = 5
 
 WATCH_NOTIFICATION_URL = "http://118.67.143.38:7000/external/camera"
+
+# RECEIVER_EMAILS = ["emmachalz745@outlook.com"]
+RECEIVER_EMAILS = []
+SENDER_EMAIL = "contilabcau@gmail.com"
+EMAIL_PASSWORD = "lbzf dykm dvgz yzuk"
