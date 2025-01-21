@@ -14,11 +14,6 @@ def detect_ppe(
     final_status: str = "Safe"
     reasons: List[str] = []
 
-    # Get image dimensions to scale the font and other elements accordingly
-    img_height, img_width = image.shape[:2]
-    font_scale = 1  # max(0.2, img_width / 1000)
-    thickness = max(1, int(img_width / 500))
-
     for result in results:
         for box in result.boxes.data:  # type: ignore
             coords = list(map(int, box[:4]))
@@ -56,9 +51,7 @@ def detect_ppe(
                 image,
                 "Worker with helmet",
                 (perBox[0], perBox[1] - 10),
-                font_scale,
                 (0, 180, 0),
-                thickness,
             )
         else:
             final_status = "UnSafe"
@@ -74,16 +67,14 @@ def detect_ppe(
                 image,
                 "Worker without helmet",
                 (perBox[0], perBox[1] - 10),
-                font_scale,
                 (0, 0, 255),
-                thickness,
             )
 
-    color_status = (0, 0, 255) if final_status == "UnSafe" else (0, 255, 0)
-    draw_text_with_background(
-        image, final_status, (40, 50 - 10), font_scale, color_status, thickness
-    )
+    color_status = (0, 0, 255) if final_status == "UnSafe" else (74, 209, 50)
+    draw_text_with_background(image, final_status, (40, 60), color_status, "status")
     # cv2.putText(image, final_status, (40, 50), cv2.FONT_HERSHEY_SIMPLEX, font_scale, color_status, thickness)
+
+    reasons = list(set(reasons))
 
     # Adding reasons for unsafe behavior if any
     if reasons:
@@ -92,9 +83,8 @@ def detect_ppe(
                 image,
                 reason,
                 (40, 100 + (idx * 30)),
-                font_scale,
                 (0, 0, 255),
-                thickness,
+                "reason",
             )
 
     bboxes: List[Tuple[int, int, int, int]] = [

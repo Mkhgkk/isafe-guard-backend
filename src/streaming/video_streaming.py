@@ -12,6 +12,7 @@ from socket_.socketio_instance import socketio
 from intrusion import detect_intrusion
 from intrusion.tracking import SafeAreaTracker
 from main.shared import safe_area_trackers
+from detection import draw_text_with_background
 from main.event.model import Event
 from utils import create_video_writer, start_gstreamer_process
 from utils.notifications import send_watch_notification
@@ -156,14 +157,12 @@ class StreamManager:
                     fps = len(self.fps_queue) / time_diff if time_diff > 0 else 20.0
                 else:
                     fps = 20.0
-                cv2.putText(
+                draw_text_with_background(
                     processed_frame,
-                    f"FPS: {fps:.2f}",
-                    (1100, 30),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    1,
-                    (255, 255, 255),
-                    2,
+                    f"FPS: {int(fps)}",
+                    (1100, 20),
+                    (0, 0, 255),
+                    "fps",
                 )
 
                 try:
