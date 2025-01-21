@@ -1,0 +1,13 @@
+instrusion
+missing_helment
+mobile_scaffold_no_outtrigger
+ladder_without_outtrigger
+opened_hatch
+same_vertical_area
+missing_hook
+fire
+smoke
+
+missing_guardrail
+missing_fire_extinguisher
+missing_fire_net
