@@ -14,6 +14,7 @@ from marshmallow import Schema, fields, ValidationError, validate
 from main import tools
 from database import MongoDatabase, get_database
 from config import STATIC_DIR
+from utils.notifications import send_email_notification
 
 
 class EventSchema(Schema):
@@ -23,6 +24,7 @@ class EventSchema(Schema):
     timestamp = fields.Integer(required=True)
     thumbnail = fields.String(required=True)
     video_filename = fields.String(required=True)
+    _id = fields.String(required=False)
     # event_type = fields.String(required=True, validate=validate.OneOf(['PPE', 'Ladder', 'Mobile Scaffolding', 'Cutting Welding']))
 
 
@@ -41,6 +43,7 @@ class Event:
         model_name: str,
         start_time: float,
         filename: str,
+        _id: ObjectId,
     ) -> None:
         EVENT_THUMBNAIL_DIR = os.path.join(STATIC_DIR, stream_id, "thumbnails")
 
@@ -76,22 +79,27 @@ class Event:
                 "timestamp": int(start_time),
                 "thumbnail": image_filename,
                 "video_filename": filename,
+                "_id": _id,
             }
 
             response = Event().create_event(data)
             logging.info(f"Event saved successfully: {response}")
+            # send_email_notification(reasons, response["_id"], stream_id)
         except Exception as e:
             logging.error(f"Error saving event to database: {e}")
 
     def create_event(self, data):
-        errors = event_schema.validate(data)
-        if errors:
-            raise ValidationError(errors)
+        # errors = event_schema.validate(data)
+        # if errors:
+        #     raise ValidationError(errors)
 
         try:
             event = self.collection.insert_one(data)
             inserted_id = str(event.inserted_id)
             data["_id"] = inserted_id
+
+            print("CREATED_ID: ", data["_id"])
+            print("INSERTED_ID: ", inserted_id)
 
             return data
 

@@ -1,25 +1,63 @@
+import os
 import time
+import logging
+import smtplib
 import logging
 import requests
 from typing import List
+from bson import ObjectId
 from config import WATCH_NOTIFICATION_URL
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+
 
 def send_watch_notification(reasons: List[str] = ["Wear helmet"]) -> None:
-        data = {
-            "phone_id": "4b91e2ca33c3119c",
-            "status": "UnSafe",
-            # "detail": ["안전모 미착용"],
-            # "detail": [reasons] if len(reasons ==1) else reasons,
-            "detail": reasons,
-            "timestamp": str(time.time_ns())
-        }
-        url = WATCH_NOTIFICATION_URL
+    data = {
+        "phone_id": "4b91e2ca33c3119c",
+        "status": "UnSafe",
+        # "detail": ["안전모 미착용"],
+        # "detail": [reasons] if len(reasons ==1) else reasons,
+        "detail": reasons,
+        "timestamp": str(time.time_ns()),
+    }
+    url = WATCH_NOTIFICATION_URL
 
-        try:
-            response = requests.post(url, json=data)
-            if response.status_code in (200, 201):
-                logging.info("Notification sent successfully!")
-            else:
-                logging.warning(f"Failed to send notification. Status code: {response.status_code}")
-        except requests.RequestException as e:
-            logging.error(f"Error occurred: {e}")
+    try:
+        response = requests.post(url, json=data)
+        if response.status_code in (200, 201):
+            logging.info("Notification sent successfully!")
+        else:
+            logging.warning(
+                f"Failed to send notification. Status code: {response.status_code}"
+            )
+    except requests.RequestException as e:
+        logging.error(f"Error occurred: {e}")
+
+
+def send_email_notification(
+    reasons: List[str], event_id: ObjectId, stream_id: str
+) -> None:
+    PROTOCOL = os.getenv("PROTOCOL", "http")
+    DOMAIN = os.getenv("DOMAIN", "isafe.re.kr")
+
+    sender_email = "contilabcau@gmail.com"
+    receiver_email = "emmachalz745@outlook.com"
+    password = "lbzf dykm dvgz yzuk"
+
+    subject = "Unsafe Event Notification"
+    body = f"Unsafe event occured. You can review the event in the link below:\n{PROTOCOL}://{DOMAIN}/events/{str(event_id)}."
+
+    message = MIMEMultipart()
+    message["From"] = sender_email
+    message["To"] = receiver_email
+    message["Subject"] = subject
+    message.attach(MIMEText(body, "plain"))
+
+    try:
+        with smtplib.SMTP("smtp.gmail.com", 587) as server:
+            server.starttls()
+            server.login(sender_email, password)
+            server.sendmail(sender_email, receiver_email, message.as_string())
+            logging.info("Email sent successfully!")
+    except Exception as e:
+        logging.error(f"Failed to send email: {e}")

@@ -4,6 +4,7 @@ import threading
 import time
 import os
 import logging
+from bson import ObjectId
 from collections import deque
 from flask import current_app as app
 from queue import Queue
@@ -15,7 +16,7 @@ from main.shared import safe_area_trackers
 from detection import draw_text_with_background
 from main.event.model import Event
 from utils import create_video_writer, start_gstreamer_process
-from utils.notifications import send_watch_notification
+from utils.notifications import send_watch_notification, send_email_notification
 from config import FRAME_HEIGHT, FRAME_WIDTH, RECONNECT_WAIT_TIME_IN_SECS, STATIC_DIR
 
 RTMP_MEDIA_SERVER = os.getenv("RTMP_MEDIA_SERVER", "rtmp://localhost:1935")
@@ -196,6 +197,8 @@ class StreamManager:
                         is_recording = True
                         self.last_event_time = time.time()
 
+                        _event_id = ObjectId()
+
                         save_thread = threading.Thread(
                             target=Event.save,
                             args=(
@@ -205,13 +208,20 @@ class StreamManager:
                                 self.model_name,
                                 start_time,
                                 video_name,
+                                _event_id,
                             ),
                         )
-                        notification_thread = threading.Thread(
+                        email_notification_thread = threading.Thread(
+                            target=send_email_notification,
+                            args=(reasons, _event_id, self.stream_id),
+                        )
+                        watch_notification_thread = threading.Thread(
                             target=send_watch_notification, args=(reasons)
                         )
 
                         save_thread.start()
+                        email_notification_thread.start()
+                        # watch_notification_thread.start()
                         logging.info(
                             f"Started recording unsafe event video for {self.stream_id}..."
                         )
