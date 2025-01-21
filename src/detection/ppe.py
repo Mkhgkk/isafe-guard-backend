@@ -76,7 +76,6 @@ def detect_ppe(
 
     reasons = list(set(reasons))
 
-    # Adding reasons for unsafe behavior if any
     if reasons:
         for idx, reason in enumerate(reasons):
             draw_text_with_background(

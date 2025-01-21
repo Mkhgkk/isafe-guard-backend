@@ -1,6 +1,7 @@
 import cv2
 import numpy as np
 from typing import List, Optional, Tuple
+from detection import draw_text_with_background
 from ultralytics.engine.results import Results
 
 
