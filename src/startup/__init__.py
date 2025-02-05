@@ -39,6 +39,7 @@ def configure_detection_models(precision=DEFAULT_PRECISION):
     """
     models = [
         "ppe",
+        "ppe_aerial",
         "cutting_welding",
         "fire_smoke",
         "ladder",

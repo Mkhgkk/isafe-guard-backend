@@ -31,6 +31,9 @@ class Detector:
         """
         model_paths = {
             "PPE": os.path.join(MODELS_PATH, f"ppe/{PRECISION}/model.engine"),
+            "PPEAerial": os.path.join(
+                MODELS_PATH, f"ppe_aerial/{PRECISION}/model.engine"
+            ),
             "Ladder": os.path.join(MODELS_PATH, f"ladder/{PRECISION}/model.engine"),
             "MobileScaffolding": os.path.join(
                 MODELS_PATH, f"mobile_scaffolding/{PRECISION}/model.engine"
@@ -60,7 +63,7 @@ class Detector:
         reasons: List[str] = []
         bboxes: Optional[List[Tuple[int, int, int, int]]] = None
 
-        if self.model_name == "PPE":
+        if self.model_name in ["PPE", "PPEAerial"]:
             result = detect_ppe(frame, results)
         elif self.model_name == "Ladder":
             result = detect_ladder(frame, results)
