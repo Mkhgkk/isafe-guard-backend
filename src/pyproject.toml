@@ -6,24 +6,29 @@ authors = ["Mkhgkk <emmachalz745@outlook.com>"]
 readme = "README.md"
 package-mode = false
 
+[tool.poetry.scripts]
+run-app = "src.run"
+
 [tool.poetry.dependencies]
 python = "3.9.19"
-gputil = "^1.4.0"
-psutil = "^6.1.0"
-apscheduler = "^3.11.0"
-flask-cors = "^5.0.0"
-pymongo = "^4.10.1"
-pytz = "^2024.2"
-opencv-python = "^4.10.0.84"
-ultralytics = "^8.3.48"
-flask-socketio = "^5.4.1"
-marshmallow = "^3.23.1"
-onvif-zeep = "^0.2.12"
-python-jose = "^3.3.0"
-passlib = "^1.7.4"
-tensorrt = "^10.7.0"
-torch = "^2.5.1"
-
+gputil = "1.4.0"
+psutil = "6.1.0"
+apscheduler = "3.11.0"
+flask-cors = "5.0.0"
+pymongo = "4.10.1"
+pytz = "2024.2"
+ultralytics = "8.3.48"
+flask-socketio = "5.4.1"
+marshmallow = "3.23.1"
+onvif-zeep = {git="https://github.com/Mkhgkk/python-onvif-zeep.git", branch="fix/update-xaddr-url-handling"}
+python-jose = "3.3.0"
+passlib = "1.7.4"
+torch = "2.5.1"
+onnx = "1.17.0"
+tensorrt = "10.6.0"
+tensorrt-cu12-bindings = "10.6.0"
+tensorrt-cu12-libs = "10.6.0"
+pygobject = "^3.52.1"
 
 [build-system]
 requires = ["poetry-core"]
