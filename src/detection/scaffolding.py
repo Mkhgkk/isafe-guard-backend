@@ -80,26 +80,42 @@ def detect_scaffolding(
                 if hatBox[1] >= perBox[1] - 20:
                     hatDetected = True
 
-            color = (0, 120, 0) if hatDetected else (0, 0, 255)
-            cv2.rectangle(
-                image, (perBox[0], perBox[1]), (perBox[2], perBox[3]), color, 2
-            )
-            # status_text = "작업자 안전모 착용" if hatDetected else "작업자 안전모 미착용"
-            # status_text = (
-            #     "Worker with Helmet" if hatDetected else "Worker Without Helmet"
-            # )
+            
             class_helmet_count += 1 if hatDetected else 0
 
-            # draw_text_with_background(
-            #     image,
-            #     status_text,
-            #     (perBox[0], perBox[1] - 10),
-            #     color,
-            # )
+            
             if not hatDetected:
                 final_status = "UnSafe"
-                # reasons.append("작업자 안전모 미착용")
                 reasons.append("missing_helment")
+
+        if hatDetected:
+            cv2.rectangle(
+                image,
+                (perBox[0], perBox[1]),
+                (perBox[2], perBox[3]),
+                (0, 180, 0),
+                2,
+            )
+            draw_text_with_background(
+                image,
+                "Worker with helmet",
+                (perBox[0], perBox[1] - 10),
+                (0, 180, 0),
+            )
+        else: 
+            cv2.rectangle(
+                image,
+                (perBox[0], perBox[1]),
+                (perBox[2], perBox[3]),
+                (0, 0, 255),
+                2,
+            )
+            draw_text_with_background(
+                image,
+                "Worker without helmet",
+                (perBox[0], perBox[1] - 10),
+                (0, 0, 255),
+            )
 
     missing_helmet = max(0, class_worker_count - class_helmet_count)
     vertical_person = False
@@ -145,19 +161,5 @@ def detect_scaffolding(
     final_status = "Safe" if not reasons else "UnSafe"
     color_status = (0, 0, 255) if final_status != "Safe" else (0, 120, 0)
 
-    # draw_text_with_background(image, "안전" if (final_status == "Safe") else "위험", (40, 50), font_scale, color_status, thickness)
-    draw_text_with_background(image, final_status, (40, 50), color_status, "status")
-
     reasons = list(set(reasons))
-    if reasons:
-        for idx, reason in enumerate(reasons):
-            draw_text_with_background(
-                image,
-                reason,
-                (40, 100 + (idx * 30)),
-                (0, 0, 255),
-                "reason",
-            )
-
-    # return image, results, timestamp, final_status
     return final_status, reasons, person
