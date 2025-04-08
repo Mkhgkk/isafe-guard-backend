@@ -63,6 +63,8 @@ class PTZAutoTracker:
         self.home_tilt: float = 0
         self.home_zoom: float = self.min_zoom
 
+        self.add_patrol_functionality()
+
     def update_default_position(self, pan: float, tilt: float, zoom: float) -> None:
         self.home_pan = pan
         self.home_tilt = tilt
@@ -342,3 +344,277 @@ class PTZAutoTracker:
         combined_movement: float = abs(pan) + abs(tilt)
         # return np.dot(self.move_coefficients, [1, combined_movement])
         pass
+
+    def add_patrol_functionality(self, patrol_area=None):
+        """
+        Adds patrol functionality to the PTZ camera.
+        
+        Args:
+            patrol_area (dict): Dictionary containing patrol area constraints.
+                            Format: {'zMin': float, 'zMax': float, 'xMin': float, 
+                                    'xMax': float, 'yMin': float, 'yMax': float}
+        """
+        if patrol_area is None:
+            self.patrol_area = {
+                # 'zMin': 0.0299530029, 
+                'zMin': 0.199530029, 
+                'zMax': 0.489974976, 
+                'xMin': 0.215444446, 
+                'xMax': 0.391888916, 
+                'yMin': -0.58170867, 
+                'yMax': -1
+            }
+        else:
+            self.patrol_area = patrol_area
+            
+        # Add patrol-related attributes
+        self.is_patrolling = False
+        self.patrol_thread = None
+        self.patrol_x_step = 0.02  # Pan step size
+        self.patrol_y_step = 0.05  # Tilt step size
+        self.patrol_dwell_time = 2.0  # Time to wait at each position
+        self.patrol_stop_event = threading.Event()
+        self.patrol_direction = "horizontal"  # Can be "horizontal" or "vertical"
+        self.zoom_during_patrol = self.patrol_area['zMin']  # Default zoom level during patrol
+
+    def start_patrol(self, direction="horizontal"):
+        """
+        Starts the patrol function in a separate thread.
+        
+        Args:
+            direction (str): Direction of patrol progression - "horizontal" or "vertical"
+        """
+        if not hasattr(self, 'patrol_area'):
+            self.add_patrol_functionality()
+        
+        if direction not in ["horizontal", "vertical"]:
+            logging.warning(f"Invalid patrol direction: {direction}. Using 'horizontal'.")
+            direction = "horizontal"
+        
+        self.patrol_direction = direction
+            
+        if self.is_patrolling:
+            self.stop_patrol()  # Stop current patrol if running
+            
+        self.is_patrolling = True
+        self.patrol_stop_event.clear()
+        self.patrol_thread = threading.Thread(target=self._patrol_routine)
+        self.patrol_thread.daemon = True
+        self.patrol_thread.start()
+        logging.info(f"Patrol started in {direction} progression mode")
+        
+    def stop_patrol(self):
+        """
+        Stops the patrol function.
+        """
+        if not self.is_patrolling:
+            return
+            
+        self.patrol_stop_event.set()
+        if self.patrol_thread:
+            self.patrol_thread.join(timeout=5.0)
+        self.is_patrolling = False
+        self.stop_movement()
+        logging.info("Patrol stopped")
+
+    def _patrol_routine(self):
+        """
+        Main patrol routine that implements a scanning pattern across the defined area.
+        Direction can be horizontal (snake pattern) or vertical (column pattern).
+        """
+        try:
+            # Set initial zoom level
+            zoom_level = self.zoom_during_patrol
+            
+            if self.patrol_direction == "horizontal":
+                self._horizontal_patrol(zoom_level)
+            else:  # vertical
+                self._vertical_patrol(zoom_level)
+                
+        except Exception as e:
+            logging.error(f"Error in patrol routine: {e}")
+            self.is_patrolling = False
+
+    def _horizontal_patrol(self, zoom_level):
+        """
+        Horizontal progression patrol (snake pattern - left to right, down, right to left, etc.)
+        
+        Args:
+            zoom_level (float): Zoom level to use during patrol
+        """
+        # Initialize patrol at the starting position
+        self._move_to_absolute_position(
+            self.patrol_area['xMin'],
+            self.patrol_area['yMin'],
+            zoom_level
+        )
+        time.sleep(2.0)  # Allow time to reach the starting position
+        
+        # Initialize direction (True for left-to-right, False for right-to-left)
+        left_to_right = True
+        
+        # Main patrol loop
+        while not self.patrol_stop_event.is_set():
+            current_x = self.patrol_area['xMin']
+            current_y = self.patrol_area['yMin']
+            
+            # Move in a scanning pattern
+            while current_y >= self.patrol_area['yMax'] and not self.patrol_stop_event.is_set():
+                # Scan horizontally
+                if left_to_right:
+                    # Scan from xMin to xMax
+                    while current_x <= self.patrol_area['xMax'] and not self.patrol_stop_event.is_set():
+                        self._move_to_absolute_position(current_x, current_y, zoom_level)
+                        time.sleep(self.patrol_dwell_time)
+                        current_x += self.patrol_x_step
+                else:
+                    # Scan from xMax to xMin
+                    while current_x >= self.patrol_area['xMin'] and not self.patrol_stop_event.is_set():
+                        self._move_to_absolute_position(current_x, current_y, zoom_level)
+                        time.sleep(self.patrol_dwell_time)
+                        current_x -= self.patrol_x_step
+                
+                # Move down one step
+                current_y -= self.patrol_y_step
+                
+                # Toggle direction for the next horizontal scan
+                left_to_right = not left_to_right
+                
+                # Reset x position for the next scan
+                current_x = self.patrol_area['xMin'] if left_to_right else self.patrol_area['xMax']
+            
+            # After completing a full scan, go back to the top and start again
+            logging.info("Horizontal patrol cycle complete, restarting from beginning")
+
+    def _vertical_patrol(self, zoom_level):
+        """
+        Vertical progression patrol (column pattern - top to bottom, right, bottom to top, etc.)
+        
+        Args:
+            zoom_level (float): Zoom level to use during patrol
+        """
+        # Initialize patrol at the starting position
+        self._move_to_absolute_position(
+            self.patrol_area['xMin'],
+            self.patrol_area['yMin'],
+            zoom_level
+        )
+        time.sleep(2.0)  # Allow time to reach the starting position
+        
+        # Initialize direction (True for top-to-bottom, False for bottom-to-top)
+        top_to_bottom = True
+        
+        # Main patrol loop
+        while not self.patrol_stop_event.is_set():
+            current_x = self.patrol_area['xMin']
+            current_y = self.patrol_area['yMin']
+            
+            # Move in a column pattern
+            while current_x <= self.patrol_area['xMax'] and not self.patrol_stop_event.is_set():
+                # Scan vertically
+                if top_to_bottom:
+                    # Scan from yMin to yMax
+                    while current_y >= self.patrol_area['yMax'] and not self.patrol_stop_event.is_set():
+                        self._move_to_absolute_position(current_x, current_y, zoom_level)
+                        time.sleep(self.patrol_dwell_time)
+                        current_y -= self.patrol_y_step
+                else:
+                    # Scan from yMax to yMin
+                    while current_y <= self.patrol_area['yMin'] and not self.patrol_stop_event.is_set():
+                        self._move_to_absolute_position(current_x, current_y, zoom_level)
+                        time.sleep(self.patrol_dwell_time)
+                        current_y += self.patrol_y_step
+                
+                # Move right one step
+                current_x += self.patrol_x_step
+                
+                # Toggle direction for the next vertical scan
+                top_to_bottom = not top_to_bottom
+                
+                # Reset y position for the next scan
+                current_y = self.patrol_area['yMin'] if top_to_bottom else self.patrol_area['yMax']
+            
+            # After completing a full scan, go back to the left and start again
+            logging.info("Vertical patrol cycle complete, restarting from beginning")
+
+    def _move_to_absolute_position(self, pan, tilt, zoom):
+        """
+        Move the camera to an absolute position.
+        
+        Args:
+            pan (float): Pan value
+            tilt (float): Tilt value
+            zoom (float): Zoom value
+        """
+        try:
+            request = self.ptz_service.create_type("AbsoluteMove")
+            request.ProfileToken = self.profile_token
+
+            status = self.ptz_service.GetStatus({"ProfileToken": self.profile_token})
+            if not status:
+                raise ValueError("GetStatus() returned None. Check camera connectivity and credentials.")
+            if not hasattr(status, "Position"):
+                raise ValueError("Status object does not contain a 'Position' attribute.")
+
+            request.Position = status.Position
+            request.Position.PanTilt.x = pan
+            request.Position.PanTilt.y = tilt
+            request.Position.Zoom.x = zoom
+
+            self.ptz_service.AbsoluteMove(request)
+            
+            # Update internal zoom metric
+            self.ptz_metrics["zoom_level"] = zoom
+        except exceptions.ONVIFError as e:
+            logging.error(f"Error in absolute move: {e}")
+
+    def is_patrol_active(self):
+        """
+        Returns whether patrol is currently active.
+        
+        Returns:
+            bool: True if patrol is active, False otherwise
+        """
+        return self.is_patrolling
+
+    def get_patrol_direction(self):
+        """
+        Returns the current patrol direction.
+        
+        Returns:
+            str: "horizontal" or "vertical"
+        """
+        if not hasattr(self, 'patrol_direction'):
+            return "horizontal"  # Default
+        return self.patrol_direction
+
+    def set_patrol_parameters(self, x_step=None, y_step=None, dwell_time=None, zoom_level=None, direction=None):
+        """
+        Set patrol parameters.
+        
+        Args:
+            x_step (float): Step size for horizontal movement
+            y_step (float): Step size for vertical movement
+            dwell_time (float): Time to wait at each position
+            zoom_level (float): Zoom level to use during patrol
+            direction (str): Direction of patrol progression - "horizontal" or "vertical"
+        """
+        if not hasattr(self, 'patrol_area'):
+            self.add_patrol_functionality()
+            
+        if x_step is not None:
+            self.patrol_x_step = x_step
+        if y_step is not None:
+            self.patrol_y_step = y_step
+        if dwell_time is not None:
+            self.patrol_dwell_time = dwell_time
+        if zoom_level is not None:
+            if self.patrol_area['zMin'] <= zoom_level <= self.patrol_area['zMax']:
+                self.zoom_during_patrol = zoom_level
+            else:
+                logging.warning(f"Zoom level {zoom_level} is outside allowed range [{self.patrol_area['zMin']}, {self.patrol_area['zMax']}]")
+        if direction is not None:
+            if direction in ["horizontal", "vertical"]:
+                self.patrol_direction = direction
+            else:
+                logging.warning(f"Invalid patrol direction: {direction}. Using current: {self.patrol_direction}")

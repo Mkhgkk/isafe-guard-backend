@@ -160,4 +160,4 @@ def detect_scaffolding(
             )
 
     # return image, results, timestamp, final_status
-    return final_status, reasons, None
+    return final_status, reasons, person

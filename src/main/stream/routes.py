@@ -3,6 +3,7 @@ import cv2
 import json
 import time
 import asyncio
+import logging
 import traceback
 from flask import current_app as app
 from flask import Response
@@ -67,6 +68,18 @@ def change_autotrack():
 
             # set these coordinates and default position
             video_streaming.ptz_auto_tracker.update_default_position(pan, tilt, zoom)
+
+            video_streaming.ptz_auto_tracker.set_patrol_parameters(x_step=0.02, y_step=0.05, dwell_time=3.0)
+
+            # Start patrol
+            # if video_streaming.ptz_autotrack:
+            #      video_streaming.ptz_auto_tracker.start_patrol(direction="vertical")
+
+            # else:
+            #     video_streaming.ptz_auto_tracker.stop_patrol()
+
+
+
 
             # emit change autotrack change
             room = f"ptz-{stream_id}"
@@ -146,6 +159,109 @@ def set_danger_zone():
         traceback.print_exc()
         return tools.JsonResp({"status": "error", "message": e}, 400)
 
+# @stream_blueprint.route("/get_current_ptz_values", methods=["POST"])
+# def get_current_ptz_values():
+#     try:
+#         data = json.loads(request.data)
+#         stream_id = data.get("streamId")
+
+#         # stream = streams[stream_id]
+#         stream = streams.get(stream_id)
+#         camera_controller = stream.camera_controller
+
+#         if camera_controller is None:
+#             return tools.JsonResp(
+#                 {
+#                     "status": "error",
+#                     "message": "Camera controller is missing!",
+#                 },
+#                 400,
+#             )
+        
+#         current_pan, current_tilt, current_zoom = camera_controller.get_current_position()
+#         # current_pan = status.Position.PanTilt.x
+#         # current_tilt = status.Position.PanTilt.y
+#         # current_zoom = status.Position.Zoom.x
+
+#         return tools.JsonResp({"status": "Success", "message": "ok", "data": {"x": current_pan, "y":current_tilt, "z": current_zoom}}, 200)
+    
+#     except Exception as e:
+#         print("An error occurred: ", e)
+#         traceback.print_exc()
+#         return tools.JsonResp({"status": "error", "message": e}, 400)
+
+@stream_blueprint.route("/get_current_ptz_values", methods=["POST"])
+def get_current_ptz_values():
+    try:
+        data = json.loads(request.data)
+        stream_id = data.get("stream_id")
+
+        if not stream_id:
+             return tools.JsonResp(
+                {
+                    "status": "error",
+                    "message": "Missing 'streamId' in request data.",
+                },
+                400,
+            )
+
+        # --- Check if stream exists in the streams dictionary ---
+        stream = streams.get(stream_id)
+        if stream is None:
+            app.logger.warning(f"Attempted to get PTZ for non-existent or inactive stream_id: {stream_id}")
+            return tools.JsonResp(
+                {
+                    "status": "error",
+                    "message": f"Stream with ID '{stream_id}' not found or is not active.",
+                },
+                404, # Not Found is a suitable status code here
+            )
+        # --- End Check ---
+
+        camera_controller = stream.camera_controller
+
+        # --- Check specifically if the camera controller exists for this stream ---
+        if camera_controller is None:
+            app.logger.warning(f"Camera controller is missing for active stream_id: {stream_id}")
+            return tools.JsonResp(
+                {
+                    "status": "error",
+                    "message": f"Camera controller not available for stream '{stream_id}'. PTZ control might not be enabled.",
+                },
+                400, # Bad Request or perhaps 501 Not Implemented / 503 Service Unavailable
+            )
+        # --- End Check ---
+
+        current_pan, current_tilt, current_zoom = camera_controller.get_current_position()
+
+        return tools.JsonResp({"status": "Success", "message": "ok", "data": {"x": current_pan, "y":current_tilt, "z": current_zoom}}, 200)
+
+    except json.JSONDecodeError:
+        app.logger.error("Failed to decode JSON data in /get_current_ptz_values request.")
+        return tools.JsonResp({"status": "error", "message": "Invalid JSON data format."}, 400)
+    except Exception as e:
+        # Use app.logger for logging within Flask is standard practice
+        app.logger.error(f"An error occurred in /get_current_ptz_values for stream_id '{stream_id if 'stream_id' in locals() else 'unknown'}': {e}")
+        app.logger.error(traceback.format_exc()) # Log the full traceback
+        # --- Convert exception to string for JSON response ---
+        error_message = str(e)
+        return tools.JsonResp({"status": "error", "message": f"An unexpected error occurred: {error_message}"}, 500) # 
+    
+@stream_blueprint.route("/save_patrol_area", methods=["POST"])
+def save_patrol_area():
+    try:
+        data = json.loads(request.data)
+        stream_id = data.get("streamId")
+        # other data
+        # logging.info(f"RECEIVED DATA: {data}")
+        # INFO:root:RECEIVED DATA: {'stream_id': 'test_outside', 'patrol_area': {'zMin': 0.0699310303, 'zMax': 0.0699310303, 'xMin': 0.274833322, 'xMax': 0.274833322, 'yMin': -1, 'yMax': -1}}
+
+        return tools.JsonResp({"status": "Success", "message": "ok", "data": "ok"}, 200)
+    
+    except Exception as e:
+        print("An error occurred: ", e)
+        traceback.print_exc()
+        return tools.JsonResp({"status": "error", "message": e}, 400)
 
 @stream_blueprint.route("", methods=["POST"])
 def create_stream():
