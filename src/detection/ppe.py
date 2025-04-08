@@ -71,20 +71,20 @@ def detect_ppe(
             )
 
     color_status = (0, 0, 255) if final_status == "UnSafe" else (74, 209, 50)
-    draw_text_with_background(image, final_status, (40, 60), color_status, "status")
+    # draw_text_with_background(image, final_status, (40, 60), color_status, "status")
     # cv2.putText(image, final_status, (40, 50), cv2.FONT_HERSHEY_SIMPLEX, font_scale, color_status, thickness)
 
     reasons = list(set(reasons))
 
-    if reasons:
-        for idx, reason in enumerate(reasons):
-            draw_text_with_background(
-                image,
-                reason,
-                (40, 100 + (idx * 30)),
-                (0, 0, 255),
-                "reason",
-            )
+    # if reasons:
+    #     for idx, reason in enumerate(reasons):
+    #         draw_text_with_background(
+    #             image,
+    #             reason,
+    #             (40, 100 + (idx * 30)),
+    #             (0, 0, 255),
+    #             "reason",
+    #         )
 
     bboxes: List[Tuple[int, int, int, int]] = [
         (box[0], box[1], box[2], box[3]) for box in person_boxes
