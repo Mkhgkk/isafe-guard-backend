@@ -1,7 +1,7 @@
 import os
 import gi
 
-os.environ["GST_DEBUG"] = "3"
+os.environ["GST_DEBUG"] = "1"
 gi.require_version('Gst', '1.0')
 
 import cv2
@@ -53,8 +53,8 @@ def create_gstreamer_pipeline(rtsp_link, sink_name):
         f"buffer-mode=auto drop-on-latency=true retry=3 timeout=5 "
         f"! application/x-rtp, media=video "  # Only process video streams
         f"! rtpjitterbuffer latency=200 "
-        f"! rtph264depay "
-        f"! h264parse "
+        # f"! rtph264depay "
+        # f"! h264parse "
         f"! decodebin "
         f"! videoconvert "
         f"! videoscale "
