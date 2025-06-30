@@ -11,7 +11,6 @@ from startup import (
     get_system_utilization,
     configure_matching_models,
 )
-from rabbitmq.manager import RabbitMQManager
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
@@ -33,11 +32,6 @@ if __name__ == "__main__":
     # asyncio should run after app has started because of socket connection
 
     logging.info("App starting...")
-
-    # Setup RabbitMQ
-    rabbitmq_manager = RabbitMQManager()
-    rabbitmq_manager.setup()
-    logging.info("Application initialized with RabbitMQ support")
 
     app = create_app()
 
