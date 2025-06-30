@@ -1,21 +1,23 @@
 import os
 import gi
-
-os.environ["GST_DEBUG"] = "1"
-gi.require_version('Gst', '1.0')
-
 import cv2
 import datetime
 import threading
 import time
 import logging
 import numpy as np
+from typing import Optional, Tuple, List, Dict, Any
+from dataclasses import dataclass
+from enum import Enum
+
+os.environ["GST_DEBUG"] = "1"
+gi.require_version('Gst', '1.0')
 
 from gi.repository import Gst
 from bson import ObjectId
 from collections import deque
 from flask import current_app as app
-from queue import Queue
+from queue import Queue, Empty
 from detection.detector import Detector
 from socket_.socketio_instance import socketio
 from intrusion import detect_intrusion
@@ -27,469 +29,587 @@ from utils import create_video_writer, start_gstreamer_process
 from utils.notifications import send_watch_notification, send_email_notification
 from config import FRAME_HEIGHT, FRAME_WIDTH, RECONNECT_WAIT_TIME_IN_SECS, STATIC_DIR
 
-
+# Constants
 RTMP_MEDIA_SERVER = os.getenv("RTMP_MEDIA_SERVER", "rtmp://localhost:1935")
 NAMESPACE = "/default"
+DEFAULT_FRAME_TIMEOUT = 5
+DEFAULT_RECORD_DURATION = 10
+DEFAULT_FRAME_INTERVAL = 30
+DEFAULT_UNSAFE_RATIO_THRESHOLD = 0.7
+DEFAULT_EVENT_COOLDOWN = 30
+MAX_RECONNECT_WAIT = 60
+MAX_BUFFER_SIZE = 2
+MAX_FRAME_QUEUE_SIZE = 10
+FPS_QUEUE_SIZE = 30
 
 Gst.init(None)
 
 
-def create_gstreamer_pipeline(rtsp_link, sink_name):
-    """
-    Creates a more robust GStreamer pipeline for RTSP sources.
-    Uses TCP to avoid firewall and UDP buffer size issues.
-    
-    Args:
-        rtsp_link: RTSP URL to connect to
-        sink_name: Unique name for the appsink element
-        
-    Returns:
-        GStreamer pipeline string
-    """
-    # Primary pipeline - Explicitly force TCP transport
-    pipeline_str = (
-        f"rtspsrc location={rtsp_link} latency=0 "
-        f"protocols=tcp "  # Force TCP protocol
-        f"buffer-mode=auto drop-on-latency=true retry=3 timeout=5 "
-        f"! application/x-rtp, media=video "  # Only process video streams
-        f"! rtpjitterbuffer latency=200 "
-        # f"! rtph264depay "
-        # f"! h264parse "
-        f"! decodebin "
-        f"! videoconvert "
-        f"! videoscale "
-        f"! video/x-raw, width={FRAME_WIDTH}, height={FRAME_HEIGHT}, format=BGR "
-        f"! appsink name={sink_name} drop=true max-buffers=2 emit-signals=true sync=false"
-    )
-    
-    return pipeline_str
-
-def create_alternative_pipeline(rtsp_link, sink_name):
-    """
-    Alternative pipeline that's more flexible but still uses TCP.
-    
-    Args:
-        rtsp_link: RTSP URL to connect to
-        sink_name: Unique name for the appsink element
-        
-    Returns:
-        Alternative GStreamer pipeline string
-    """
-    # Simplified alternative pipeline
-    alt_pipeline_str = (
-        f"rtspsrc location={rtsp_link} latency=0 "
-        f"protocols=tcp "  # Force TCP protocol
-        f"retry=3 timeout=10 "
-        f"! decodebin "
-        f"! videoconvert "
-        f"! videoscale "
-        f"! video/x-raw, width={FRAME_WIDTH}, height={FRAME_HEIGHT}, format=BGR "
-        f"! appsink name={sink_name} drop=true max-buffers=2 emit-signals=true sync=false"
-    )
-    
-    return alt_pipeline_str
+class ConnectionState(Enum):
+    """Enum for connection states."""
+    DISCONNECTED = "disconnected"
+    CONNECTING = "connecting"
+    CONNECTED = "connected"
+    RECONNECTING = "reconnecting"
+    FAILED = "failed"
 
 
+@dataclass
+class PipelineConfig:
+    """Configuration for GStreamer pipeline."""
+    rtsp_link: str
+    sink_name: str
+    width: int = FRAME_WIDTH
+    height: int = FRAME_HEIGHT
+    format: str = "BGR"
+    latency: int = 0
+    max_buffers: int = MAX_BUFFER_SIZE
+    timeout: int = 5
+    retry_count: int = 3
 
-class StreamManager:
-    def __init__(self, rtsp_link, model_name, stream_id, ptz_autotrack=False):
-        self.DETECTOR = Detector(model_name)
+
+@dataclass
+class RecordingState:
+    """State tracking for video recording."""
+    is_recording: bool = False
+    process: Optional[Any] = None
+    start_time: Optional[float] = None
+    video_name: Optional[str] = None
+    duration_seconds: int = DEFAULT_RECORD_DURATION
+
+
+@dataclass
+class StreamStats:
+    """Statistics for stream processing."""
+    total_frames: int = 0
+    unsafe_frames: int = 0
+    fps_queue: deque = None
+    last_event_time: float = 0
+    
+    def __post_init__(self):
+        if self.fps_queue is None:
+            self.fps_queue = deque(maxlen=FPS_QUEUE_SIZE)
+
+
+class PipelineBuilder:
+    """Builder class for creating GStreamer pipelines."""
+    
+    @staticmethod
+    def create_primary_pipeline(config: PipelineConfig) -> str:
+        """Create the primary GStreamer pipeline with TCP transport."""
+        return (
+            f"rtspsrc location={config.rtsp_link} latency={config.latency} "
+            f"protocols=tcp "
+            f"buffer-mode=auto drop-on-latency=true retry={config.retry_count} timeout={config.timeout} "
+            f"! application/x-rtp, media=video "
+            f"! rtpjitterbuffer latency=200 "
+            f"! decodebin "
+            f"! videoconvert "
+            f"! videoscale "
+            f"! video/x-raw, width={config.width}, height={config.height}, format={config.format} "
+            f"! appsink name={config.sink_name} drop=true max-buffers={config.max_buffers} "
+            f"emit-signals=true sync=false"
+        )
+    
+    @staticmethod
+    def create_alternative_pipeline(config: PipelineConfig) -> str:
+        """Create an alternative, more flexible pipeline."""
+        return (
+            f"rtspsrc location={config.rtsp_link} latency={config.latency} "
+            f"protocols=tcp "
+            f"retry={config.retry_count} timeout=10 "
+            f"! decodebin "
+            f"! videoconvert "
+            f"! videoscale "
+            f"! video/x-raw, width={config.width}, height={config.height}, format={config.format} "
+            f"! appsink name={config.sink_name} drop=true max-buffers={config.max_buffers} "
+            f"emit-signals=true sync=false"
+        )
+
+
+class GStreamerPipeline:
+    """Wrapper class for GStreamer pipeline management."""
+    
+    def __init__(self, config: PipelineConfig, stream_id: str):
+        self.config = config
         self.stream_id = stream_id
-        self.rtsp_link = rtsp_link
-        self.model_name = model_name
-        self.fps_queue = deque(maxlen=30)
-        self.frame_buffer = Queue(maxsize=10)
-        self.running = False
-        self.stop_event = threading.Event()
-        self.total_frame_count = 0
-        self.unsafe_frame_count = 0
-        self.frames_written = 0
-        self.video_name = None
-        self.last_event_time = 0
-        self.event_cooldown_seconds = 30
-        self.ptz_autotrack = ptz_autotrack
-        self.ptz_auto_tracker = None
-        self.safe_area_tracker = SafeAreaTracker()
-        safe_area_trackers[stream_id] = self.safe_area_tracker
-        self.camera_controller = None
-        self.pipeline = None
-        self.max_reconnect_attempts = 10
-        self.reconnect_delay = RECONNECT_WAIT_TIME_IN_SECS
+        self.pipeline: Optional[Gst.Pipeline] = None
+        self.use_alternative = False
+        self.connection_trials = 0
         self.last_frame_time = 0
-        self.frame_timeout = 5  # Consider connection lost if no frames for 5 seconds
-        self.sink_name = f"sink_{stream_id}"  # Unique sink name for each stream
-
-        self.use_alternative_pipeline = False  # Try alternative pipeline as fallback
-        self.connection_trials = 0  # Track connection attempts
-
-    def start_stream(self):
-        self.running = True
-        self.stop_event.clear()
-        threading.Thread(target=self.generate_frames, daemon=True).start()
-        threading.Thread(target=self.process_and_emit_frames, daemon=True).start()
-        threading.Thread(target=self.monitor_stream_health, daemon=True).start()
-
-    def stop_streaming(self):
-        self.running = False
-        self.stop_event.set()
-        if self.pipeline:
-            self.pipeline.set_state(Gst.State.NULL)
-            self.pipeline = None
-
-    def monitor_stream_health(self):
-        """Monitor the stream health and trigger reconnection if needed."""
-        while not self.stop_event.is_set():
-            time.sleep(1)
-            if self.running and time.time() - self.last_frame_time > self.frame_timeout and self.last_frame_time > 0:
-                logging.warning(f"No frames received for {self.frame_timeout} seconds. "
-                              f"Reconnecting stream {self.stream_id}...")
-                self.restart_pipeline()
-                
-
-    def create_and_start_pipeline(self):
-        """Create and start a new GStreamer pipeline with TCP transport."""
-        pipeline_str = create_gstreamer_pipeline(self.rtsp_link, self.sink_name)
+        self.frame_callback = None
         
-        # Try alternative pipeline if we've had multiple failures
-        if self.use_alternative_pipeline:
+    def create_and_start(self, frame_callback) -> bool:
+        """Create and start the GStreamer pipeline."""
+        self.frame_callback = frame_callback
+        
+        # Choose pipeline type based on previous failures
+        if self.use_alternative:
+            pipeline_str = PipelineBuilder.create_alternative_pipeline(self.config)
             logging.info(f"Using alternative pipeline for {self.stream_id}")
-            pipeline_str = create_alternative_pipeline(self.rtsp_link, self.sink_name)
-        
-        # For debugging - log the full pipeline string
+        else:
+            pipeline_str = PipelineBuilder.create_primary_pipeline(self.config)
+            
         logging.info(f"Creating pipeline: {pipeline_str}")
         
         try:
             self.pipeline = Gst.parse_launch(pipeline_str)
-            
-            # Get the named appsink element
-            appsink = self.pipeline.get_by_name(self.sink_name)
-            
-            if not appsink:
-                logging.error(f"Failed to get appsink element '{self.sink_name}' from GStreamer pipeline")
-                return False
-
-            # Connect to bus messages to handle errors
-            bus = self.pipeline.get_bus()
-            bus.add_signal_watch()
-            bus.connect("message", self.on_bus_message)
-
-            appsink.set_property("emit-signals", True)
-            appsink.set_property("max-buffers", 2)
-            appsink.set_property("drop", True)
-            appsink.set_property("sync", False)  # Don't sync to clock for better performance
-            
-            # Set up callback for new-sample signal
-            appsink.connect("new-sample", self.on_new_sample)
-
-            # Start the pipeline
-            logging.info(f"Setting pipeline state to PLAYING for stream {self.stream_id}")
-            ret = self.pipeline.set_state(Gst.State.PLAYING)
-            
-            # Check pipeline state change result
-            if ret == Gst.StateChangeReturn.FAILURE:
-                logging.error(f"Failed to start pipeline for stream {self.stream_id}")
-                return False
-            elif ret == Gst.StateChangeReturn.ASYNC:
-                # State change will happen asynchronously, wait for it
-                logging.info(f"Pipeline state change async for {self.stream_id}, waiting...")
-                ret = self.pipeline.get_state(Gst.CLOCK_TIME_NONE)  # Wait indefinitely
-                logging.info(f"Pipeline state change result: {ret[0]}")
-                if ret[0] != Gst.StateChangeReturn.SUCCESS:
-                    logging.error(f"Pipeline state change failed for stream {self.stream_id}")
-                    return False
-                
-            logging.info(f"Successfully started GStreamer pipeline for {self.rtsp_link}")
-            self.connection_trials = 0  # Reset connection trials on success
-            self.last_frame_time = time.time()  # Initialize frame time to avoid immediate reconnect
-            return True
+            return self._configure_pipeline()
         except Exception as e:
             logging.error(f"Error creating pipeline: {e}")
             self.connection_trials += 1
             
-            # Try alternative pipeline after several failures
-            if self.connection_trials >= 2 and not self.use_alternative_pipeline:
-                self.use_alternative_pipeline = True
+            # Switch to alternative after multiple failures
+            if self.connection_trials >= 2 and not self.use_alternative:
+                self.use_alternative = True
                 logging.info("Switching to alternative pipeline on next attempt")
                 
             return False
-
-    def on_new_sample(self, appsink):
-        """Callback for new-sample signal from appsink."""
+    
+    def _configure_pipeline(self) -> bool:
+        """Configure the pipeline elements and start it."""
+        appsink = self.pipeline.get_by_name(self.config.sink_name)
+        if not appsink:
+            logging.error(f"Failed to get appsink element '{self.config.sink_name}'")
+            return False
+            
+        # Configure appsink
+        appsink.set_property("emit-signals", True)
+        appsink.set_property("max-buffers", self.config.max_buffers)
+        appsink.set_property("drop", True)
+        appsink.set_property("sync", False)
+        appsink.connect("new-sample", self._on_new_sample)
+        
+        # Connect bus messages
+        bus = self.pipeline.get_bus()
+        bus.add_signal_watch()
+        bus.connect("message", self._on_bus_message)
+        
+        # Start pipeline
+        ret = self.pipeline.set_state(Gst.State.PLAYING)
+        if ret == Gst.StateChangeReturn.FAILURE:
+            logging.error(f"Failed to start pipeline for stream {self.stream_id}")
+            return False
+            
+        if ret == Gst.StateChangeReturn.ASYNC:
+            ret = self.pipeline.get_state(Gst.CLOCK_TIME_NONE)
+            if ret[0] != Gst.StateChangeReturn.SUCCESS:
+                logging.error(f"Pipeline state change failed for stream {self.stream_id}")
+                return False
+                
+        logging.info(f"Successfully started GStreamer pipeline for {self.stream_id}")
+        self.connection_trials = 0
+        self.last_frame_time = time.time()
+        return True
+    
+    def _on_new_sample(self, appsink) -> Gst.FlowReturn:
+        """Handle new sample from appsink."""
         try:
             sample = appsink.emit("pull-sample")
-            if sample:
-                buffer = sample.get_buffer()
-                caps = sample.get_caps()
-                structure = caps.get_structure(0)
-                width = structure.get_int("width")[1]
-                height = structure.get_int("height")[1]
-
-                success, map_info = buffer.map(Gst.MapFlags.READ)
-                if success:
-                    frame = np.frombuffer(map_info.data, dtype=np.uint8).reshape((height, width, 3))
-                    buffer.unmap(map_info)
+            if not sample:
+                return Gst.FlowReturn.OK
+                
+            frame = self._extract_frame_from_sample(sample)
+            if frame is not None:
+                self.last_frame_time = time.time()
+                if self.frame_callback:
+                    self.frame_callback(frame)
                     
-                    frame = frame.copy()
-                    self.last_frame_time = time.time()
-                    
-                    # Don't block if the queue is full
-                    if not self.frame_buffer.full():
-                        self.frame_buffer.put(frame)
-                else:
-                    logging.warning("Failed to map buffer")
             return Gst.FlowReturn.OK
         except Exception as e:
-            logging.error(f"Error in on_new_sample: {e}")
+            logging.error(f"Error in _on_new_sample: {e}")
             return Gst.FlowReturn.ERROR
-
-
-    def on_bus_message(self, bus, message):
-        """Enhanced handler for GStreamer bus messages."""
-        t = message.type
-        if t == Gst.MessageType.ERROR:
-            err, debug = message.parse_error()
-            logging.error(f"GStreamer error: {err.message}, {debug}")
-            
-            # Check if error is related to ONVIF metadata
-            if "Missing decoder: application/x-rtp" in str(err.message) and "ONVIF.METADATA" in str(debug):
-                logging.warning("ONVIF metadata handling issue detected, will use filtered pipeline on reconnect")
-                self.use_alternative_pipeline = True
-            
-            # More detailed handling of common RTSP errors
-            if any(x in str(err.message) or x in str(debug) for x in 
-                   ["Timeout", "connection refused", "404", "554", "503", "401", 
-                    "not-linked", "Internal data stream error", "Could not connect", 
-                    "Could not receive", "buffer underflow", "Internal data flow error",
-                    "blocking", "firewall", "property does not exist", "your firewall",
-                    "UDP packets"]):
-                logging.warning(f"RTSP connection error for stream {self.stream_id}. Will attempt to reconnect.")
-                self.restart_pipeline()
+    
+    def _extract_frame_from_sample(self, sample) -> Optional[np.ndarray]:
+        """Extract numpy frame from GStreamer sample."""
+        buffer = sample.get_buffer()
+        caps = sample.get_caps()
+        structure = caps.get_structure(0)
+        width = structure.get_int("width")[1]
+        height = structure.get_int("height")[1]
         
-        elif t == Gst.MessageType.EOS:
-            logging.warning(f"End of stream received for {self.stream_id}. Will attempt to reconnect.")
-            self.restart_pipeline()
+        success, map_info = buffer.map(Gst.MapFlags.READ)
+        if not success:
+            logging.warning("Failed to map buffer")
+            return None
             
-        elif t == Gst.MessageType.WARNING:
-            warn, debug = message.parse_warning()
-            logging.warning(f"GStreamer warning: {warn.message}, {debug}")
-            
-            # Check for UDP and firewall related warnings
-            if "UDP" in str(warn.message) or "firewall" in str(warn.message) or "tcp" in str(warn.message):
-                logging.warning("Network-related warning detected, may need to reconnect soon")
-                
-        elif t == Gst.MessageType.STATE_CHANGED:
-            if message.src == self.pipeline:
-                old_state, new_state, pending_state = message.parse_state_changed()
-                state_names = {
-                    Gst.State.NULL: "NULL",
-                    Gst.State.READY: "READY",
-                    Gst.State.PAUSED: "PAUSED",
-                    Gst.State.PLAYING: "PLAYING"
-                }
-                old_name = state_names.get(old_state, str(old_state))
-                new_name = state_names.get(new_state, str(new_state))
-                logging.info(f"Pipeline state for {self.stream_id} changed from {old_name} to {new_name}")
-                
-                if new_state == Gst.State.PLAYING:
-                    # Reset frame timeout monitor since we're just starting
-                    self.last_frame_time = time.time()
-                elif new_state == Gst.State.PAUSED and old_state == Gst.State.PLAYING:
-                    logging.warning(f"Pipeline for stream {self.stream_id} paused unexpectedly")
-                    # This might indicate network issues
-                    self.restart_pipeline()
-
-    def restart_pipeline(self):
-        """Safely restart the GStreamer pipeline."""
-        logging.info(f"Restarting pipeline for stream {self.stream_id}")
+        try:
+            frame = np.frombuffer(map_info.data, dtype=np.uint8).reshape((height, width, 3))
+            return frame.copy()
+        finally:
+            buffer.unmap(map_info)
+    
+    def _on_bus_message(self, bus, message):
+        """Handle GStreamer bus messages."""
+        msg_type = message.type
         
+        if msg_type == Gst.MessageType.ERROR:
+            self._handle_error_message(message)
+        elif msg_type == Gst.MessageType.EOS:
+            logging.warning(f"End of stream for {self.stream_id}")
+        elif msg_type == Gst.MessageType.WARNING:
+            self._handle_warning_message(message)
+        elif msg_type == Gst.MessageType.STATE_CHANGED:
+            self._handle_state_change_message(message)
+    
+    def _handle_error_message(self, message):
+        """Handle error messages from GStreamer."""
+        err, debug = message.parse_error()
+        logging.error(f"GStreamer error: {err.message}, {debug}")
+        
+        # Check for ONVIF metadata issues
+        if "ONVIF.METADATA" in str(debug):
+            logging.warning("ONVIF metadata issue detected")
+            self.use_alternative = True
+    
+    def _handle_warning_message(self, message):
+        """Handle warning messages from GStreamer."""
+        warn, debug = message.parse_warning()
+        logging.warning(f"GStreamer warning: {warn.message}, {debug}")
+    
+    def _handle_state_change_message(self, message):
+        """Handle state change messages."""
+        if message.src != self.pipeline:
+            return
+            
+        old_state, new_state, _ = message.parse_state_changed()
+        state_names = {
+            Gst.State.NULL: "NULL",
+            Gst.State.READY: "READY", 
+            Gst.State.PAUSED: "PAUSED",
+            Gst.State.PLAYING: "PLAYING"
+        }
+        
+        old_name = state_names.get(old_state, str(old_state))
+        new_name = state_names.get(new_state, str(new_state))
+        logging.info(f"Pipeline state for {self.stream_id}: {old_name} -> {new_name}")
+        
+        if new_state == Gst.State.PLAYING:
+            self.last_frame_time = time.time()
+    
+    def stop(self):
+        """Stop the pipeline."""
         if self.pipeline:
-            # Get current state before stopping
-            state_result = self.pipeline.get_state(0)
-            current_state = state_result[1]
-            logging.info(f"Current pipeline state before restart: {current_state}")
-            
-            # Set to NULL state to clean up resources
-            ret = self.pipeline.set_state(Gst.State.NULL)
-            if ret == Gst.StateChangeReturn.ASYNC:
-                # Wait for state change to complete
-                self.pipeline.get_state(3 * Gst.SECOND)
-            
+            self.pipeline.set_state(Gst.State.NULL)
             self.pipeline = None
+    
+    def is_healthy(self) -> bool:
+        """Check if pipeline is healthy."""
+        if not self.pipeline:
+            return False
             
-        # Wait before reconnecting to avoid rapid reconnection attempts
-        time.sleep(self.reconnect_delay)
+        current_time = time.time()
+        if self.last_frame_time > 0 and current_time - self.last_frame_time > DEFAULT_FRAME_TIMEOUT:
+            return False
+            
+        return True
+
+
+class EventProcessor:
+    """Handles event processing and recording logic."""
+    
+    def __init__(self, stream_id: str, model_name: str):
+        self.stream_id = stream_id
+        self.model_name = model_name
+        self.recording_state = RecordingState()
         
-        # Attempt to create and start a new pipeline
-        return self.create_and_start_pipeline()
+    def should_start_recording(self, unsafe_ratio: float, last_event_time: float) -> bool:
+        """Determine if recording should start based on unsafe ratio and cooldown."""
+        cooldown_elapsed = (time.time() - last_event_time) > DEFAULT_EVENT_COOLDOWN
+        return unsafe_ratio >= DEFAULT_UNSAFE_RATIO_THRESHOLD and cooldown_elapsed
+    
+    def start_recording(self, frame: np.ndarray, reasons: List[str], fps: float) -> str:
+        """Start video recording for an event."""
+        timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+        process, video_name = create_video_writer(
+            self.stream_id, frame, timestamp, self.model_name, fps
+        )
+        
+        self.recording_state.is_recording = True
+        self.recording_state.process = process
+        self.recording_state.start_time = time.time()
+        self.recording_state.video_name = video_name
+        
+        # Start event processing threads
+        self._start_event_threads(frame, reasons, video_name)
+        
+        logging.info(f"Started recording for {self.stream_id}")
+        return video_name
+    
+    def _start_event_threads(self, frame: np.ndarray, reasons: List[str], video_name: str):
+        """Start threads for event saving and notifications."""
+        event_id = ObjectId()
+        
+        threads = [
+            threading.Thread(
+                target=Event.save,
+                args=(
+                    self.stream_id, frame, list(set(reasons)), 
+                    self.model_name, self.recording_state.start_time, 
+                    video_name, event_id
+                )
+            ),
+            threading.Thread(
+                target=send_email_notification,
+                args=(reasons, event_id, self.stream_id)
+            ),
+            threading.Thread(
+                target=send_watch_notification,
+                args=(reasons,)
+            )
+        ]
+        
+        for thread in threads:
+            thread.start()
+    
+    def write_frame(self, frame: np.ndarray) -> bool:
+        """Write frame to recording process."""
+        if not self.recording_state.is_recording or not self.recording_state.process:
+            return False
+            
+        try:
+            if self.recording_state.process.stdin:
+                self.recording_state.process.stdin.write(frame.tobytes())
+                return True
+        except BrokenPipeError:
+            logging.error(f"Recording process for {self.stream_id} stopped unexpectedly")
+            self.stop_recording()
+            
+        return False
+    
+    def should_stop_recording(self) -> bool:
+        """Check if recording should stop based on duration."""
+        if not self.recording_state.is_recording or not self.recording_state.start_time:
+            return False
+            
+        elapsed = time.time() - self.recording_state.start_time
+        return elapsed >= self.recording_state.duration_seconds
+    
+    def stop_recording(self):
+        """Stop video recording."""
+        if self.recording_state.process:
+            try:
+                self.recording_state.process.stdin.close()
+                self.recording_state.process.wait()
+            except Exception as e:
+                logging.error(f"Error stopping recording: {e}")
+                
+        self.recording_state.is_recording = False
+        self.recording_state.process = None
+        self.recording_state.start_time = None
+        
+        logging.info(f"Stopped recording for {self.stream_id}")
 
 
-    def generate_frames(self):
-        """Main method to capture frames from the RTSP stream using GStreamer."""
+class StreamManager:
+    """Main class for managing RTSP stream processing."""
+    
+    def __init__(self, rtsp_link: str, model_name: str, stream_id: str, ptz_autotrack: bool = False):
+        self.stream_id = stream_id
+        self.rtsp_link = rtsp_link
+        self.model_name = model_name
+        self.ptz_autotrack = ptz_autotrack
+        
+        # Initialize components
+        self.detector = Detector(model_name)
+        self.safe_area_tracker = SafeAreaTracker()
+        self.event_processor = EventProcessor(stream_id, model_name)
+        self.stats = StreamStats()
+        
+        # Threading and state management
+        self.frame_buffer = Queue(maxsize=MAX_FRAME_QUEUE_SIZE)
+        self.running = False
+        self.stop_event = threading.Event()
+        
+        # Pipeline configuration
+        pipeline_config = PipelineConfig(
+            rtsp_link=rtsp_link,
+            sink_name=f"sink_{stream_id}"
+        )
+        self.pipeline = GStreamerPipeline(pipeline_config, stream_id)
+        
+        # Register safe area tracker
+        safe_area_trackers[stream_id] = self.safe_area_tracker
+
+        # Camera controller
+        self.camera_controller = None
+        
+        # PTZ tracking setup
+        self.ptz_auto_tracker = None
+        if ptz_autotrack:
+            # Initialize PTZ tracker here if needed
+            pass
+    
+    def start_stream(self):
+        """Start the stream processing."""
+        self.running = True
+        self.stop_event.clear()
+        
+        threads = [
+            threading.Thread(target=self._frame_capture_loop, daemon=True),
+            threading.Thread(target=self._frame_processing_loop, daemon=True),
+            threading.Thread(target=self._health_monitor_loop, daemon=True)
+        ]
+        
+        for thread in threads:
+            thread.start()
+    
+    def stop_streaming(self):
+        """Stop the stream processing."""
+        self.running = False
+        self.stop_event.set()
+        self.pipeline.stop()
+    
+    def _frame_capture_loop(self):
+        """Main loop for capturing frames from RTSP stream."""
         reconnect_attempt = 0
         
         while not self.stop_event.is_set():
-            if not self.pipeline and not self.create_and_start_pipeline():
-                reconnect_attempt += 1
-                wait_time = min(self.reconnect_delay * min(reconnect_attempt, 5), 60)  # Cap at 60 seconds
-                logging.warning(f"Reconnection attempt {reconnect_attempt} failed. "
-                              f"Will retry in {wait_time} seconds")
-                
-                time.sleep(wait_time)
-                continue
-            else:
-                reconnect_attempt = 0  # Reset counter on successful connection
+            if not self.pipeline.pipeline:
+                if not self.pipeline.create_and_start(self._on_frame_received):
+                    reconnect_attempt += 1
+                    wait_time = min(RECONNECT_WAIT_TIME_IN_SECS * min(reconnect_attempt, 5), MAX_RECONNECT_WAIT)
+                    logging.warning(f"Reconnection attempt {reconnect_attempt} failed. Retrying in {wait_time}s")
+                    time.sleep(wait_time)
+                    continue
+                else:
+                    reconnect_attempt = 0
             
-            # Main loop just waits for frames via callbacks
-            while not self.stop_event.is_set():
-                # Check if we need to restart the pipeline
-                if not self.pipeline:
-                    break
-                
-                # Sleep to avoid busy waiting
+            # Main capture loop
+            while not self.stop_event.is_set() and self.pipeline.pipeline:
                 time.sleep(0.1)
                 
-                # If no frames for a while, check pipeline health
-                current_time = time.time()
-                if self.last_frame_time > 0 and current_time - self.last_frame_time > 10:
-                    # Query pipeline state to see if it's still PLAYING
-                    state_result = self.pipeline.get_state(0)
-                    if state_result[1] != Gst.State.PLAYING:
-                        logging.warning(f"Pipeline for {self.stream_id} not in PLAYING state. Current state: {state_result[1]}. Restarting.")
-                        self.restart_pipeline()
-                        break
-                    else:
-                        logging.warning(f"No frames received for {current_time - self.last_frame_time} seconds despite PLAYING state. May need to restart.")
-                        # If it's been too long since last frame (30 seconds), force restart anyway
-                        if current_time - self.last_frame_time > 30:
-                            logging.warning(f"Forcing pipeline restart after 30 seconds with no frames for {self.stream_id}")
-                            self.restart_pipeline()
-                            break
-
-
-    def process_and_emit_frames(self):
-        process = None
-        record_duration_seconds = 10
-        frame_interval = 30
-        self.total_frame_count = 0
-        self.unsafe_frame_count = 0
-        start_time = None
-        is_recording = False
-        video_name = None
+                # Check pipeline health
+                if not self.pipeline.is_healthy():
+                    logging.warning(f"Pipeline unhealthy for {self.stream_id}, restarting")
+                    self.pipeline.stop()
+                    break
+    
+    def _on_frame_received(self, frame: np.ndarray):
+        """Callback for when a new frame is received."""
+        if not self.frame_buffer.full():
+            self.frame_buffer.put(frame)
+    
+    def _frame_processing_loop(self):
+        """Main loop for processing frames."""
         streamer_process = start_gstreamer_process(self.stream_id)
-
+        
         while not self.stop_event.is_set():
             try:
-                if not self.frame_buffer.empty():
-                    frame = self.frame_buffer.get(timeout=0.5)
-                    processed_frame, final_status, reasons, person_bboxes = self.DETECTOR.detect(frame)
-                    transformed_hazard_zones = self.safe_area_tracker.get_transformed_safe_areas(frame)
-                    processed_frame = self.safe_area_tracker.draw_safe_area_on_frame(processed_frame, transformed_hazard_zones)
-
-                    intruders = detect_intrusion(transformed_hazard_zones, person_bboxes)
-                    if intruders:
-                        final_status = "Unsafe"
-                        reasons.append("intrusion")
-                        socketio.emit(f"alert-{self.stream_id}", {"type": "intrusion"}, namespace=NAMESPACE, room=self.stream_id)
-
-                    # PTZ auto tracking if enabled
-                    if hasattr(self, 'ptz_autotrack') and self.ptz_autotrack and hasattr(self, 'ptz_auto_tracker') and self.ptz_auto_tracker:
-                        self.ptz_auto_tracker.track(FRAME_WIDTH, FRAME_HEIGHT, person_bboxes)
-
-                    if final_status != "Safe":
-                        self.unsafe_frame_count += 1
-
-                    self.total_frame_count += 1
-                    self.fps_queue.append(time.time())
-                    fps = 20.0 if len(self.fps_queue) <= 1 else len(self.fps_queue) / (self.fps_queue[-1] - self.fps_queue[0])
-                    # draw_text_with_background(processed_frame, f"FPS: {int(fps)}", (1100, 20), (0, 0, 255), "fps")
-
-                    draw_status_info(processed_frame, reasons, fps)
-
-                    try:
-                        if streamer_process and streamer_process.stdin:
-                            streamer_process.stdin.write(processed_frame.tobytes())
-                    except BrokenPipeError:
-                        if streamer_process:
-                            streamer_process.stdin.close()
-                            streamer_process.wait()
-                        streamer_process = start_gstreamer_process(self.stream_id)
-
-                    if not is_recording and self.total_frame_count % frame_interval == 0:
-                        unsafe_ratio = self.unsafe_frame_count / frame_interval if frame_interval else 0
-                        if unsafe_ratio >= 0.7 and (time.time() - self.last_event_time) > self.event_cooldown_seconds:
-                            timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
-                            process, video_name = create_video_writer(self.stream_id, frame, timestamp, self.model_name, fps)
-                            start_time = time.time()
-                            is_recording = True
-                            self.last_event_time = time.time()
-                            
-                            # Create Event ID and save event
-                            _event_id = ObjectId()
-                            
-                            # Start threads for event saving and notifications
-                            save_thread = threading.Thread(
-                                target=Event.save,
-                                args=(
-                                    self.stream_id,
-                                    processed_frame,
-                                    list(set(reasons)),
-                                    self.model_name,
-                                    start_time,
-                                    video_name,
-                                    _event_id,
-                                ),
-                            )
-                            
-                            email_notification_thread = threading.Thread(
-                                target=send_email_notification,
-                                args=(reasons, _event_id, self.stream_id),
-                            )
-                            
-                            watch_notification_thread = threading.Thread(
-                                target=send_watch_notification, 
-                                args=(reasons,)  # Note: Added comma to make it a tuple
-                            )
-                            
-                            # Start the threads
-                            save_thread.start()
-                            email_notification_thread.start()
-                            # Uncomment if you want to enable watch notifications
-                            # watch_notification_thread.start()
-                            
-                            logging.info(f"Started recording unsafe event video for {self.stream_id}...")
-
-                    if is_recording and process:
-                        try:
-                            if process.stdin:
-                                process.stdin.write(processed_frame.tobytes())
-                        except BrokenPipeError:
-                            logging.error(f"Recording process for {self.stream_id} has stopped unexpectedly.")
-                            is_recording = False
-                            self.finalize_video(process)
-                            process = None
-
-                    if is_recording and process and start_time and (time.time() - start_time) >= record_duration_seconds:
-                        self.finalize_video(process)
-                        process = None
-                        start_time = None
-                        is_recording = False
-                        logging.info(f"Completed recording video for {self.stream_id}, total duration: {record_duration_seconds} seconds")
-
-                    if self.total_frame_count % frame_interval == 0:
-                        self.unsafe_frame_count = 0
-                else:
-                    time.sleep(0.01)
+                frame = self.frame_buffer.get(timeout=0.5)
+                processed_frame = self._process_frame(frame)
+                
+                # Stream processed frame
+                self._stream_frame(streamer_process, processed_frame)
+                
+                # Handle recording
+                self._handle_recording(processed_frame)
+                
+            except Empty:
+                continue
             except Exception as e:
-                logging.error(f"Error in processing frame: {e}")
-                time.sleep(0.1)  # Avoid tight loop on errors
-
-        # Clean up the streamer process when stopping
+                logging.error(f"Error in frame processing: {e}")
+                time.sleep(0.1)
+        
+        # Cleanup
         if streamer_process:
-            if streamer_process.stdin:
+            streamer_process.stdin.close()
+            streamer_process.wait()
+    
+    def _process_frame(self, frame: np.ndarray) -> np.ndarray:
+        """Process a single frame through detection and tracking."""
+        # Run detection
+        processed_frame, final_status, reasons, person_bboxes = self.detector.detect(frame)
+        
+        # Handle safe areas
+        transformed_hazard_zones = self.safe_area_tracker.get_transformed_safe_areas(frame)
+        processed_frame = self.safe_area_tracker.draw_safe_area_on_frame(
+            processed_frame, transformed_hazard_zones
+        )
+        
+        # Check for intrusions
+        intruders = detect_intrusion(transformed_hazard_zones, person_bboxes)
+        if intruders:
+            final_status = "Unsafe"
+            reasons.append("intrusion")
+            socketio.emit(
+                f"alert-{self.stream_id}", 
+                {"type": "intrusion"}, 
+                namespace=NAMESPACE, 
+                room=self.stream_id
+            )
+        
+        # PTZ tracking
+        if self.ptz_autotrack and self.ptz_auto_tracker:
+            self.ptz_auto_tracker.track(FRAME_WIDTH, FRAME_HEIGHT, person_bboxes)
+        
+        # Update statistics
+        self._update_stats(final_status, reasons)
+        
+        # Draw status information
+        fps = self._calculate_fps()
+        draw_status_info(processed_frame, reasons, fps)
+        
+        return processed_frame
+    
+    def _update_stats(self, status: str, reasons: List[str]):
+        """Update frame processing statistics."""
+        if status != "Safe":
+            self.stats.unsafe_frames += 1
+        
+        self.stats.total_frames += 1
+        self.stats.fps_queue.append(time.time())
+    
+    def _calculate_fps(self) -> float:
+        """Calculate current FPS."""
+        if len(self.stats.fps_queue) <= 1:
+            return 20.0
+        return len(self.stats.fps_queue) / (self.stats.fps_queue[-1] - self.stats.fps_queue[0])
+    
+    def _stream_frame(self, streamer_process, frame: np.ndarray):
+        """Stream frame to output process."""
+        try:
+            if streamer_process and streamer_process.stdin:
+                streamer_process.stdin.write(frame.tobytes())
+        except BrokenPipeError:
+            if streamer_process:
                 streamer_process.stdin.close()
                 streamer_process.wait()
-
-    def finalize_video(self, process):
-        if process:
-            process.stdin.close()
-            process.wait()
+            return start_gstreamer_process(self.stream_id)
+        
+        return streamer_process
+    
+    def _handle_recording(self, frame: np.ndarray):
+        """Handle video recording logic."""
+        # Check if we should start recording
+        if (not self.event_processor.recording_state.is_recording and 
+            self.stats.total_frames % DEFAULT_FRAME_INTERVAL == 0):
+            
+            unsafe_ratio = self.stats.unsafe_frames / DEFAULT_FRAME_INTERVAL
+            
+            if self.event_processor.should_start_recording(unsafe_ratio, self.stats.last_event_time):
+                # This would need the current reasons - you'd need to pass them in
+                reasons = []  # You'd need to get current reasons from somewhere
+                self.event_processor.start_recording(frame, reasons, self._calculate_fps())
+                self.stats.last_event_time = time.time()
+        
+        # Write frame if recording
+        if self.event_processor.recording_state.is_recording:
+            self.event_processor.write_frame(frame)
+            
+            # Check if we should stop recording
+            if self.event_processor.should_stop_recording():
+                self.event_processor.stop_recording()
+        
+        # Reset frame counters
+        if self.stats.total_frames % DEFAULT_FRAME_INTERVAL == 0:
+            self.stats.unsafe_frames = 0
+    
+    def _health_monitor_loop(self):
+        """Monitor stream health and trigger reconnections."""
+        while not self.stop_event.is_set():
+            time.sleep(1)
+            
+            if not self.pipeline.is_healthy():
+                logging.warning(f"Stream health check failed for {self.stream_id}")
+                self.pipeline.stop()
