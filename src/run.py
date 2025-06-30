@@ -6,11 +6,6 @@ import asyncio
 from apscheduler.schedulers.background import BackgroundScheduler
 from main import create_app
 from main.stream.model import Stream
-from startup import (
-    configure_detection_models,
-    get_system_utilization,
-    configure_matching_models,
-)
 from startup.services import create_app_services
 
 logging.basicConfig(
@@ -27,17 +22,3 @@ if __name__ == "__main__":
         use_reloader=False,
         threaded=True,
     )
-
-    # def handle_exit(signum, frame):
-    #     logging.info("Received termination signal. Shutting down...")
-    #     try:
-    #         if scheduler.running:
-    #             scheduler.shutdown(wait=False)
-
-    #     except Exception as e:
-    #         logging.error(f"Error during shutdown: {e}")
-    #     finally:
-    #         os._exit(0)
-
-    # signal.signal(signal.SIGINT, handle_exit)
-    # signal.signal(signal.SIGTERM, handle_exit)
