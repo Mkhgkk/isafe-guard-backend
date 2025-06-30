@@ -11,38 +11,15 @@ from startup import (
     get_system_utilization,
     configure_matching_models,
 )
+from startup.services import create_app_services
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 
-logging.getLogger("apscheduler").setLevel(logging.WARNING)
-logging.getLogger("ultralytics").setLevel(logging.WARNING)
-
-logger = logging.getLogger(__name__)
-
-stream_docs = {}
-
 if __name__ == "__main__":
-    configure_detection_models()
-    configure_matching_models()
-    logger.info("Models successfully configured!")
-
-    # TODO:
-    # asyncio should run after app has started because of socket connection
-
-    logging.info("App starting...")
-
     app = create_app()
-
-    with app.app_context():
-        asyncio.run(Stream.start_active_streams_async())
-
-    scheduler = BackgroundScheduler()
-    if not scheduler.running:
-        scheduler.add_job(func=get_system_utilization, trigger="interval", seconds=2)
-        scheduler.start()
-
+    create_app_services(app)
     app.run(
         host=app.config["FLASK_DOMAIN"],
         port=app.config["FLASK_PORT"],
@@ -51,16 +28,16 @@ if __name__ == "__main__":
         threaded=True,
     )
 
-    def handle_exit(signum, frame):
-        logging.info("Received termination signal. Shutting down...")
-        try:
-            if scheduler.running:
-                scheduler.shutdown(wait=False)
+    # def handle_exit(signum, frame):
+    #     logging.info("Received termination signal. Shutting down...")
+    #     try:
+    #         if scheduler.running:
+    #             scheduler.shutdown(wait=False)
 
-        except Exception as e:
-            logging.error(f"Error during shutdown: {e}")
-        finally:
-            os._exit(0)
+    #     except Exception as e:
+    #         logging.error(f"Error during shutdown: {e}")
+    #     finally:
+    #         os._exit(0)
 
-    signal.signal(signal.SIGINT, handle_exit)
-    signal.signal(signal.SIGTERM, handle_exit)
+    # signal.signal(signal.SIGINT, handle_exit)
+    # signal.signal(signal.SIGTERM, handle_exit)

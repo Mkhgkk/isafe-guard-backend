@@ -29,6 +29,8 @@ tensorrt = "10.6.0"
 tensorrt-cu12-bindings = "10.6.0"
 tensorrt-cu12-libs = "10.6.0"
 pygobject = "3.40.0"
+gunicorn = "^23.0.0"
+eventlet = "^0.40.1"
 
 [build-system]
 requires = ["poetry-core"]
