@@ -145,16 +145,6 @@ class StreamManager:
                               f"Reconnecting stream {self.stream_id}...")
                 self.restart_pipeline()
                 
-    def restart_pipeline(self):
-        """Safely restart the GStreamer pipeline."""
-        if self.pipeline:
-            self.pipeline.set_state(Gst.State.NULL)
-            self.pipeline = None
-            
-        logging.info(f"Restarting pipeline for stream {self.stream_id}")
-        time.sleep(self.reconnect_delay)
-        self.create_and_start_pipeline()
-
 
     def create_and_start_pipeline(self):
         """Create and start a new GStreamer pipeline with TCP transport."""
