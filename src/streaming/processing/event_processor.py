@@ -62,10 +62,10 @@ class EventProcessor:
                 target=send_email_notification,
                 args=(reasons, event_id, self.stream_id)
             ),
-            threading.Thread(
-                target=send_watch_notification,
-                args=(reasons,)
-            )
+            # threading.Thread(
+            #     target=send_watch_notification,
+            #     args=(reasons,)
+            # )
         ]
         
         for thread in threads:
