@@ -1,4 +1,6 @@
 from dataclasses import dataclass
+import numpy as np
+from typing import List
 from enum import Enum
 from typing import Optional, Any
 from collections import deque
@@ -50,3 +52,12 @@ class StreamStats:
     def __post_init__(self):
         if self.fps_queue is None:
             self.fps_queue = deque(maxlen=FPS_QUEUE_SIZE)
+
+@dataclass
+class FrameProcessingResult:
+    """Result of processing a single frame."""
+    processed_frame: np.ndarray
+    status: str
+    reasons: List[str]
+    person_bboxes: List
+    fps: float
