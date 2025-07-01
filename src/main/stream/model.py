@@ -4,7 +4,8 @@ from flask import current_app as app
 from flask import request
 from main.shared import streams
 from main.shared import camera_controllers
-from streaming.video_streaming import StreamManager
+# from streaming.video_streaming import StreamManager
+from streaming import StreamManager
 from utils.camera_controller import CameraController
 from main import tools
 import asyncio
