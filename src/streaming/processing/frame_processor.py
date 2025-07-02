@@ -5,7 +5,7 @@ from detection import draw_status_info
 from detection.detector import Detector
 from intrusion import detect_intrusion
 from intrusion.tracking import SafeAreaTracker
-from socket_.socketio_handlers import emit_dynamic_event, EventType
+from socket_ import emit_dynamic_event, EventType
 from ..types import FrameProcessingResult
 
 class FrameProcessor:

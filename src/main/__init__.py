@@ -14,8 +14,8 @@ from main.user.routes import user_blueprint
 from main.event.routes import event_blueprint
 from main.system.routes import system_blueprint
 
-from socket_.socketio_instance import socketio
-from socket_.socketio_handlers import initialize_socketio
+from .extensions import socketio
+from socket_ import initialize_socketio
 from database import initialize_database, get_database
 
 

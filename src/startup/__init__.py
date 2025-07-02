@@ -4,7 +4,7 @@ import logging
 import psutil
 import GPUtil
 from ultralytics import YOLO
-from socket_.socketio_handlers import emit_event, EventType
+from socket_ import emit_event, EventType
 from config import DEFAULT_PRECISION, BASE_DIR
 
 logger = logging.getLogger(__name__)
