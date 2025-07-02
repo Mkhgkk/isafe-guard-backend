@@ -10,7 +10,7 @@ A modular, event-driven SocketIO system with the following components:
 - api: Public interface for other modules
 
 Usage:
-    from socketio_system import initialize_socketio, emit_event, EventType
+    from events module import initialize_socketio, emit_event, EventType
     
     # Initialize
     initialize_socketio(socketio)

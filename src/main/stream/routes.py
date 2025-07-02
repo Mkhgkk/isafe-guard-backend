@@ -13,7 +13,7 @@ from main.shared import safe_area_trackers
 from main.shared import streams
 from .model import Stream
 
-from socket_ import emit_event, emit_dynamic_event, EventType
+from events import emit_event, emit_dynamic_event, EventType
 
 stream_blueprint = Blueprint("stream", __name__)
 
