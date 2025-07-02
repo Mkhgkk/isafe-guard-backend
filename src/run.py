@@ -1,11 +1,6 @@
 #!/usr/bin/env python
-import os
-import signal
 import logging
-import asyncio
-from apscheduler.schedulers.background import BackgroundScheduler
 from main import create_app
-from main.stream.model import Stream
 from startup.services import create_app_services
 
 logging.basicConfig(
