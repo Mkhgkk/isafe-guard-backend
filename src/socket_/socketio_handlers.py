@@ -20,7 +20,7 @@ class EventType(Enum):
     
     # Dynamic event types
     ALERT = "alert"
-    CUSTOM = "custom"  
+    CUSTOM = "custom"
 
 
 @dataclass
@@ -289,31 +289,72 @@ class SocketIOHandlers:
         self.event_bus.publish(event)
 
 
-# Global event bus instance
-event_bus = EventBus()
+class SocketIOManager:
+    """Singleton manager for SocketIO components."""
+    
+    _instance = None
+    
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+            cls._instance._initialized = False
+        return cls._instance
+    
+    def __init__(self):
+        if self._initialized:
+            return
+        
+        self.event_bus = EventBus()
+        self.emitter = None
+        self.handlers = None
+        self._initialized = True
+    
+    def initialize(self, socketio):
+        """Initialize with socketio instance."""
+        if self.emitter is not None or self.handlers is not None:
+            logger.warning("SocketIOManager already initialized")
+            return
+        
+        self.emitter = SocketIOEmitter(socketio, self.event_bus)
+        self.handlers = SocketIOHandlers(socketio, self.event_bus)
+        logger.info("SocketIOManager initialized successfully")
+    
+    def is_initialized(self) -> bool:
+        """Check if manager is initialized."""
+        return self.emitter is not None and self.handlers is not None
 
 
-def setup_socketio_handlers(socketio):
-    """Factory function to set up SocketIO handlers and emitter."""
-    emitter = SocketIOEmitter(socketio, event_bus)
-    handlers = SocketIOHandlers(socketio, event_bus)
-    return handlers, emitter
+# Singleton instance
+socket_manager = SocketIOManager()
+
+
+def initialize_socketio(socketio):
+    """Initialize SocketIO with the manager."""
+    socket_manager.initialize(socketio)
 
 
 def emit_event(event_type: EventType, data: Dict[str, Any], room: Optional[str] = None, broadcast: bool = False):
     """Convenience function for other modules to emit events."""
+    if not socket_manager.is_initialized():
+        logger.warning("SocketIOManager not initialized, cannot emit event")
+        return
+    
     event = SocketEvent(
         event_type=event_type,
         data=data,
         room=room,
         broadcast=broadcast
     )
-    event_bus.publish(event)
+    socket_manager.event_bus.publish(event)
 
 
 def emit_dynamic_event(base_event_type: EventType, identifier: str, data: Dict[str, Any], 
                       room: Optional[str] = None, broadcast: bool = False):
     """Emit an event with a dynamic name that includes an identifier."""
+    if not socket_manager.is_initialized():
+        logger.warning("SocketIOManager not initialized, cannot emit dynamic event")
+        return
+    
     custom_name = f"{base_event_type.value}-{identifier}"
     event = SocketEvent(
         event_type=base_event_type,
@@ -322,11 +363,15 @@ def emit_dynamic_event(base_event_type: EventType, identifier: str, data: Dict[s
         broadcast=broadcast,
         custom_event_name=custom_name
     )
-    event_bus.publish(event)
+    socket_manager.event_bus.publish(event)
 
 
 def emit_custom_event(event_name: str, data: Dict[str, Any], room: Optional[str] = None, broadcast: bool = False):
     """Emit a completely custom event name."""
+    if not socket_manager.is_initialized():
+        logger.warning("SocketIOManager not initialized, cannot emit custom event")
+        return
+    
     event = SocketEvent(
         event_type=EventType.CUSTOM,
         data=data,
@@ -334,4 +379,4 @@ def emit_custom_event(event_name: str, data: Dict[str, Any], room: Optional[str]
         broadcast=broadcast,
         custom_event_name=event_name
     )
-    event_bus.publish(event)
+    socket_manager.event_bus.publish(event)

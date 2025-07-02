@@ -15,7 +15,7 @@ from main.event.routes import event_blueprint
 from main.system.routes import system_blueprint
 
 from socket_.socketio_instance import socketio
-from socket_.socketio_handlers import setup_socketio_handlers
+from socket_.socketio_handlers import initialize_socketio
 from database import initialize_database, get_database
 
 
@@ -45,8 +45,8 @@ def create_app():
     app.register_blueprint(system_blueprint, url_prefix="/api/system")
 
     socketio.init_app(app, cors_allowed_origins="*", async_mode="threading")
-    setup_socketio_handlers(socketio)
-    app.socketio = socketio
+    initialize_socketio(socketio)
+    # app.socketio = socketio
 
     @app.route("/static/<path:filename>")
     def serve_static_file(filename):
