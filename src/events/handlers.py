@@ -41,6 +41,14 @@ class StreamValidator:
         if not stream:
             return None
         return stream.camera_controller
+    
+    @staticmethod
+    def get_ptz_autotrack_status(stream_id: str):
+        """Get ptz autotrack status for a stream"""
+        stream = streams.get(stream_id)
+        if not stream: 
+            return None
+        return stream.ptz_autotrack
 
 
 class RoomManager:
@@ -114,6 +122,10 @@ class SocketIOHandlers:
         if not stream_id:
             return
         
+        ptz_autotrack = self.validator.get_ptz_autotrack_status(stream_id)
+        status_event = SocketEvent(event_type=EventType.PTZ_AUTOTRACK, data={"ptz_autotrack": ptz_autotrack})
+        self.event_bus.publish(status_event)
+
         camera_controller = self.validator.get_camera_controller(stream_id)
         if not camera_controller:
             logger.warning(f"No camera controller for stream {stream_id}")

@@ -18,6 +18,7 @@ class EventType(Enum):
     SYSTEM_STATUS = "system_status"
     ZOOM_LEVEL = "zoom-level"
     PTZ_AUTOTRACK = "ptz_autotrack"
+    # PTZ_AUTOTRACK_STATUS = "ptz_autotrack_status"
     
     # Dynamic event types
     ALERT = "alert"
