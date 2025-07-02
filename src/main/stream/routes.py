@@ -2,8 +2,6 @@ import os
 import cv2
 import json
 import time
-import asyncio
-import logging
 import traceback
 from flask import current_app as app
 from flask import Response
@@ -15,7 +13,8 @@ from main.shared import safe_area_trackers
 from main.shared import streams
 from .model import Stream
 
-from socket_.socketio_instance import socketio
+# from socket_.socketio_instance import socketio
+from socket_.socketio_handlers import emit_event, emit_dynamic_event, EventType
 
 stream_blueprint = Blueprint("stream", __name__)
 
@@ -83,12 +82,8 @@ def change_autotrack():
 
             # emit change autotrack change
             room = f"ptz-{stream_id}"
-            app.socketio.emit(
-                f"ptz-autotrack-change",
-                {"ptz_autotrack": video_streaming.ptz_autotrack},
-                namespace=NAMESPACE,
-                room=room,
-            )
+            data = {"ptz_autotrack": video_streaming.ptz_autotrack}
+            emit_event(event_type=EventType.PTZ_AUTOTRACK, data=data, room=room )
 
             return tools.JsonResp(
                 {
@@ -288,9 +283,10 @@ def alert():
 
     stream_id = request.args.get("stream_id")
 
-    socketio.emit(
-        f"alert-{stream_id}", {"type": "intrusion"}, namespace=NAMESPACE, room=stream_id
-    )
+    room = stream_id
+    data = {"type": "intrusion"}
+
+    emit_dynamic_event(base_event_type=EventType.ALERT, identifier=stream_id, data=data, room=room )
 
     return tools.JsonResp({"data": "ok"}, 200)
 

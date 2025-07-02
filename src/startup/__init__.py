@@ -1,11 +1,10 @@
 import os
 import sys
 import logging
-import requests
 import psutil
 import GPUtil
 from ultralytics import YOLO
-from socket_.socketio_instance import socketio
+from socket_.socketio_handlers import emit_event, EventType
 from config import DEFAULT_PRECISION, BASE_DIR
 
 logger = logging.getLogger(__name__)
@@ -94,6 +93,8 @@ def get_system_utilization():
     gpus = GPUtil.getGPUs()
     gpu_usage = gpus[0].load * 100 if gpus else 0
 
-    socketio.emit(
-        "system_status", {"cpu": cpu_usage, "gpu": gpu_usage}, namespace=NAMESPACE
+    emit_event(
+        event_type=EventType.SYSTEM_STATUS,
+        data={"cpu": cpu_usage, "gpu": gpu_usage},
+        broadcast=True 
     )

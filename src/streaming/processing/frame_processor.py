@@ -5,8 +5,7 @@ from detection import draw_status_info
 from detection.detector import Detector
 from intrusion import detect_intrusion
 from intrusion.tracking import SafeAreaTracker
-from socket_.socketio_instance import socketio
-from ..constants import NAMESPACE
+from socket_.socketio_handlers import emit_dynamic_event, EventType
 from ..types import FrameProcessingResult
 
 class FrameProcessor:
@@ -72,12 +71,9 @@ class FrameProcessor:
     
     def _emit_intrusion_alert(self):
         """Emit intrusion alert via socket."""
-        socketio.emit(
-            f"alert-{self.stream_id}",
-            {"type": "intrusion"},
-            namespace=NAMESPACE,
-            room=self.stream_id # pyright: ignore[reportCallIssue]
-        )
+
+        data = {"type": "intrusion"}
+        emit_dynamic_event(base_event_type=EventType.ALERT, identifier=self.stream_id, data=data, room=self.stream_id)
     
     def _handle_ptz_tracking(self, person_bboxes: List):
         """Handle PTZ auto-tracking if enabled."""

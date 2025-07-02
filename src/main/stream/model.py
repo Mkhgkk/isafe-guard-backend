@@ -343,6 +343,7 @@ class Stream:
 
             logging.info(f"PTZ configured for stream {stream_id}.")
         except Exception as e:
+                # Send notification when this fails
                 logging.info(f"Error initializing PTZ for stream {stream_id}: {e}")
 
 
