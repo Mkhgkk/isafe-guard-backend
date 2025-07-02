@@ -1,6 +1,5 @@
 import logging
-import asyncio
-from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.schedulers.background import BackgroundScheduler #pyright: ignore[reportMissingImports]
 from main.stream.model import Stream
 from startup import (
     configure_detection_models,
@@ -29,7 +28,7 @@ def create_app_services(app):
 
     logger.info("Starting async stream tasks...")
     with app.app_context():
-        asyncio.run(Stream.start_active_streams_async())
+        Stream.start_active_streams()
 
     logger.info("Starting background scheduler...")
     scheduler = BackgroundScheduler()

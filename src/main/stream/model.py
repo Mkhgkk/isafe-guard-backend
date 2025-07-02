@@ -1,7 +1,9 @@
-import asyncio
 import json
 import os
 import shutil
+import logging
+import threading
+from typing import Optional, Any
 
 from flask import current_app as app  # pyright: ignore[reportMissingImports]
 from flask import request  # pyright: ignore[reportMissingImports]
@@ -199,7 +201,7 @@ class Stream:
                     404,
                 )
 
-            asyncio.run(Stream.start_stream(**stream))
+            Stream.start_stream(**stream)
 
             # Update the `is_active` status
             app.db.streams.update_one(
@@ -262,8 +264,7 @@ class Stream:
             )
         finally:
             if is_stream_running:
-                # asyncio.create_task(Stream.start_stream(**data))
-                asyncio.run(Stream.start_stream(**data))
+                Stream.start_stream(**data)
                 # Update the `is_active` status
                 app.db.streams.update_one(
                     {"stream_id": stream_id}, {"$set": {"is_active": True}}
@@ -285,25 +286,25 @@ class Stream:
         return resp
 
     @staticmethod
-    async def start_stream(
-        rtsp_link=None,
-        model_name=None,
-        stream_id=None,
-        cam_ip=None,
-        ptz_port=None,
-        ptz_username=None,
-        ptz_password=None,
-        home_pan=None,
-        home_tilt=None,
-        home_zoom=None,
-        *args,
-        **kwargs,
-    ):
+    def start_stream(
+        rtsp_link: str,
+        model_name: str,
+        stream_id: str,
+        cam_ip: Optional[str] = None,
+        ptz_port: Optional[int] = None,
+        ptz_username: Optional[str] = None,
+        ptz_password: Optional[str] = None,
+        home_pan: Optional[float] = None,
+        home_tilt: Optional[float] = None,
+        home_zoom: Optional[float] = None,
+        *args: Any,
+        **kwargs: Any,
+    ) -> None:
         supports_ptz = all([cam_ip, ptz_port, ptz_username, ptz_password])
         ptz_autotrack = all([home_pan, home_tilt, home_zoom])
 
         if stream_id in streams:
-            print("Stream is already running!")
+            logging.info(f"Stream {stream_id} is already running!")
             return
 
         # Start the video stream immediately
@@ -316,38 +317,34 @@ class Stream:
         # scheduler.add_job(Stream.stop_stream, 'date', run_date=stop_time, args=[stream_id])
         # print(f"Stream {stream_id} scheduled to stop at {stop_time}.")
 
-        # Asynchronously configure PTZ to avoid blocking the loop
         if supports_ptz:
-            try:
-                # Run the long-running CameraController initialization asynchronously
-                await asyncio.to_thread(
-                    Stream.initialize_camera_controller,
-                    cam_ip,
-                    ptz_port,
-                    ptz_username,
-                    ptz_password,
-                    stream_id,
-                )
-            except Exception as e:
-                print(f"Error initializing PTZ for stream {stream_id}: {e}")
+            ptz_thread = threading.Thread(
+                target=Stream.initialize_camera_controller, 
+                args=(cam_ip, ptz_port, ptz_username, ptz_password, stream_id), 
+                daemon=True 
+            )
+            ptz_thread.start()
 
     @staticmethod
     def initialize_camera_controller(
         cam_ip, ptz_port, ptz_username, ptz_password, stream_id
     ):
         """This function will be executed in a background thread to avoid blocking the loop."""
-        stream = streams[stream_id]
-        camera_controller = CameraController(
-            cam_ip, ptz_port, ptz_username, ptz_password
-        )
-        stream.camera_controller = camera_controller
-        # camera_controllers[stream_id] = camera_controller
+        try:
+            stream = streams[stream_id]
+            camera_controller = CameraController(
+                cam_ip, ptz_port, ptz_username, ptz_password
+            )
+            stream.camera_controller = camera_controller
 
-        # if camera controller is initialized successfully, then we initialize auto tracker
-        ptz_auto_tracker = PTZAutoTracker(cam_ip, ptz_port, ptz_username, ptz_password)
-        stream.ptz_auto_tracker = ptz_auto_tracker
+            # if camera controller is initialized successfully, then we initialize auto tracker
+            ptz_auto_tracker = PTZAutoTracker(cam_ip, ptz_port, ptz_username, ptz_password)
+            stream.ptz_auto_tracker = ptz_auto_tracker
 
-        print(f"PTZ configured for stream {stream_id}.")
+            logging.info(f"PTZ configured for stream {stream_id}.")
+        except Exception as e:
+                logging.info(f"Error initializing PTZ for stream {stream_id}: {e}")
+
 
     @staticmethod
     def stop_stream(stream_id):
@@ -394,19 +391,13 @@ class Stream:
             )
 
     @staticmethod
-    async def start_active_streams_async():
-        tasks = []
-
+    def start_active_streams():
         streams = list(app.db.streams.find())
 
         for stream in streams:
             if stream["is_active"]:
-                print(stream)
-                task = Stream.start_stream(**stream)
-                tasks.append(task)
-
-        try:
-            await asyncio.gather(*tasks)
-        except Exception as e:
-            print(f"Error starting streams: {e}")
-        # asyncio.run(*tasks)
+                logging.info(stream)
+                try:
+                    Stream.start_stream(**stream)
+                except Exception as e:
+                    logging.error(f"Error starting stream {stream.stream_id}")
