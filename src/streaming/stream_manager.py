@@ -26,10 +26,13 @@ class StreamManager:
         self.stream_id = stream_id
         self.rtsp_link = rtsp_link
         self.model_name = model_name
-        self.ptz_autotrack = ptz_autotrack
         
         # Initialize core components
         self._initialize_components()
+
+        # Initialize private attributes
+        self._ptz_autotrack = ptz_autotrack
+        self._ptz_auto_tracker = None
         
         # Initialize managers
         self._initialize_managers()
@@ -39,6 +42,38 @@ class StreamManager:
         self.running = False
         self.stop_event = threading.Event()
         self.threads: List[threading.Thread] = []
+
+    @property
+    def ptz_autotrack(self):
+        """Get the PTZ autotrack boolean flag."""
+        return self._ptz_autotrack
+    
+    @ptz_autotrack.setter
+    def ptz_autotrack(self, value: bool):
+        """Set the PTZ autotrack flag and update frame processor."""
+        self._ptz_autotrack = value
+        
+        if hasattr(self, 'frame_processor'):
+            self.frame_processor.ptz_autotrack = value
+            logging.info(f"PTZ autotrack {'enabled' if value else 'disabled'} for stream {self.stream_id}")    
+
+    @property
+    def ptz_auto_tracker(self):
+        """Get the PTZ auto tracker."""
+        return self._ptz_auto_tracker
+    
+    @ptz_auto_tracker.setter
+    def ptz_auto_tracker(self, value):
+        """Set the PTZ auto tracker and attach it to frame processor."""
+        self._ptz_auto_tracker = value
+        
+        # Attach to frame processor when set
+        if value is not None and hasattr(self, 'frame_processor'):
+            self.frame_processor.ptz_auto_tracker = value
+            logging.info(f"PTZ auto tracker attached to frame processor for stream {self.stream_id}")
+        elif value is None and hasattr(self, 'frame_processor'):
+            self.frame_processor.ptz_auto_tracker = None
+            logging.info(f"PTZ auto tracker detached from frame processor for stream {self.stream_id}")
     
     def _initialize_components(self):
         """Initialize core detection and tracking components."""
@@ -133,7 +168,7 @@ class StreamManager:
     def _process_single_frame(self, frame: np.ndarray):
         """Process a single frame through the complete pipeline."""
         fps = self._calculate_fps()
-        
+
         processing_result = self.frame_processor.process_frame(frame, fps)
         self._update_stats(processing_result.status, processing_result.reasons)
         self.output_manager.stream_frame(processing_result.processed_frame)
