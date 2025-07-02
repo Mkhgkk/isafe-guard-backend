@@ -1,0 +1,134 @@
+import logging
+from typing import Tuple, Optional
+from onvif import ONVIFCamera # pyright: ignore[reportMissingImports]
+from onvif import exceptions # pyright: ignore[reportMissingImports]
+
+
+class ONVIFCameraBase:
+    """Base class for ONVIF camera operations with common functionality."""
+    
+    def __init__(self, ip: str, port: int, username: str, password: str) -> None:
+        self.camera = ONVIFCamera(ip, port, username, password)
+        self.ptz_service = self.camera.create_ptz_service()
+        self.media_service = self.camera.create_media_service()
+        self.profiles = self.media_service.GetProfiles()
+        
+        if self.profiles is None:
+            raise ValueError(
+                "No profiles returned from the camera. Please check connection or credentials."
+            )
+        
+        self.profile_token = self.profiles[0].token
+
+    def get_ptz_status(self) -> Optional[dict]:
+        """Get PTZ status from the camera."""
+        try:
+            status = self.ptz_service.GetStatus({"ProfileToken": self.profile_token})
+            return status
+        except exceptions.ONVIFError as e:
+            logging.error(f"Error getting PTZ status: {e}")
+            return None
+
+    def get_current_position(self) -> Tuple[float, float, float]:
+        """Get current pan, tilt, and zoom position."""
+        try:
+            status = self.ptz_service.GetStatus({"ProfileToken": self.profile_token})
+            if not status:
+                raise ValueError(
+                    "GetStatus() returned None. Check camera connectivity and credentials."
+                )
+            if not hasattr(status, "Position"):
+                raise ValueError(
+                    "Status object does not contain a 'Position' attribute."
+                )
+            
+            current_pan = status.Position.PanTilt.x
+            current_tilt = status.Position.PanTilt.y
+            current_zoom = status.Position.Zoom.x
+            return float(current_pan), float(current_tilt), float(current_zoom)
+        except Exception as e:
+            logging.error(f"An error occurred while getting current position: {e}")
+            return 0.0, 0.0, 0.0
+
+    def get_zoom_level(self) -> float:
+        """Get current zoom level."""
+        try:
+            _, _, zoom = self.get_current_position()
+            return zoom
+        except Exception as e:
+            logging.error(f"An error occurred while getting zoom level: {e}")
+            return 0.0
+
+    def continuous_move(self, pan: float, tilt: float, zoom: float) -> None:
+        """Execute continuous movement with specified velocities."""
+        try:
+            request = self.ptz_service.create_type("ContinuousMove")
+            request.ProfileToken = self.profile_token
+
+            status = self.ptz_service.GetStatus({"ProfileToken": self.profile_token})
+            if not status:
+                raise ValueError(
+                    "GetStatus() returned None. Check camera connectivity and credentials."
+                )
+            if not hasattr(status, "Position"):
+                raise ValueError(
+                    "Status object does not contain a 'Position' attribute."
+                )
+
+            request.Velocity = status.Position
+            request.Velocity.PanTilt.x = pan
+            request.Velocity.PanTilt.y = tilt
+            request.Velocity.Zoom.x = zoom
+
+            self.ptz_service.ContinuousMove(request)
+        except exceptions.ONVIFError as e:
+            logging.error(f"Error in continuous move: {e}")
+
+    def absolute_move(self, pan: float, tilt: float, zoom: float, 
+                     pan_speed: Optional[float] = None, 
+                     tilt_speed: Optional[float] = None, 
+                     zoom_speed: Optional[float] = None) -> None:
+        """Execute absolute movement to specified position."""
+        try:
+            request = self.ptz_service.create_type("AbsoluteMove")
+            request.ProfileToken = self.profile_token
+
+            status = self.ptz_service.GetStatus({"ProfileToken": self.profile_token})
+            if not status:
+                raise ValueError(
+                    "GetStatus() returned None. Check camera connectivity and credentials."
+                )
+            if not hasattr(status, "Position"):
+                raise ValueError(
+                    "Status object does not contain a 'Position' attribute."
+                )
+
+            request.Position = status.Position
+            request.Position.PanTilt.x = pan
+            request.Position.PanTilt.y = tilt
+            request.Position.Zoom.x = zoom
+
+            # Set speed if provided
+            if any([pan_speed, tilt_speed, zoom_speed]):
+                request.Speed = {
+                    "PanTilt": {
+                        "x": pan_speed or 0.5,
+                        "y": tilt_speed or 0.5
+                    },
+                    "Zoom": {"x": zoom_speed or 0.5}
+                }
+
+            self.ptz_service.AbsoluteMove(request)
+        except exceptions.ONVIFError as e:
+            logging.error(f"Error in absolute move: {e}")
+
+    def stop_movement(self) -> None:
+        """Stop all camera movement."""
+        try:
+            request = self.ptz_service.create_type("Stop")
+            request.ProfileToken = self.profile_token
+            request.PanTilt = True
+            request.Zoom = True
+            self.ptz_service.Stop(request)
+        except exceptions.ONVIFError as e:
+            logging.error(f"Error stopping PTZ movement: {e}")

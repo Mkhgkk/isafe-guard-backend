@@ -1,27 +1,17 @@
+import asyncio
+import json
 import os
 import shutil
-from flask import current_app as app
-from flask import request
-from main.shared import streams
-from main.shared import camera_controllers
-# from streaming.video_streaming import StreamManager
-from streaming import StreamManager
-from utils.camera_controller import CameraController
-from main import tools
-import asyncio
-import time
-import json
-import datetime
+
+from flask import current_app as app  # pyright: ignore[reportMissingImports]
+from flask import request  # pyright: ignore[reportMissingImports]
+from marshmallow import Schema, ValidationError, fields, validate  # pyright: ignore[reportMissingImports]
+
 from config import STATIC_DIR
-
-# from apscheduler.schedulers.background import BackgroundScheduler
-
-from marshmallow import Schema, fields, ValidationError, validate
-
-from ptz.autotrack import PTZAutoTracker
-
-# scheduler = BackgroundScheduler()
-# scheduler.start()
+from main import tools
+from main.shared import streams  # pyright: ignore[reportMissingImports]
+from ptz import CameraController, PTZAutoTracker
+from streaming import StreamManager
 
 
 class StreamSchema(Schema):
