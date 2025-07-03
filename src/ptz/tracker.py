@@ -208,6 +208,7 @@ class PTZAutoTracker(ONVIFCameraBase):
         try:
             self.absolute_move(self.home_pan, self.home_tilt, self.home_zoom)
             self.ptz_metrics["zoom_level"] = self.home_zoom
+            self.is_at_default_position = True
         except Exception as e:
             logging.error(f"Error moving to default position: {e}")
 
