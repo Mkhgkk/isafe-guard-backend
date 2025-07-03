@@ -112,8 +112,12 @@ def start_gstreamer_process(stream_id: str) -> subprocess.Popen:
         "videoconvert",
         "!",
         "x264enc",
+        "bitrate=2500",           # 2.5 Mbps for 720p
+        "speed-preset=veryfast",  # Better quality than ultrafast
         "tune=zerolatency",
-        "speed-preset=ultrafast",
+        "key-int-max=60",        # Keyframe every 2 seconds
+        "qp-min=18",             # Minimum quantization (higher quality)
+        "qp-max=28",             # Maximum quantization (prevent too low quality)
         "!",
         "flvmux",
         "streamable=true",
