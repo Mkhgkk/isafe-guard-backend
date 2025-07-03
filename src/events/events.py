@@ -17,7 +17,7 @@ class EventType(Enum):
     """Define all possible event types that can be emitted."""
     SYSTEM_STATUS = "system_status"
     ZOOM_LEVEL = "zoom-level"
-    PTZ_AUTOTRACK = "ptz_autotrack"
+    PTZ_AUTOTRACK = "ptz-autotrack"
     # PTZ_AUTOTRACK_STATUS = "ptz_autotrack_status"
     
     # Dynamic event types
