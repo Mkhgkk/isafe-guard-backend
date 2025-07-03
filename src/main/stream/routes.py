@@ -57,49 +57,52 @@ def change_autotrack():
                 },
                 400,
             )
+        
+        if not video_streaming.ptz_auto_tracker:
+            return tools.JsonResp(
+                {"status": "error", "message": "This stream does not support ptz auto tracking!"}, 400
+            ) 
+        
         video_streaming.ptz_autotrack = not video_streaming.ptz_autotrack
 
-        if video_streaming.camera_controller and video_streaming.ptz_auto_tracker:
-            # obtain current ptz coordinates
-            camera_controller = video_streaming.camera_controller
-            pan, tilt, zoom = camera_controller.get_current_position()
+        if video_streaming.ptz_autotrack:
+            if video_streaming.camera_controller and video_streaming.ptz_auto_tracker:
+                # obtain current ptz coordinates
+                camera_controller = video_streaming.camera_controller
+                pan, tilt, zoom = camera_controller.get_current_position()
 
-            # set these coordinates and default position
-            video_streaming.ptz_auto_tracker.update_default_position(pan, tilt, zoom)
+                # set these coordinates and default position
+                video_streaming.ptz_auto_tracker.update_default_position(pan, tilt, zoom)
+        else: 
+            # stop stop tracking
+            if video_streaming.ptz_auto_tracker:
+                video_streaming.ptz_auto_tracker.reset_camera_position()
+            
 
-            video_streaming.ptz_auto_tracker.set_patrol_parameters(x_step=0.02, y_step=0.05, dwell_time=3.0)
+        # video_streaming.ptz_auto_tracker.set_patrol_parameters(x_step=0.02, y_step=0.05, dwell_time=3.0)
+        # Start patrol
+        # if video_streaming.ptz_autotrack:
+        #      video_streaming.ptz_auto_tracker.start_patrol(direction="vertical")
 
-            # Start patrol
-            # if video_streaming.ptz_autotrack:
-            #      video_streaming.ptz_auto_tracker.start_patrol(direction="vertical")
-
-            # else:
-            #     video_streaming.ptz_auto_tracker.stop_patrol()
-
+        # else:
+        #     video_streaming.ptz_auto_tracker.stop_patrol()
 
 
+        # emit change autotrack change
+        room = f"ptz-{stream_id}"
+        data = {"ptz_autotrack": video_streaming.ptz_autotrack}
+        emit_event(event_type=EventType.PTZ_AUTOTRACK, data=data, room=room )
 
-            # emit change autotrack change
-            room = f"ptz-{stream_id}"
-            data = {"ptz_autotrack": video_streaming.ptz_autotrack}
-            emit_event(event_type=EventType.PTZ_AUTOTRACK, data=data, room=room )
-
-            return tools.JsonResp(
-                {
-                    "status": "Success",
-                    "message": "Autotrack changed successfully",
-                    "data": {"ptz_autotrack": video_streaming.ptz_autotrack},
-                },
-                200,
-            )
-
-        else:
-            return tools.JsonResp(
-                {"status": "error", "message": "Failed to change auto tracking!"}, 400
-            )
+        return tools.JsonResp(
+            {
+                "status": "Success",
+                "message": "Autotrack changed successfully",
+                "data": {"ptz_autotrack": video_streaming.ptz_autotrack},
+            },
+            200,
+        )
 
     except Exception as e:
-        # print(video_streaming)
         print("An error occurred:", e)
         traceback.print_exc()
         return tools.JsonResp({"status": "error", "message": "wrong data format!"}, 400)
