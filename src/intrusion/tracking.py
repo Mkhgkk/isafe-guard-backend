@@ -14,6 +14,10 @@ class SafeAreaTracker:
         self.homography_buffer: deque[np.ndarray] = deque(maxlen=50)
         self.safe_area_box: Optional[List[np.ndarray]] = None
         self.ref_tensor: Optional[torch.Tensor] = None
+        
+        # Frame skipping variables
+        self.frame_counter: int = 0
+        self.last_transformed_areas: List[np.ndarray] = []
 
         device: str = "cuda" if torch.cuda.is_available() else "cpu"
         config = {
@@ -41,6 +45,10 @@ class SafeAreaTracker:
         self.ref_tensor = frame2tensor(ref_gray, self.device)
 
         self.homography_buffer.clear()
+        
+        # Reset frame counter when updating safe area
+        self.frame_counter = 0
+        self.last_transformed_areas = []
 
     def draw_safe_area(self, frame: np.ndarray) -> np.ndarray:
         if self.reference_frame is None or not self.safe_area_box:
@@ -92,8 +100,16 @@ class SafeAreaTracker:
         return frame
 
     def get_transformed_safe_areas(self, frame: np.ndarray) -> List[np.ndarray]:
+        # Increment frame counter
+        self.frame_counter += 1
+        
+        # Skip two frames (process every third frame)
+        if self.frame_counter % 3 != 1:
+            return self.last_transformed_areas
+        
         transformed_hazard_zones: List[np.ndarray] = []
         if self.reference_frame is None or not self.safe_area_box:
+            self.last_transformed_areas = []
             return []
 
         ref_gray: np.ndarray = cv2.cvtColor(self.reference_frame, cv2.COLOR_BGR2GRAY)
@@ -113,6 +129,7 @@ class SafeAreaTracker:
         matched_kpts_curr: np.ndarray = kpts_curr[matches[valid]]
 
         if len(matched_kpts_ref) < 10:
+            self.last_transformed_areas = []
             return []
 
         homography_matrix, _ = cv2.findHomography(
@@ -120,6 +137,7 @@ class SafeAreaTracker:
         )
 
         if homography_matrix is None:
+            self.last_transformed_areas = []
             return []
 
         for safe_area_box in self.safe_area_box:
@@ -130,6 +148,8 @@ class SafeAreaTracker:
             safe_area_curr_int = safe_area_curr.astype(np.int32)
             transformed_hazard_zones.append(safe_area_curr_int)
 
+        # Store the result for skipped frames
+        self.last_transformed_areas = transformed_hazard_zones
         return transformed_hazard_zones
 
     def draw_safe_area_on_frame(

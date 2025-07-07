@@ -172,7 +172,7 @@ class StreamManager:
         processing_result = self.frame_processor.process_frame(frame, fps)
         self._update_stats(processing_result.status, processing_result.reasons)
         self.output_manager.stream_frame(processing_result.processed_frame)
-        self.recorder.handle_recording(frame, processing_result)
+        self.recorder.handle_recording(processing_result.processed_frame, processing_result)
     
     def _update_stats(self, status: str, reasons: List[str]):
         """Update frame processing statistics."""
