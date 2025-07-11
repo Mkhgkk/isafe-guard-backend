@@ -2,6 +2,7 @@ import os
 import cv2
 import json
 import time
+import logging
 import traceback
 from flask import current_app as app
 from flask import Response
@@ -65,6 +66,21 @@ def change_autotrack():
         
         video_streaming.ptz_autotrack = not video_streaming.ptz_autotrack
 
+        # if video_streaming.ptz_autotrack:
+        #     if video_streaming.camera_controller and video_streaming.ptz_auto_tracker:
+        #         # obtain current ptz coordinates
+        #         camera_controller = video_streaming.camera_controller
+        #         pan, tilt, zoom = camera_controller.get_current_position()
+
+        #         # set these coordinates and default position
+        #         video_streaming.ptz_auto_tracker.update_default_position(pan, tilt, zoom)
+        # else: 
+        #     # stop stop tracking
+        #     if video_streaming.ptz_auto_tracker:
+        #         video_streaming.ptz_auto_tracker.reset_camera_position()
+            
+
+        # Start patrol
         if video_streaming.ptz_autotrack:
             if video_streaming.camera_controller and video_streaming.ptz_auto_tracker:
                 # obtain current ptz coordinates
@@ -73,19 +89,21 @@ def change_autotrack():
 
                 # set these coordinates and default position
                 video_streaming.ptz_auto_tracker.update_default_position(pan, tilt, zoom)
-        else: 
-            # stop stop tracking
-            if video_streaming.ptz_auto_tracker:
-                video_streaming.ptz_auto_tracker.reset_camera_position()
-            
 
-        # video_streaming.ptz_auto_tracker.set_patrol_parameters(x_step=0.02, y_step=0.05, dwell_time=3.0)
-        # Start patrol
-        # if video_streaming.ptz_autotrack:
-        #      video_streaming.ptz_auto_tracker.start_patrol(direction="vertical")
+                # video_streaming.ptz_auto_tracker.set_patrol_parameters(x_step=0.02, y_step=0.05, dwell_time=3.0)
+                # video_streaming.ptz_auto_tracker.start_patrol(direction="vertical")
 
-        # else:
-        #     video_streaming.ptz_auto_tracker.stop_patrol()
+
+                video_streaming.ptz_auto_tracker.set_patrol_area({'zMin': 0.04, 'zMax': 0.088, 'xMin': -0.43849999999999967, 'xMax': 0.6418333333333334, 'yMin': 1, 'yMax': 0.01904761904761898})
+
+                # video_streaming.ptz_auto_tracker.configure_patrol_grid(3, 2)
+                video_streaming.ptz_auto_tracker.set_patrol_parameters(x_positions=10, y_positions=4, dwell_time=1.5, zoom_level=0.04)
+                video_streaming.ptz_auto_tracker.start_patrol("horizontal")
+
+        else:
+            video_streaming.ptz_auto_tracker.stop_patrol()
+            video_streaming.ptz_auto_tracker.reset_camera_position()
+
 
 
         # emit change autotrack change
@@ -248,7 +266,27 @@ def get_current_ptz_values():
 def save_patrol_area():
     try:
         data = json.loads(request.data)
-        stream_id = data.get("streamId")
+        stream_id = data["stream_id"]
+
+
+        video_streaming = streams.get(stream_id)
+        if video_streaming is None:
+            return tools.JsonResp(
+                {
+                    "status": "error",
+                    "message": "Stream with the give ID is not active!",
+                },
+                400,
+            )
+
+        
+        if video_streaming.ptz_auto_tracker is not None:
+            patrol_area= data.get("patrol_area")
+            
+            video_streaming.ptz_auto_tracker.set_patrol_area(patrol_area)
+            logging.info(f"patrol_rea: {video_streaming.ptz_auto_tracker.patrol_area}")
+            # pass
+
         # other data
         # logging.info(f"RECEIVED DATA: {data}")
         # INFO:root:RECEIVED DATA: {'stream_id': 'test_outside', 'patrol_area': {'zMin': 0.0699310303, 'zMax': 0.0699310303, 'xMin': 0.274833322, 'xMax': 0.274833322, 'yMin': -1, 'yMax': -1}}

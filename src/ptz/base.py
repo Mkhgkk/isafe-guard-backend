@@ -84,43 +84,82 @@ class ONVIFCameraBase:
         except exceptions.ONVIFError as e:
             logging.error(f"Error in continuous move: {e}")
 
+    # def absolute_move(self, pan: float, tilt: float, zoom: float, 
+    #                  pan_speed: Optional[float] = None, 
+    #                  tilt_speed: Optional[float] = None, 
+    #                  zoom_speed: Optional[float] = None) -> None:
+    #     """Execute absolute movement to specified position."""
+    #     try:
+    #         request = self.ptz_service.create_type("AbsoluteMove")
+    #         request.ProfileToken = self.profile_token
+
+    #         # status = self.ptz_service.GetStatus({"ProfileToken": self.profile_token})
+    #         # if not status:
+    #         #     raise ValueError(
+    #         #         "GetStatus() returned None. Check camera connectivity and credentials."
+    #         #     )
+    #         # if not hasattr(status, "Position"):
+    #         #     raise ValueError(
+    #         #         "Status object does not contain a 'Position' attribute."
+    #         #     )
+
+    #         # request.Position = status.Position
+    #         # request.Position.PanTilt.x = pan
+    #         # request.Position.PanTilt.y = tilt
+    #         # request.Position.Zoom.x = zoom
+
+    #         # Construct position explicitly (safest cross-camera approach)
+    #         request.Position = self.ptz_service.factory.create('ns0:PTZVector')
+    #         request.Position.PanTilt = self.ptz_service.factory.create('ns0:Vector2D')
+    #         request.Position.Zoom = self.ptz_service.factory.create('ns0:Vector1D')
+
+    #         request.Position.PanTilt.x = pan
+    #         request.Position.PanTilt.y = tilt
+    #         request.Position.Zoom.x = zoom
+
+
+    #         # Set speed if provided
+    #         if any([pan_speed, tilt_speed, zoom_speed]):
+    #             request.Speed = {
+    #                 "PanTilt": {
+    #                     "x": pan_speed or 0.5,
+    #                     "y": tilt_speed or 0.5
+    #                 },
+    #                 "Zoom": {"x": zoom_speed or 0.5}
+    #             }
+
+    #         self.ptz_service.AbsoluteMove(request)
+    #     except exceptions.ONVIFError as e:
+    #         logging.error(f"Error in absolute move: {e}")
+
+    
     def absolute_move(self, pan: float, tilt: float, zoom: float, 
-                     pan_speed: Optional[float] = None, 
-                     tilt_speed: Optional[float] = None, 
-                     zoom_speed: Optional[float] = None) -> None:
+                  pan_speed: Optional[float] = None, 
+                  tilt_speed: Optional[float] = None, 
+                  zoom_speed: Optional[float] = None) -> None:
         """Execute absolute movement to specified position."""
         try:
             request = self.ptz_service.create_type("AbsoluteMove")
             request.ProfileToken = self.profile_token
 
-            status = self.ptz_service.GetStatus({"ProfileToken": self.profile_token})
-            if not status:
-                raise ValueError(
-                    "GetStatus() returned None. Check camera connectivity and credentials."
-                )
-            if not hasattr(status, "Position"):
-                raise ValueError(
-                    "Status object does not contain a 'Position' attribute."
-                )
+            # Manually build the correct PTZVector and children using dict-like access
+            request.Position = {
+                'PanTilt': {'x': pan, 'y': tilt},
+                'Zoom': {'x': zoom}
+            }
 
-            request.Position = status.Position
-            request.Position.PanTilt.x = pan
-            request.Position.PanTilt.y = tilt
-            request.Position.Zoom.x = zoom
-
-            # Set speed if provided
+            # Optional: Add movement speed
             if any([pan_speed, tilt_speed, zoom_speed]):
                 request.Speed = {
-                    "PanTilt": {
-                        "x": pan_speed or 0.5,
-                        "y": tilt_speed or 0.5
-                    },
-                    "Zoom": {"x": zoom_speed or 0.5}
+                    'PanTilt': {'x': pan_speed or 0.5, 'y': tilt_speed or 0.5},
+                    'Zoom': {'x': zoom_speed or 0.5}
                 }
 
             self.ptz_service.AbsoluteMove(request)
-        except exceptions.ONVIFError as e:
+
+        except Exception as e:
             logging.error(f"Error in absolute move: {e}")
+
 
     def stop_movement(self) -> None:
         """Stop all camera movement."""
