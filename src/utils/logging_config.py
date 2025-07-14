@@ -121,3 +121,35 @@ def log_event(
     
     log_method = getattr(logger, level.lower())
     log_method(message, extra=context)
+
+
+# Database logging integration
+_database_handler_initialized = False
+
+def setup_database_logging_integration():
+    """Setup database logging after Flask app is ready."""
+    global _database_handler_initialized
+    
+    if _database_handler_initialized:
+        return
+    
+    try:
+        from utils.database_log_handler import DatabaseLogHandler
+        
+        # Create and add database handler
+        db_handler = DatabaseLogHandler()
+        
+        # Add to root logger (this captures all log events)
+        root_logger = logging.getLogger()
+        root_logger.addHandler(db_handler)
+        
+        _database_handler_initialized = True
+        print(f"✅ Database logging integration initialized successfully")
+        
+    except Exception as e:
+        print(f"❌ Failed to setup database logging integration: {e}")
+
+
+def get_database_logging_status():
+    """Get the status of database logging."""
+    return _database_handler_initialized

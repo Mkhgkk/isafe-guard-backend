@@ -13,6 +13,8 @@ from main.stream.routes import stream_blueprint
 from main.user.routes import user_blueprint
 from main.event.routes import event_blueprint
 from main.system.routes import system_blueprint
+from main.logs.routes import logs_blueprint
+from main.logs.simple_routes import simple_logs_blueprint
 
 from .extensions import socketio
 from events import initialize_socketio
@@ -43,6 +45,8 @@ def create_app():
     app.register_blueprint(user_blueprint, url_prefix="/api/user")
     app.register_blueprint(event_blueprint, url_prefix="/api/event")
     app.register_blueprint(system_blueprint, url_prefix="/api/system")
+    app.register_blueprint(logs_blueprint, url_prefix="/api/logs")
+    app.register_blueprint(simple_logs_blueprint, url_prefix="/api/logs")
 
     socketio.init_app(app, cors_allowed_origins="*", async_mode="threading")
     initialize_socketio(socketio)
