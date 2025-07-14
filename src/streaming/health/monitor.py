@@ -1,9 +1,11 @@
-import logging
+from utils.logging_config import get_logger, log_event
 import threading
 import time
 from config import RECONNECT_WAIT_TIME_IN_SECS
 from ..constants import MAX_RECONNECT_WAIT
 from ..pipelines.manager import GStreamerPipeline
+
+logger = get_logger(__name__)
 
 class StreamHealthMonitor:
     """Monitors stream health and handles reconnection logic."""
@@ -27,7 +29,7 @@ class StreamHealthMonitor:
         while not self.stop_event.is_set():
             time.sleep(1)
             if not self.pipeline.is_healthy():
-                logging.warning(f"Stream health check failed for {self.stream_id}")
+                log_event(logger, "warning", f"Stream health check failed for {self.stream_id}", event_type="warning")
                 self.pipeline.stop()
     
     def handle_reconnection(self, frame_callback) -> bool:
@@ -44,9 +46,10 @@ class StreamHealthMonitor:
             RECONNECT_WAIT_TIME_IN_SECS * min(self.reconnect_attempt, 5), 
             MAX_RECONNECT_WAIT
         )
-        logging.warning(
+        log_event(logger, "warning",
             f"Reconnection attempt {self.reconnect_attempt} failed. "
-            f"Retrying in {wait_time}s"
+            f"Retrying in {wait_time}s",
+            event_type="reconnection_failed"
         )
         time.sleep(wait_time)
         return False

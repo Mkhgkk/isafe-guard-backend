@@ -1,4 +1,4 @@
-import logging
+from utils.logging_config import get_logger, log_event
 import threading
 import time
 from queue import Empty, Queue
@@ -26,6 +26,9 @@ class StreamManager:
         self.stream_id = stream_id
         self.rtsp_link = rtsp_link
         self.model_name = model_name
+        
+        # Initialize logger
+        self.logger = get_logger(f"StreamManager.{stream_id}")
         
         # Initialize core components
         self._initialize_components()
@@ -55,7 +58,13 @@ class StreamManager:
         
         if hasattr(self, 'frame_processor'):
             self.frame_processor.ptz_autotrack = value
-            logging.info(f"PTZ autotrack {'enabled' if value else 'disabled'} for stream {self.stream_id}")    
+            log_event(
+                self.logger, "info", 
+                f"PTZ autotrack {'enabled' if value else 'disabled'}",
+                event_type="ptz_autotrack_toggle",
+                stream_id=self.stream_id,
+                enabled=value
+            )    
 
     @property
     def ptz_auto_tracker(self):
@@ -70,10 +79,20 @@ class StreamManager:
         # Attach to frame processor when set
         if value is not None and hasattr(self, 'frame_processor'):
             self.frame_processor.ptz_auto_tracker = value
-            logging.info(f"PTZ auto tracker attached to frame processor for stream {self.stream_id}")
+            log_event(
+                self.logger, "info", 
+                "PTZ auto tracker attached to frame processor",
+                event_type="ptz_tracker_attached",
+                stream_id=self.stream_id
+            )
         elif value is None and hasattr(self, 'frame_processor'):
             self.frame_processor.ptz_auto_tracker = None
-            logging.info(f"PTZ auto tracker detached from frame processor for stream {self.stream_id}")
+            log_event(
+                self.logger, "info", 
+                "PTZ auto tracker detached from frame processor",
+                event_type="ptz_tracker_detached",
+                stream_id=self.stream_id
+            )
     
     def _initialize_components(self):
         """Initialize core detection and tracking components."""
@@ -143,7 +162,7 @@ class StreamManager:
                 
                 # Monitor stream health
                 if not self.pipeline.is_healthy():
-                    logging.warning(f"Pipeline unhealthy for {self.stream_id}, restarting")
+                    log_event(logger, "warning", f"Pipeline unhealthy for {self.stream_id}, restarting", event_type="warning")
                     self.pipeline.stop()
                     break
     
@@ -162,7 +181,7 @@ class StreamManager:
             except Empty:
                 continue
             except Exception as e:
-                logging.error(f"Error in frame processing: {e}")
+                log_event(logger, "error", f"Error in frame processing: {e}", event_type="error")
                 time.sleep(0.1)
     
     def _process_single_frame(self, frame: np.ndarray):

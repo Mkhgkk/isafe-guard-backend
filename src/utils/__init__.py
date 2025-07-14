@@ -1,5 +1,7 @@
 import os
-import logging
+from utils.logging_config import get_logger, log_event
+
+logger = get_logger(__name__)
 import numpy as np
 import subprocess
 from typing import Tuple, Optional
@@ -19,7 +21,7 @@ def df() -> Optional[str]:
         )
         return result.strip()
     except subprocess.CalledProcessError as e:
-        logging.error(f"Error: {e}")
+        log_event(logger, "error", f"Error: {e}", event_type="error")
         return None
 
 

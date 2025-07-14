@@ -1,6 +1,8 @@
 from typing import Tuple, Optional
 from onvif import ONVIFCamera
-import logging
+from utils.logging_config import get_logger, log_event
+
+logger = get_logger(__name__)
 
 
 class CameraController:
@@ -30,7 +32,7 @@ class CameraController:
             current_zoom = status.Position.Zoom.x
             return float(current_zoom)
         except Exception as e:
-            logging.error(f"An error occurred while getting zoom level: {e}")
+            log_event(logger, "error", f"An error occurred while getting zoom level: {e}", event_type="error")
             return 0.0
 
     def get_current_position(self) -> Tuple[float, float, float]:
@@ -50,7 +52,7 @@ class CameraController:
             current_zoom = status.Position.Zoom.x
             return float(current_pan), float(current_tilt), float(current_zoom)
         except Exception as e:
-            logging.error(f"An error occurred while getting current position: {e}")
+            log_event(logger, "error", f"An error occurred while getting current position: {e}", event_type="error")
             return 0.0, 0.0, 0.0
 
     def move_camera(self, direction: str, zoom_amount: Optional[float] = None) -> None:
@@ -70,9 +72,9 @@ class CameraController:
 
             try:
                 self.ptz_service.AbsoluteMove(absolute_move_request)
-                # logging.info(f"Camera zoomed to level {zoom_amount}.")
+                # log_event(logger, "info", f"Camera zoomed to level {zoom_amount}.", event_type="info")
             except Exception as e:
-                logging.error(f"An error occurred during zoom: {e}")
+                log_event(logger, "error", f"An error occurred during zoom: {e}", event_type="error")
         else:
             # use ContinuousMove for pan and tilt
             continuous_move_request = self.ptz_service.create_type("ContinuousMove")
@@ -97,9 +99,9 @@ class CameraController:
 
             try:
                 self.ptz_service.ContinuousMove(continuous_move_request)
-                # logging.info(f"Camera moving {direction} continuously.")
+                # log_event(logger, "info", f"Camera moving {direction} continuously.", event_type="info")
             except Exception as e:
-                logging.error(f"An error occurred during movement: {e}")
+                log_event(logger, "error", f"An error occurred during movement: {e}", event_type="error")
 
     def stop_camera(self) -> None:
         """Function to stop the camera movement."""
@@ -110,6 +112,6 @@ class CameraController:
 
         try:
             self.ptz_service.Stop(stop_request)
-            logging.info("Camera movement stopped.")
+            log_event(logger, "info", "Camera movement stopped.", event_type="info")
         except Exception as e:
-            logging.error(f"An error occurred while stopping: {e}")
+            log_event(logger, "error", f"An error occurred while stopping: {e}", event_type="error")

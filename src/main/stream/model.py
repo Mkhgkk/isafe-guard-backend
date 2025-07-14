@@ -1,7 +1,7 @@
 import json
 import os
 import shutil
-import logging
+from utils.logging_config import get_logger, log_event
 import threading
 from typing import Optional, Any
 
@@ -14,6 +14,8 @@ from main import tools
 from main.shared import streams  # pyright: ignore[reportMissingImports]
 from ptz import CameraController, PTZAutoTracker
 from streaming import StreamManager
+
+logger = get_logger(__name__)
 
 
 class StreamSchema(Schema):
@@ -304,7 +306,7 @@ class Stream:
         ptz_autotrack = all([home_pan, home_tilt, home_zoom])
 
         if stream_id in streams:
-            logging.info(f"Stream {stream_id} is already running!")
+            log_event(logger, "info", f"Stream {stream_id} is already running!", event_type="info")
             return
 
         # Start the video stream immediately
@@ -341,10 +343,10 @@ class Stream:
             ptz_auto_tracker = PTZAutoTracker(cam_ip, ptz_port, ptz_username, ptz_password)
             stream.ptz_auto_tracker = ptz_auto_tracker
 
-            logging.info(f"PTZ configured for stream {stream_id}.")
+            log_event(logger, "info", f"PTZ configured for stream {stream_id}.", event_type="info")
         except Exception as e:
                 # Send notification when this fails
-                logging.info(f"Error initializing PTZ for stream {stream_id}: {e}")
+                log_event(logger, "info", f"Error initializing PTZ for stream {stream_id}: {e}", event_type="info")
 
 
     @staticmethod
@@ -397,8 +399,8 @@ class Stream:
 
         for stream in streams:
             if stream["is_active"]:
-                logging.info(stream)
+                log_event(logger, "info", stream, event_type="info")
                 try:
                     Stream.start_stream(**stream)
                 except Exception as e:
-                    logging.error(f"Error starting stream {stream.stream_id}")
+                    log_event(logger, "error", f"Error starting stream {stream.stream_id}", event_type="error")

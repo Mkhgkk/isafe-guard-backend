@@ -1,4 +1,6 @@
-import logging
+from utils.logging_config import get_logger, log_event
+
+logger = get_logger(__name__)
 import time
 from typing import Optional
 import numpy as np
@@ -28,23 +30,23 @@ class GStreamerPipeline:
         # Choose pipeline type based on previous failures
         if self.use_alternative:
             pipeline_str = PipelineBuilder.create_alternative_pipeline(self.config)
-            logging.info(f"Using alternative pipeline for {self.stream_id}")
+            log_event(logger, "info", f"Using alternative pipeline for {self.stream_id}", event_type="info")
         else:
             pipeline_str = PipelineBuilder.create_primary_pipeline(self.config)
             
-        logging.info(f"Creating pipeline: {pipeline_str}")
+        log_event(logger, "info", f"Creating pipeline: {pipeline_str}", event_type="info")
         
         try:
             self.pipeline = Gst.parse_launch(pipeline_str)
             return self._configure_pipeline()
         except Exception as e:
-            logging.error(f"Error creating pipeline: {e}")
+            log_event(logger, "error", f"Error creating pipeline: {e}", event_type="error")
             self.connection_trials += 1
             
             # Switch to alternative after multiple failures
             if self.connection_trials >= 2 and not self.use_alternative:
                 self.use_alternative = True
-                logging.info("Switching to alternative pipeline on next attempt")
+                log_event(logger, "info", "Switching to alternative pipeline on next attempt", event_type="info")
                 
             return False
     
@@ -52,7 +54,7 @@ class GStreamerPipeline:
         """Configure the pipeline elements and start it."""
         appsink = self.pipeline.get_by_name(self.config.sink_name) # pyright: ignore[reportOptionalMemberAccess]
         if not appsink:
-            logging.error(f"Failed to get appsink element '{self.config.sink_name}'")
+            log_event(logger, "error", f"Failed to get appsink element '{self.config.sink_name}'", event_type="error")
             return False
             
         # Configure appsink
@@ -70,16 +72,16 @@ class GStreamerPipeline:
         # Start pipeline
         ret = self.pipeline.set_state(Gst.State.PLAYING) # pyright: ignore[reportOptionalMemberAccess]
         if ret == Gst.StateChangeReturn.FAILURE:
-            logging.error(f"Failed to start pipeline for stream {self.stream_id}")
+            log_event(logger, "error", f"Failed to start pipeline for stream {self.stream_id}", event_type="error")
             return False
             
         if ret == Gst.StateChangeReturn.ASYNC:
             ret = self.pipeline.get_state(Gst.CLOCK_TIME_NONE) # pyright: ignore[reportOptionalMemberAccess]
             if ret[0] != Gst.StateChangeReturn.SUCCESS:
-                logging.error(f"Pipeline state change failed for stream {self.stream_id}")
+                log_event(logger, "error", f"Pipeline state change failed for stream {self.stream_id}", event_type="error")
                 return False
                 
-        logging.info(f"Successfully started GStreamer pipeline for {self.stream_id}")
+        log_event(logger, "info", f"Successfully started GStreamer pipeline for {self.stream_id}", event_type="info")
         self.connection_trials = 0
         self.last_frame_time = time.time()
         return True
@@ -99,7 +101,7 @@ class GStreamerPipeline:
                     
             return Gst.FlowReturn.OK
         except Exception as e:
-            logging.error(f"Error in _on_new_sample: {e}")
+            log_event(logger, "error", f"Error in _on_new_sample: {e}", event_type="error")
             return Gst.FlowReturn.ERROR
     
     def _extract_frame_from_sample(self, sample) -> Optional[np.ndarray]:
@@ -112,7 +114,7 @@ class GStreamerPipeline:
         
         success, map_info = buffer.map(Gst.MapFlags.READ)
         if not success:
-            logging.warning("Failed to map buffer")
+            log_event(logger, "warning", "Failed to map buffer", event_type="warning")
             return None
             
         try:
@@ -128,7 +130,7 @@ class GStreamerPipeline:
         if msg_type == Gst.MessageType.ERROR:
             self._handle_error_message(message)
         elif msg_type == Gst.MessageType.EOS:
-            logging.warning(f"End of stream for {self.stream_id}")
+            log_event(logger, "warning", f"End of stream for {self.stream_id}", event_type="warning")
         elif msg_type == Gst.MessageType.WARNING:
             self._handle_warning_message(message)
         elif msg_type == Gst.MessageType.STATE_CHANGED:
@@ -137,17 +139,17 @@ class GStreamerPipeline:
     def _handle_error_message(self, message):
         """Handle error messages from GStreamer."""
         err, debug = message.parse_error()
-        logging.error(f"GStreamer error: {err.message}, {debug}")
+        log_event(logger, "error", f"GStreamer error: {err.message}, {debug}", event_type="error")
         
         # Check for ONVIF metadata issues
         if "ONVIF.METADATA" in str(debug):
-            logging.warning("ONVIF metadata issue detected")
+            log_event(logger, "warning", "ONVIF metadata issue detected", event_type="warning")
             self.use_alternative = True
     
     def _handle_warning_message(self, message):
         """Handle warning messages from GStreamer."""
         warn, debug = message.parse_warning()
-        logging.warning(f"GStreamer warning: {warn.message}, {debug}")
+        log_event(logger, "warning", f"GStreamer warning: {warn.message}, {debug}", event_type="warning")
     
     def _handle_state_change_message(self, message):
         """Handle state change messages."""
@@ -164,7 +166,7 @@ class GStreamerPipeline:
         
         old_name = state_names.get(old_state, str(old_state))
         new_name = state_names.get(new_state, str(new_state))
-        logging.info(f"Pipeline state for {self.stream_id}: {old_name} -> {new_name}")
+        log_event(logger, "info", f"Pipeline state for {self.stream_id}: {old_name} -> {new_name}", event_type="info")
         
         if new_state == Gst.State.PLAYING:
             self.last_frame_time = time.time()

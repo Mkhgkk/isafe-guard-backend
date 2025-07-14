@@ -1,4 +1,4 @@
-import logging
+from utils.logging_config import get_logger, log_event
 from apscheduler.schedulers.background import BackgroundScheduler #pyright: ignore[reportMissingImports]
 from main.stream.model import Stream
 from startup import (
@@ -7,30 +7,26 @@ from startup import (
     configure_matching_models,
 )
 
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-)
+# Logging configuration moved to utils/logging_config.py
+# These specific logger level settings are now handled in setup_logging()
 
-logging.getLogger("apscheduler").setLevel(logging.WARNING)
-logging.getLogger("ultralytics").setLevel(logging.WARNING)
-
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 scheduler = None
 
 def create_app_services(app):
     global scheduler
 
-    logger.info("Configuring models...")
+    log_event(logger, "info", "Configuring models...", event_type="info")
     configure_detection_models()
     configure_matching_models()
-    logger.info("Models successfully configured!")
+    log_event(logger, "info", "Models successfully configured!", event_type="info")
 
-    logger.info("Starting async stream tasks...")
+    log_event(logger, "info", "Starting async stream tasks...", event_type="info")
     with app.app_context():
         Stream.start_active_streams()
 
-    logger.info("Starting background scheduler...")
+    log_event(logger, "info", "Starting background scheduler...", event_type="info")
     scheduler = BackgroundScheduler()
     scheduler.add_job(func=get_system_utilization, trigger="interval", seconds=2)
     scheduler.start()

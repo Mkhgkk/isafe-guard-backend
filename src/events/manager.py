@@ -3,12 +3,12 @@ SocketIO manager that coordinates all components.
 Provides singleton access and initialization.
 """
 
-import logging
+from utils.logging_config import get_logger, log_event
 from .events import EventBus
 from .emitter import SocketIOEmitter
 from .handlers import SocketIOHandlers
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class SocketIOManager:
@@ -34,12 +34,12 @@ class SocketIOManager:
     def initialize(self, socketio):
         """Initialize with socketio instance."""
         if self.emitter is not None or self.handlers is not None:
-            logger.warning("SocketIOManager already initialized")
+            log_event(logger, "warning", "SocketIOManager already initialized", event_type="warning")
             return
         
         self.emitter = SocketIOEmitter(socketio, self.event_bus)
         self.handlers = SocketIOHandlers(socketio, self.event_bus)
-        logger.info("SocketIOManager initialized successfully")
+        log_event(logger, "info", "SocketIOManager initialized successfully", event_type="info")
     
     def is_initialized(self) -> bool:
         """Check if manager is initialized."""
@@ -55,7 +55,7 @@ class SocketIOManager:
         
         self.emitter = None
         self.handlers = None
-        logger.info("SocketIOManager cleaned up")
+        log_event(logger, "info", "SocketIOManager cleaned up", event_type="info")
     
     def reset(self):
         """Reset the singleton instance (mainly for testing)."""

@@ -1,8 +1,8 @@
 from pymongo import MongoClient
 from threading import Lock
-import logging
+from utils.logging_config import get_logger, log_event
 
-logging.basicConfig(level=logging.INFO)
+logger = get_logger(__name__)
 
 class MongoDatabase:
     _instance = None
@@ -19,10 +19,10 @@ class MongoDatabase:
         return cls._instance
 
     def _initialize(self, uri, db_name):
-        logging.info(f"Connecting to {uri} {db_name} database...")
+        log_event(logger, "info", f"Connecting to {uri} {db_name} database...", event_type="info")
         self.mongo_client = MongoClient(uri)
         self.db = self.mongo_client[db_name]
-        logging.info("Connected to database.")
+        log_event(logger, "info", "Connected to database.", event_type="info")
 
     @property
     def database(self):

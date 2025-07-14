@@ -1,11 +1,13 @@
 #!/usr/bin/env python
-import logging
+import os
 from main import create_app
 from startup.services import create_app_services
+from utils.logging_config import setup_logging
 
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-)
+# Configure JSON logging
+log_level = os.getenv("LOG_LEVEL", "INFO")
+enable_json_logging = os.getenv("JSON_LOGGING", "true").lower() == "true"
+setup_logging(level=log_level, enable_json=enable_json_logging)
 
 if __name__ == "__main__":
     app = create_app()

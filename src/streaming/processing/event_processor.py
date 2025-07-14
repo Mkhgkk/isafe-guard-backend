@@ -1,5 +1,7 @@
 import datetime
-import logging
+from utils.logging_config import get_logger, log_event
+
+logger = get_logger(__name__)
 import threading
 import time
 from typing import List, Tuple
@@ -42,7 +44,7 @@ class EventProcessor:
         # Start event processing threads
         self._start_event_threads(frame, reasons, video_name)
         
-        logging.info(f"Started recording for {self.stream_id}")
+        log_event(logger, "info", f"Started recording for {self.stream_id}", event_type="info")
         return video_name
     
     def _start_event_threads(self, frame: np.ndarray, reasons: List[str], video_name: str):
@@ -81,7 +83,7 @@ class EventProcessor:
                 self.recording_state.process.stdin.write(frame.tobytes())
                 return True
         except BrokenPipeError:
-            logging.error(f"Recording process for {self.stream_id} stopped unexpectedly")
+            log_event(logger, "error", f"Recording process for {self.stream_id} stopped unexpectedly", event_type="error")
             self.stop_recording()
             
         return False
@@ -101,10 +103,10 @@ class EventProcessor:
                 self.recording_state.process.stdin.close()
                 self.recording_state.process.wait()
             except Exception as e:
-                logging.error(f"Error stopping recording: {e}")
+                log_event(logger, "error", f"Error stopping recording: {e}", event_type="error")
                 
         self.recording_state.is_recording = False
         self.recording_state.process = None
         self.recording_state.start_time = None
         
-        logging.info(f"Stopped recording for {self.stream_id}")
+        log_event(logger, "info", f"Stopped recording for {self.stream_id}", event_type="info")

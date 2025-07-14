@@ -3,12 +3,12 @@ Event system core components.
 Handles event definitions, event bus, and event data structures.
 """
 
-import logging
+from utils.logging_config import get_logger, log_event
 from enum import Enum
 from dataclasses import dataclass
 from typing import Dict, Any, Optional, List, Callable
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 NAMESPACE = "/default"
 
@@ -62,7 +62,7 @@ class EventBus:
                 try:
                     callback(event)
                 except Exception as e:
-                    logger.error(f"Error in event callback: {e}")
+                    log_event(logger, "error", f"Error in event callback: {e}", event_type="error")
     
     def unsubscribe(self, event_type: EventType, callback: Callable[[SocketEvent], None]):
         """Unsubscribe from an event type."""
@@ -70,7 +70,7 @@ class EventBus:
             try:
                 self._subscribers[event_type].remove(callback)
             except ValueError:
-                logger.warning(f"Callback not found for event type {event_type}")
+                log_event(logger, "warning", f"Callback not found for event type {event_type}", event_type="warning")
     
     def clear_subscribers(self, event_type: Optional[EventType] = None):
         """Clear subscribers for a specific event type or all event types."""

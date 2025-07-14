@@ -1,14 +1,15 @@
 import os
 import time
-import logging
 import smtplib
-import logging
 import requests
 from typing import List
 from bson import ObjectId
 from config import WATCH_NOTIFICATION_URL, RECEIVER_EMAILS, SENDER_EMAIL, EMAIL_PASSWORD
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from utils.logging_config import get_logger, log_event
+
+logger = get_logger(__name__)
 
 
 def send_watch_notification(reasons: List[str] = ["Wear helmet"]) -> None:
@@ -25,13 +26,14 @@ def send_watch_notification(reasons: List[str] = ["Wear helmet"]) -> None:
     try:
         response = requests.post(url, json=data)
         if response.status_code in (200, 201):
-            logging.info("Notification sent successfully!")
+            log_event(logger, "info", "Notification sent successfully!", event_type="info")
         else:
-            logging.warning(
-                f"Failed to send notification. Status code: {response.status_code}"
+            log_event(logger, "warning",
+                f"Failed to send notification. Status code: {response.status_code}",
+                event_type="notification_failed"
             )
     except requests.RequestException as e:
-        logging.error(f"Error occurred: {e}")
+        log_event(logger, "error", f"Error occurred: {e}", event_type="error")
 
 
 def send_email_notification(
@@ -61,6 +63,6 @@ def send_email_notification(
             server.starttls()
             server.login(sender_email, password)
             server.sendmail(sender_email, receiver_emails, message.as_string())
-            logging.info("Email sent successfully!")
+            log_event(logger, "info", "Email sent successfully!", event_type="info")
     except Exception as e:
-        logging.error(f"Failed to send email: {e}")
+        log_event(logger, "error", f"Failed to send email: {e}", event_type="error")

@@ -1,4 +1,6 @@
-import logging
+from utils.logging_config import get_logger, log_event
+
+logger = get_logger(__name__)
 from typing import Optional
 
 from .base import ONVIFCameraBase
@@ -18,9 +20,9 @@ class CameraController(ONVIFCameraBase):
             
             try:
                 self.absolute_move(current_pan, current_tilt, zoom_amount, zoom_speed=0.5)
-                # logging.info(f"Camera zoomed to level {zoom_amount}.")
+                # log_event(logger, "info", f"Camera zoomed to level {zoom_amount}.", event_type="info")
             except Exception as e:
-                logging.error(f"An error occurred during zoom: {e}")
+                log_event(logger, "error", f"An error occurred during zoom: {e}", event_type="error")
         else:
             # Use continuous move for pan and tilt - this creates continuous movement
             # that needs to be manually stopped
@@ -46,14 +48,14 @@ class CameraController(ONVIFCameraBase):
                     continuous_move_request.Velocity["PanTilt"]["x"] = pan_speed
 
                 self.ptz_service.ContinuousMove(continuous_move_request)
-                # logging.info(f"Camera moving {direction} continuously.")
+                # log_event(logger, "info", f"Camera moving {direction} continuously.", event_type="info")
             except Exception as e:
-                logging.error(f"An error occurred during movement: {e}")
+                log_event(logger, "error", f"An error occurred during movement: {e}", event_type="error")
 
     def stop_camera(self) -> None:
         """Stop the camera movement."""
         try:
             self.stop_movement()
-            logging.info("Camera movement stopped.")
+            log_event(logger, "info", "Camera movement stopped.", event_type="info")
         except Exception as e:
-            logging.error(f"An error occurred while stopping: {e}")
+            log_event(logger, "error", f"An error occurred while stopping: {e}", event_type="error")

@@ -14,7 +14,9 @@ from main.shared import streams
 from .model import Stream
 
 from events import emit_event, emit_dynamic_event, EventType
+from utils.logging_config import get_logger, log_event
 
+logger = get_logger(__name__)
 stream_blueprint = Blueprint("stream", __name__)
 
 REFERENCE_FRAME_DIR = "../static/frame_refs"
@@ -205,7 +207,7 @@ def get_current_ptz_values():
         # --- Check if stream exists in the streams dictionary ---
         stream = streams.get(stream_id)
         if stream is None:
-            app.logger.warning(f"Attempted to get PTZ for non-existent or inactive stream_id: {stream_id}")
+            log_event(logger, "warning", f"Attempted to get PTZ for non-existent or inactive stream_id: {stream_id}", event_type="warning")
             return tools.JsonResp(
                 {
                     "status": "error",
@@ -219,7 +221,7 @@ def get_current_ptz_values():
 
         # --- Check specifically if the camera controller exists for this stream ---
         if camera_controller is None:
-            app.logger.warning(f"Camera controller is missing for active stream_id: {stream_id}")
+            log_event(logger, "warning", f"Camera controller is missing for active stream_id: {stream_id}", event_type="warning")
             return tools.JsonResp(
                 {
                     "status": "error",
@@ -234,12 +236,12 @@ def get_current_ptz_values():
         return tools.JsonResp({"status": "Success", "message": "ok", "data": {"x": current_pan, "y":current_tilt, "z": current_zoom}}, 200)
 
     except json.JSONDecodeError:
-        app.logger.error("Failed to decode JSON data in /get_current_ptz_values request.")
+        log_event(logger, "error", "Failed to decode JSON data in /get_current_ptz_values request.", event_type="error")
         return tools.JsonResp({"status": "error", "message": "Invalid JSON data format."}, 400)
     except Exception as e:
         # Use app.logger for logging within Flask is standard practice
-        app.logger.error(f"An error occurred in /get_current_ptz_values for stream_id '{stream_id if 'stream_id' in locals() else 'unknown'}': {e}")
-        app.logger.error(traceback.format_exc()) # Log the full traceback
+        log_event(logger, "error", f"An error occurred in /get_current_ptz_values for stream_id '{stream_id if 'stream_id' in locals() else 'unknown'}': {e}", event_type="error")
+        log_event(logger, "error", traceback.format_exc(), event_type="error") # Log the full traceback
         # --- Convert exception to string for JSON response ---
         error_message = str(e)
         return tools.JsonResp({"status": "error", "message": f"An unexpected error occurred: {error_message}"}, 500) # 
@@ -250,7 +252,7 @@ def save_patrol_area():
         data = json.loads(request.data)
         stream_id = data.get("streamId")
         # other data
-        # logging.info(f"RECEIVED DATA: {data}")
+        # log_event(logger, "info", f"RECEIVED DATA: {data}", event_type="info")
         # INFO:root:RECEIVED DATA: {'stream_id': 'test_outside', 'patrol_area': {'zMin': 0.0699310303, 'zMax': 0.0699310303, 'xMin': 0.274833322, 'xMax': 0.274833322, 'yMin': -1, 'yMax': -1}}
 
         return tools.JsonResp({"status": "Success", "message": "ok", "data": "ok"}, 200)

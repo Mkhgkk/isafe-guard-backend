@@ -1,13 +1,13 @@
 import os
 import sys
-import logging
+from utils.logging_config import get_logger, log_event
 import psutil
 import GPUtil
 from ultralytics import YOLO
 from events import emit_event, EventType
 from config import DEFAULT_PRECISION, BASE_DIR
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 MODELS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../models"))
 NAMESPACE = "/default"
@@ -63,11 +63,11 @@ def configure_detection_models(precision=DEFAULT_PRECISION):
             os.makedirs(engine_dir)
 
         if not os.path.isfile(engine_path):
-            logging.info(f"Loading model: {model_path}")
+            log_event(logger, "info", f"Loading model: {model_path}", event_type="info")
 
             model_instance = YOLO(model_path, task="detect")
 
-            logging.info(f"Exporting model: {model_path} to TensorRT format")
+            log_event(logger, "info", f"Exporting model: {model_path} to TensorRT format", event_type="info")
             exported_engine_path = model_instance.export(
                 format="engine",
                 half=True,

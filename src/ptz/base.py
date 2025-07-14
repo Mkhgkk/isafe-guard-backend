@@ -1,4 +1,6 @@
-import logging
+from utils.logging_config import get_logger, log_event
+
+logger = get_logger(__name__)
 from typing import Tuple, Optional
 from onvif import ONVIFCamera # pyright: ignore[reportMissingImports]
 from onvif import exceptions # pyright: ignore[reportMissingImports]
@@ -26,7 +28,7 @@ class ONVIFCameraBase:
             status = self.ptz_service.GetStatus({"ProfileToken": self.profile_token})
             return status
         except exceptions.ONVIFError as e:
-            logging.error(f"Error getting PTZ status: {e}")
+            log_event(logger, "error", f"Error getting PTZ status: {e}", event_type="error")
             return None
 
     def get_current_position(self) -> Tuple[float, float, float]:
@@ -47,7 +49,7 @@ class ONVIFCameraBase:
             current_zoom = status.Position.Zoom.x
             return float(current_pan), float(current_tilt), float(current_zoom)
         except Exception as e:
-            logging.error(f"An error occurred while getting current position: {e}")
+            log_event(logger, "error", f"An error occurred while getting current position: {e}", event_type="error")
             return 0.0, 0.0, 0.0
 
     def get_zoom_level(self) -> float:
@@ -56,7 +58,7 @@ class ONVIFCameraBase:
             _, _, zoom = self.get_current_position()
             return zoom
         except Exception as e:
-            logging.error(f"An error occurred while getting zoom level: {e}")
+            log_event(logger, "error", f"An error occurred while getting zoom level: {e}", event_type="error")
             return 0.0
 
     def continuous_move(self, pan: float, tilt: float, zoom: float) -> None:
@@ -82,7 +84,7 @@ class ONVIFCameraBase:
 
             self.ptz_service.ContinuousMove(request)
         except exceptions.ONVIFError as e:
-            logging.error(f"Error in continuous move: {e}")
+            log_event(logger, "error", f"Error in continuous move: {e}", event_type="error")
 
     def absolute_move(self, pan: float, tilt: float, zoom: float, 
                      pan_speed: Optional[float] = None, 
@@ -120,7 +122,7 @@ class ONVIFCameraBase:
 
             self.ptz_service.AbsoluteMove(request)
         except exceptions.ONVIFError as e:
-            logging.error(f"Error in absolute move: {e}")
+            log_event(logger, "error", f"Error in absolute move: {e}", event_type="error")
 
     def stop_movement(self) -> None:
         """Stop all camera movement."""
@@ -131,4 +133,4 @@ class ONVIFCameraBase:
             request.Zoom = True
             self.ptz_service.Stop(request)
         except exceptions.ONVIFError as e:
-            logging.error(f"Error stopping PTZ movement: {e}")
+            log_event(logger, "error", f"Error stopping PTZ movement: {e}", event_type="error")

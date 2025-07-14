@@ -1,11 +1,13 @@
 import os
 import cv2
 import time
-import logging
+from utils.logging_config import get_logger, log_event
 import datetime
 import numpy as np
 from typing import List, Optional, Tuple
 from ultralytics import YOLO
+
+logger = get_logger(__name__)
 from detection.ppe import detect_ppe
 from detection.scaffolding import detect_scaffolding
 from detection.mobile_scaffolding import detect_mobile_scaffolding
@@ -49,10 +51,10 @@ class Detector:
 
         model_path = model_paths.get(self.model_name)
         if not model_path:
-            logging.error(f"Model name '{self.model_name}' is not recognized.")
+            log_event(logger, "error", f"Model name '{self.model_name}' is not recognized.", event_type="error")
             raise ValueError(f"Unknown model name: {self.model_name}")
 
-        logging.info(f"Loading model: {self.model_name}")
+        log_event(logger, "info", f"Loading model: {self.model_name}", event_type="info")
         return YOLO(model_path)
 
     def detect(
@@ -76,7 +78,7 @@ class Detector:
         elif self.model_name == "CuttingWelding":
             result = detect_cutting_welding(frame, results)
         else:
-            logging.error(f"Model name '{self.model_name}' is not recognized.")
+            log_event(logger, "error", f"Model name '{self.model_name}' is not recognized.", event_type="error")
             raise ValueError(f"Unknown model name: {self.model_name}")
 
         final_status = result[0]

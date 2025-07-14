@@ -3,13 +3,13 @@ Public API for the SocketIO event system.
 This is the main interface other modules should use.
 """
 
-import logging
+from utils.logging_config import get_logger, log_event
 from typing import Dict, Any, Optional
 
 from .events import SocketEvent, EventType
 from .manager import socket_manager
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 def initialize_socketio(socketio):
@@ -20,7 +20,7 @@ def initialize_socketio(socketio):
 def emit_event(event_type: EventType, data: Dict[str, Any], room: Optional[str] = None, broadcast: bool = False):
     """Convenience function for other modules to emit events."""
     if not socket_manager.is_initialized():
-        logger.warning("SocketIOManager not initialized, cannot emit event")
+        log_event(logger, "warning", "SocketIOManager not initialized, cannot emit event", event_type="warning")
         return
     
     event = SocketEvent(
@@ -36,7 +36,7 @@ def emit_dynamic_event(base_event_type: EventType, identifier: str, data: Dict[s
                       room: Optional[str] = None, broadcast: bool = False):
     """Emit an event with a dynamic name that includes an identifier."""
     if not socket_manager.is_initialized():
-        logger.warning("SocketIOManager not initialized, cannot emit dynamic event")
+        log_event(logger, "warning", "SocketIOManager not initialized, cannot emit dynamic event", event_type="warning")
         return
     
     custom_name = f"{base_event_type.value}-{identifier}"
@@ -53,7 +53,7 @@ def emit_dynamic_event(base_event_type: EventType, identifier: str, data: Dict[s
 def emit_custom_event(event_name: str, data: Dict[str, Any], room: Optional[str] = None, broadcast: bool = False):
     """Emit a completely custom event name."""
     if not socket_manager.is_initialized():
-        logger.warning("SocketIOManager not initialized, cannot emit custom event")
+        log_event(logger, "warning", "SocketIOManager not initialized, cannot emit custom event", event_type="warning")
         return
     
     event = SocketEvent(

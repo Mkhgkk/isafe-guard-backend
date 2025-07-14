@@ -1,10 +1,12 @@
 import time
 import queue
-import logging
+from utils.logging_config import get_logger, log_event
 import threading
 import numpy as np
 from typing import List, Tuple, Optional, Dict, Union
 from onvif import ONVIFCamera, exceptions  # pyright: ignore[reportMissingImports]
+
+logger = get_logger(__name__)
 
 
 class PTZAutoTracker:
@@ -76,7 +78,7 @@ class PTZAutoTracker:
             status = self.ptz_service.GetStatus({"ProfileToken": self.profile_token})
             return status
         except exceptions.ONVIFError as e:
-            logging.error(f"Error getting PTZ status: {e}")
+            log_event(logger, "error", f"Error getting PTZ status: {e}", event_type="error")
             return None
 
     def calculate_movement(
@@ -226,7 +228,7 @@ class PTZAutoTracker:
             self.ptz_service.ContinuousMove(request)
             self.is_moving = True
         except exceptions.ONVIFError as e:
-            logging.error(f"Error in continuous move: {e}")
+            log_event(logger, "error", f"Error in continuous move: {e}", event_type="error")
 
     def stop_movement(self) -> None:
         if self.is_moving:
@@ -238,7 +240,7 @@ class PTZAutoTracker:
                 self.ptz_service.Stop(request)
                 self.is_moving = False
             except exceptions.ONVIFError as e:
-                logging.error(f"Error stopping PTZ movement: {e}")
+                log_event(logger, "error", f"Error stopping PTZ movement: {e}", event_type="error")
 
     def move_to_default_position(self) -> None:
         # home_pan = -0.550611138
@@ -268,7 +270,7 @@ class PTZAutoTracker:
 
             self.ptz_service.AbsoluteMove(request)
         except exceptions.ONVIFError as e:
-            logging.error(f"Error moving to default position: {e}")
+            log_event(logger, "error", f"Error moving to default position: {e}", event_type="error")
 
     def reset_camera_position(self) -> None:
         self.stop_movement()
@@ -294,9 +296,9 @@ class PTZAutoTracker:
 
                 self.is_at_default_position = True
 
-                # logging.info("No object detected. Moving to default zoom level.")
+                # log_event(logger, "info", "No object detected. Moving to default zoom level.", event_type="info")
             else:
-                # logging.info("No object detected. Waiting...")
+                # log_event(logger, "info", "No object detected. Waiting...", event_type="info")
                 pass
             return
 
@@ -305,7 +307,7 @@ class PTZAutoTracker:
 
         # throtle movement commands to prevent jitter
         if time.time() - self.last_move_time < self.move_throttle_time:
-            logging.info("Throttling movement to prevent jitter.")
+            log_event(logger, "info", "Throttling movement to prevent jitter.", event_type="info")
             return
 
         pan, tilt, zoom = self.calculate_movement(frame_width, frame_height, bboxes)
@@ -388,7 +390,7 @@ class PTZAutoTracker:
             self.add_patrol_functionality()
         
         if direction not in ["horizontal", "vertical"]:
-            logging.warning(f"Invalid patrol direction: {direction}. Using 'horizontal'.")
+            log_event(logger, "warning", f"Invalid patrol direction: {direction}. Using 'horizontal'.", event_type="warning")
             direction = "horizontal"
         
         self.patrol_direction = direction
@@ -401,7 +403,7 @@ class PTZAutoTracker:
         self.patrol_thread = threading.Thread(target=self._patrol_routine)
         self.patrol_thread.daemon = True
         self.patrol_thread.start()
-        logging.info(f"Patrol started in {direction} progression mode")
+        log_event(logger, "info", f"Patrol started in {direction} progression mode", event_type="info")
         
     def stop_patrol(self):
         """
@@ -415,7 +417,7 @@ class PTZAutoTracker:
             self.patrol_thread.join(timeout=5.0)
         self.is_patrolling = False
         self.stop_movement()
-        logging.info("Patrol stopped")
+        log_event(logger, "info", "Patrol stopped", event_type="info")
 
     def _patrol_routine(self):
         """
@@ -432,7 +434,7 @@ class PTZAutoTracker:
                 self._vertical_patrol(zoom_level)
                 
         except Exception as e:
-            logging.error(f"Error in patrol routine: {e}")
+            log_event(logger, "error", f"Error in patrol routine: {e}", event_type="error")
             self.is_patrolling = False
 
     def _horizontal_patrol(self, zoom_level):
@@ -484,7 +486,7 @@ class PTZAutoTracker:
                 current_x = self.patrol_area['xMin'] if left_to_right else self.patrol_area['xMax']
             
             # After completing a full scan, go back to the top and start again
-            logging.info("Horizontal patrol cycle complete, restarting from beginning")
+            log_event(logger, "info", "Horizontal patrol cycle complete, restarting from beginning", event_type="info")
 
     def _vertical_patrol(self, zoom_level):
         """
@@ -535,7 +537,7 @@ class PTZAutoTracker:
                 current_y = self.patrol_area['yMin'] if top_to_bottom else self.patrol_area['yMax']
             
             # After completing a full scan, go back to the left and start again
-            logging.info("Vertical patrol cycle complete, restarting from beginning")
+            log_event(logger, "info", "Vertical patrol cycle complete, restarting from beginning", event_type="info")
 
     def _move_to_absolute_position(self, pan, tilt, zoom):
         """
@@ -566,7 +568,7 @@ class PTZAutoTracker:
             # Update internal zoom metric
             self.ptz_metrics["zoom_level"] = zoom
         except exceptions.ONVIFError as e:
-            logging.error(f"Error in absolute move: {e}")
+            log_event(logger, "error", f"Error in absolute move: {e}", event_type="error")
 
     def is_patrol_active(self):
         """
@@ -612,9 +614,9 @@ class PTZAutoTracker:
             if self.patrol_area['zMin'] <= zoom_level <= self.patrol_area['zMax']:
                 self.zoom_during_patrol = zoom_level
             else:
-                logging.warning(f"Zoom level {zoom_level} is outside allowed range [{self.patrol_area['zMin']}, {self.patrol_area['zMax']}]")
+                log_event(logger, "warning", f"Zoom level {zoom_level} is outside allowed range [{self.patrol_area['zMin']}, {self.patrol_area['zMax']}]", event_type="warning")
         if direction is not None:
             if direction in ["horizontal", "vertical"]:
                 self.patrol_direction = direction
             else:
-                logging.warning(f"Invalid patrol direction: {direction}. Using current: {self.patrol_direction}")
+                log_event(logger, "warning", f"Invalid patrol direction: {direction}. Using current: {self.patrol_direction}", event_type="warning")

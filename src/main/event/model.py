@@ -2,7 +2,7 @@ import os
 import cv2
 import json
 import time
-import logging
+from utils.logging_config import get_logger, log_event
 import numpy as np
 from typing import List
 from bson import ObjectId
@@ -15,6 +15,8 @@ from main import tools
 from database import MongoDatabase, get_database
 from config import STATIC_DIR
 from utils.notifications import send_email_notification
+
+logger = get_logger(__name__)
 
 
 class EventSchema(Schema):
@@ -68,7 +70,7 @@ class Event:
         ret = cv2.imwrite(image_path, resized_frame)
 
         if not ret:
-            logging.error("Failed to save thumbnail image.")
+            log_event(logger, "error", "Failed to save thumbnail image.", event_type="error")
             return
 
         try:
@@ -83,10 +85,10 @@ class Event:
             }
 
             response = Event().create_event(data)
-            logging.info(f"Event saved successfully: {response}")
+            log_event(logger, "info", f"Event saved successfully: {response}", event_type="info")
             # send_email_notification(reasons, response["_id"], stream_id)
         except Exception as e:
-            logging.error(f"Error saving event to database: {e}")
+            log_event(logger, "error", f"Error saving event to database: {e}", event_type="error")
 
     def create_event(self, data):
         # errors = event_schema.validate(data)
@@ -104,7 +106,7 @@ class Event:
             return data
 
         except Exception as e:
-            logging.error("An error occured: ", e)
+            log_event(logger, "error", "An error occured: ", e, event_type="error")
             raise RuntimeError(
                 "An error occurred while saving the event to the database."
             ) from e
@@ -147,7 +149,7 @@ class Event:
 
             return tools.JsonResp({"message": "Success.", "data": events}, 200)
         except Exception as e:
-            logging.error("An error occured: ", e)
+            log_event(logger, "error", "An error occured: ", e, event_type="error")
             return tools.JsonResp(
                 {"message": "Failed to fetch events from db.", "error": "db_error"}, 500
             )

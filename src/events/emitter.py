@@ -3,10 +3,10 @@ SocketIO emitter responsible for handling all event emissions.
 Subscribes to the event bus and translates events to SocketIO calls.
 """
 
-import logging
+from utils.logging_config import get_logger, log_event
 from .events import EventBus, SocketEvent, EventType
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class SocketIOEmitter:
@@ -47,10 +47,10 @@ class SocketIOEmitter:
                     namespace=event.namespace
                 )
             
-            logger.debug(f"Emitted {event_name} to {event.room or 'all'}")
+            log_event(logger, "debug", f"Emitted {event_name} to {event.room or 'all'}", event_type="debug")
             
         except Exception as e:
-            logger.error(f"Failed to emit event {event_name}: {e}")
+            log_event(logger, "error", f"Failed to emit event {event_name}: {e}", event_type="error")
     
     def cleanup(self):
         """Clean up event listeners."""

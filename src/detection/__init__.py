@@ -1,10 +1,12 @@
 import os
 import cv2
 import numpy as np
-import logging
+from utils.logging_config import get_logger, log_event
 import threading
 from typing import Tuple, Optional
 from config import ASSETS_DIR, FRAME_WIDTH
+
+logger = get_logger(__name__)
 
 FONT_DIR_BARLOW = os.path.join(ASSETS_DIR, "fonts", "Barlow-Regular.ttf")
 FONT_DIR_ROBOTO = os.path.join(ASSETS_DIR, "fonts", "RobotoMono-Regular.ttf")
@@ -27,7 +29,7 @@ def _init_freetype_fonts():
             
             return freetype_roboto, freetype_barlow
         except Exception as e:
-            logging.error(f"Failed to initialize FreeType fonts: {e}")
+            log_event(logger, "error", f"Failed to initialize FreeType fonts: {e}", event_type="error")
             return None, None
 
 # Thread-local storage for FreeType instances
@@ -61,7 +63,7 @@ def draw_text_opencv_fallback(image, text, position, color, font_scale=0.7, thic
             cv2.putText(image, text, position, font, font_scale, color, thickness, cv2.LINE_AA)
             
         except Exception as e:
-            logging.error(f"OpenCV fallback text rendering error: {e}")
+            log_event(logger, "error", f"OpenCV fallback text rendering error: {e}", event_type="error")
 
 def draw_text_with_background(image, text, position, bg_color, t_type="label"):
     """Thread-safe version of draw_text_with_background"""
@@ -125,7 +127,7 @@ def draw_text_with_background(image, text, position, bg_color, t_type="label"):
             )
             
         except Exception as e:
-            logging.error(f"FreeType text rendering error: {e}")
+            log_event(logger, "error", f"FreeType text rendering error: {e}", event_type="error")
             # Fallback to OpenCV
             color = (255, 255, 255)
             draw_text_opencv_fallback(image, text, position, color)
@@ -187,7 +189,7 @@ def get_optimal_text_color_v2(image, position, text_size):
             return COLOR_WHITE  # White for moderately dark backgrounds
             
     except Exception as e:
-        logging.error(f"Error in get_optimal_text_color_v2: {e}")
+        log_event(logger, "error", f"Error in get_optimal_text_color_v2: {e}", event_type="error")
         return COLOR_WHITE  # Safe default
 
 def get_optimal_text_color(image, position, text_size):
@@ -228,7 +230,7 @@ def get_optimal_text_color(image, position, text_size):
             return (255, 255, 255)  # White text for dark backgrounds
             
     except Exception as e:
-        logging.error(f"Error in get_optimal_text_color: {e}")
+        log_event(logger, "error", f"Error in get_optimal_text_color: {e}", event_type="error")
         return (255, 255, 255)  # Safe default
 
 def draw_text_with_freetype(image, text, position, font_height, color=None, thickness=THICKNESS, right_aligned=True):
@@ -270,7 +272,7 @@ def draw_text_with_freetype(image, text, position, font_height, color=None, thic
             )
             
         except Exception as e:
-            logging.error(f"FreeType text rendering error in draw_text_with_freetype: {e}")
+            log_event(logger, "error", f"FreeType text rendering error in draw_text_with_freetype: {e}", event_type="error")
             # Fallback to OpenCV
             final_color = color if color is not None else (255, 255, 255)
             draw_text_opencv_fallback(image, text, position, final_color)
@@ -346,7 +348,7 @@ def draw_status_info(image, reasons=[], fps=None):
             )
         
     except Exception as e:
-        logging.error(f"Error in draw_status_info: {e}")
+        log_event(logger, "error", f"Error in draw_status_info: {e}", event_type="error")
         # Fallback: draw simple text using OpenCV
         try:
             with opencv_text_lock:
@@ -361,7 +363,7 @@ def draw_status_info(image, reasons=[], fps=None):
                                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
                     
         except Exception as fallback_error:
-            logging.error(f"Fallback text rendering also failed: {fallback_error}")
+            log_event(logger, "error", f"Fallback text rendering also failed: {fallback_error}", event_type="error")
     
     return image
 
@@ -373,5 +375,5 @@ def safe_draw_simple_text(image, text, position, color=(255, 255, 255), font_sca
             cv2.putText(image, text, position, cv2.FONT_HERSHEY_SIMPLEX, 
                        font_scale, color, 2, cv2.LINE_AA)
         except Exception as e:
-            logging.error(f"Simple text rendering error: {e}")
+            log_event(logger, "error", f"Simple text rendering error: {e}", event_type="error")
 
