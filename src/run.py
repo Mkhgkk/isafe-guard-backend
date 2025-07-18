@@ -7,7 +7,8 @@ from utils.logging_config import setup_logging
 # Configure JSON logging
 log_level = os.getenv("LOG_LEVEL", "INFO")
 enable_json_logging = os.getenv("JSON_LOGGING", "true").lower() == "true"
-setup_logging(level=log_level, enable_json=enable_json_logging)
+enable_file_logging = os.getenv("FILE_LOGGING", "true").lower() == "true"
+setup_logging(level=log_level, enable_json=enable_json_logging, enable_file_logging=enable_file_logging)
 
 if __name__ == "__main__":
     app = create_app()

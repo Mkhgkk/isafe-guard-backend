@@ -63,7 +63,7 @@ class StreamManager:
                 f"PTZ autotrack {'enabled' if value else 'disabled'}",
                 event_type="ptz_autotrack_toggle",
                 stream_id=self.stream_id,
-                enabled=value
+                # enabled=value
             )    
 
     @property

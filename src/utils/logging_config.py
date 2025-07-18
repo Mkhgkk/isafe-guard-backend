@@ -1,7 +1,9 @@
 import json
 import logging
 import sys
+import os
 from datetime import datetime
+from logging.handlers import RotatingFileHandler
 from typing import Any, Dict, Optional
 
 
@@ -51,7 +53,9 @@ class JSONFormatter(logging.Formatter):
 def setup_logging(
     level: str = "INFO",
     service_name: str = "isafe-guard-backend",
-    enable_json: bool = True
+    enable_json: bool = True,
+    enable_file_logging: bool = True,
+    log_dir: str = "/tmp/isafe-guard-logs"
 ) -> None:
     """Configure application logging with JSON format."""
     
@@ -60,9 +64,7 @@ def setup_logging(
     for handler in root_logger.handlers[:]:
         root_logger.removeHandler(handler)
     
-    # Create handler
-    handler = logging.StreamHandler(sys.stdout)
-    
+    # Create JSON formatter
     if enable_json:
         formatter = JSONFormatter(service_name)
     else:
@@ -70,15 +72,41 @@ def setup_logging(
             "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
         )
     
-    handler.setFormatter(formatter)
+    # Create console handler
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setFormatter(formatter)
     
     # Set level
     log_level = getattr(logging, level.upper(), logging.INFO)
-    handler.setLevel(log_level)
+    console_handler.setLevel(log_level)
     root_logger.setLevel(log_level)
     
-    # Add handler to root logger
-    root_logger.addHandler(handler)
+    # Add console handler
+    root_logger.addHandler(console_handler)
+    
+    # Add file handler for Promtail integration
+    if enable_file_logging:
+        try:
+            # Create log directory structure
+            backend_log_dir = os.path.join(log_dir, "backend")
+            os.makedirs(backend_log_dir, exist_ok=True)
+            
+            # Create rotating file handler for backend logs
+            log_file_path = os.path.join(backend_log_dir, f"{service_name}.log")
+            file_handler = RotatingFileHandler(
+                log_file_path,
+                maxBytes=50 * 1024 * 1024,  # 50MB per file
+                backupCount=10  # Keep 10 backup files
+            )
+            file_handler.setFormatter(formatter)
+            file_handler.setLevel(log_level)
+            root_logger.addHandler(file_handler)
+            
+            print(f"✅ File logging enabled: {log_file_path}")
+            
+        except Exception as e:
+            print(f"❌ Failed to setup file logging: {e}")
+            print("   Continuing with console logging only")
     
     # Set specific logger levels
     logging.getLogger("werkzeug").setLevel(logging.WARNING)
