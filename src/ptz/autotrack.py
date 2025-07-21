@@ -32,7 +32,8 @@ class PTZAutoTracker:
 
         self.pan_velocity: float = 0.8
         self.tilt_velocity: float = 0.8
-        self.zoom_velocity: float = 0.02
+        # self.zoom_velocity: float = 0.02
+        self.zoom_velocity: float = 0.1
 
         self.min_zoom: float = 0.1
         self.max_zoom: float = 0.3
