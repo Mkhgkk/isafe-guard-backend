@@ -291,7 +291,7 @@ def save_patrol_area():
             patrol_area= data.get("patrol_area")
             
             video_streaming.ptz_auto_tracker.set_patrol_area(patrol_area)
-            logging.info(f"patrol_rea: {video_streaming.ptz_auto_tracker.patrol_area}")
+            # logging.info(f"patrol_rea: {video_streaming.ptz_auto_tracker.patrol_area}")
             # pass
 
         # other data

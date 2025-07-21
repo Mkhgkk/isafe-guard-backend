@@ -10,7 +10,6 @@ import numpy as np
 
 from .base import ONVIFCameraBase
 
-import logging
 
 
 class PTZAutoTracker(ONVIFCameraBase):
@@ -293,19 +292,19 @@ class PTZAutoTracker(ONVIFCameraBase):
                 # Cooldown period ended
                 self.is_in_tracking_cooldown = False
                 self.tracking_cooldown_end_time = 0.0
-                logging.info("Tracking cooldown period ended - objects can be tracked again")
+                log_event(logger, "info", "Tracking cooldown period ended - objects can be tracked again", event_type="tracking_cooldown_end")
             else:
                 # Still in cooldown
                 if bboxes is not None and len(bboxes) > 0:
                     remaining_time = self.tracking_cooldown_end_time - current_time
-                    logging.debug(f"Objects detected but in cooldown period ({remaining_time:.1f}s remaining)")
+                    log_event(logger, "debug", f"Objects detected but in cooldown period ({remaining_time:.1f}s remaining)", event_type="tracking_cooldown_active")
                 return
         
         # Handle object detection
         if bboxes is not None and len(bboxes) > 0:
             if not self.is_focusing_on_object:
                 # Start focusing on the object
-                logging.info("Object detected during patrol - starting object focus")
+                log_event(logger, "info", "Object detected during patrol - starting object focus", event_type="object_focus_start")
                 self._start_object_focus()
                 self.object_focus_start_time = current_time
                 
@@ -328,14 +327,14 @@ class PTZAutoTracker(ONVIFCameraBase):
                 self.last_detection_time = current_time
             else:
                 # Focus duration exceeded, end tracking
-                logging.info("Object focus duration exceeded - ending tracking")
+                log_event(logger, "info", "Object focus duration exceeded - ending tracking", event_type="object_focus_timeout")
                 self._end_object_focus_with_cooldown()
         else:
             # No objects detected
             if self.is_focusing_on_object:
                 # Was focusing on object but it's gone
                 if current_time - self.object_focus_start_time >= 1.0:  # Minimum 1 second focus
-                    logging.info("Object lost during focus - ending tracking")
+                    log_event(logger, "info", "Object lost during focus - ending tracking", event_type="object_lost")
                     self._end_object_focus_with_cooldown()
 
     def _start_object_focus(self):
@@ -351,10 +350,10 @@ class PTZAutoTracker(ONVIFCameraBase):
             # Signal patrol thread to pause
             self.patrol_pause_event.set()
             
-            logging.debug("Object focus started - patrol paused")
+            log_event(logger, "debug", "Object focus started - patrol paused", event_type="patrol_pause")
             
         except Exception as e:
-            logging.error(f"Error starting object focus: {e}")
+            log_event(logger, "error", f"Error starting object focus: {e}", event_type="error")
             # Reset state on error
             self.is_focusing_on_object = False
             self.patrol_paused = False
@@ -380,16 +379,16 @@ class PTZAutoTracker(ONVIFCameraBase):
                 'zoom': self.zoom_during_patrol
             }
             
-            logging.debug(f"Stored patrol position: step({self.current_patrol_x_step},{self.current_patrol_y_step}) coord({current_x:.3f},{current_y:.3f})")
+            log_event(logger, "debug", f"Stored patrol position: step({self.current_patrol_x_step},{self.current_patrol_y_step}) coord({current_x:.3f},{current_y:.3f})", event_type="patrol_position_stored")
             
         except Exception as e:
-            logging.error(f"Error storing patrol position: {e}")
+            log_event(logger, "error", f"Error storing patrol position: {e}", event_type="error")
             self.patrol_position_before_tracking = None
 
     def _return_to_stored_patrol_position(self):
         """Return camera to the stored patrol position before tracking - runs on separate thread."""
         if self.patrol_position_before_tracking is None:
-            logging.warning("No stored patrol position to return to")
+            log_event(logger, "warning", "No stored patrol position to return to", event_type="warning")
             return
         
         def _position_return_thread():
@@ -398,7 +397,7 @@ class PTZAutoTracker(ONVIFCameraBase):
                 self.position_return_in_progress = True
                 stored = self.patrol_position_before_tracking
                 
-                logging.info(f"Returning to patrol position: step({stored['x_step']},{stored['y_step']}) coord({stored['x_coord']:.3f},{stored['y_coord']:.3f})")
+                log_event(logger, "info", f"Returning to patrol position: step({stored['x_step']},{stored['y_step']}) coord({stored['x_coord']:.3f},{stored['y_coord']:.3f})", event_type="patrol_position_return")
                 
                 # Move camera back to exact position
                 self.absolute_move(stored['x_coord'], stored['y_coord'], stored['zoom'])
@@ -413,11 +412,11 @@ class PTZAutoTracker(ONVIFCameraBase):
                 time.sleep(1.0)
                 
                 self.position_return_in_progress = False
-                logging.debug("Position return completed")
+                log_event(logger, "debug", "Position return completed", event_type="patrol_position_return_complete")
                 
             except Exception as e:
                 self.position_return_in_progress = False
-                logging.error(f"Error returning to stored patrol position: {e}")
+                log_event(logger, "error", f"Error returning to stored patrol position: {e}", event_type="error")
         
         # Start position return in separate thread
         position_thread = threading.Thread(target=_position_return_thread)
@@ -435,14 +434,14 @@ class PTZAutoTracker(ONVIFCameraBase):
                     self.move_queue.task_done()
                 except queue.Empty:
                     break
-            logging.debug("Movement queue cleared")
+            log_event(logger, "debug", "Movement queue cleared", event_type="movement_queue_cleared")
         except Exception as e:
-            logging.warning(f"Error clearing movement queue: {e}")
+            log_event(logger, "warning", f"Error clearing movement queue: {e}", event_type="warning")
 
     def _end_object_focus_with_cooldown(self):
         """End object focus, return to patrol position, and start cooldown period."""
         try:
-            logging.info("Ending object focus and resuming patrol")
+            log_event(logger, "info", "Ending object focus and resuming patrol", event_type="object_focus_end")
             
             # Clear movement queue and stop current movements first
             self.stop_movement()
@@ -468,21 +467,21 @@ class PTZAutoTracker(ONVIFCameraBase):
             # Note: Don't clear immediately as the thread needs access to it
             threading.Timer(2.0, self._cleanup_stored_position).start()
             
-            logging.info(f"Patrol resumed with {self.patrol_tracking_cooldown_duration}s cooldown - position return in progress")
+            log_event(logger, "info", f"Patrol resumed with {self.patrol_tracking_cooldown_duration}s cooldown - position return in progress", event_type="patrol_resume")
             
         except Exception as e:
-            logging.error(f"Error ending object focus: {e}")
+            log_event(logger, "error", f"Error ending object focus: {e}", event_type="error")
             # Force reset state on error
             self._force_reset_tracking_state()
 
     def _cleanup_stored_position(self):
         """Clean up stored position after position return completes."""
         self.patrol_position_before_tracking = None
-        logging.debug("Stored patrol position cleaned up")
+        log_event(logger, "debug", "Stored patrol position cleaned up", event_type="patrol_position_cleanup")
 
     def _force_reset_tracking_state(self):
         """Force reset all tracking-related state in case of errors."""
-        logging.warning("Force resetting tracking state")
+        log_event(logger, "warning", "Force resetting tracking state", event_type="tracking_state_reset")
         
         self.is_focusing_on_object = False
         self.patrol_paused = False
@@ -603,8 +602,8 @@ class PTZAutoTracker(ONVIFCameraBase):
         self.patrol_x_positions = x_positions
         self.patrol_y_positions = y_positions
         
-        logging.info(f"Patrol configured for {x_positions}x{y_positions} grid")
-        logging.info(f"X step size: {self.patrol_x_step:.6f}, Y step size: {self.patrol_y_step:.6f}")
+        log_event(logger, "info", f"Patrol configured for {x_positions}x{y_positions} grid", event_type="patrol_grid_configured")
+        log_event(logger, "info", f"X step size: {self.patrol_x_step:.6f}, Y step size: {self.patrol_y_step:.6f}", event_type="patrol_step_size")
 
     def start_patrol(self, direction="horizontal"):
         """Start the patrol function in a separate thread."""
@@ -688,7 +687,7 @@ class PTZAutoTracker(ONVIFCameraBase):
                     # Ensure coordinates are within bounds
                     current_x, current_y = self._clamp_coordinates(current_x, current_y)
                     
-                    logging.debug(f"Horizontal patrol moving to: ({current_x:.6f}, {current_y:.6f})")
+                    log_event(logger, "debug", f"Horizontal patrol moving to: ({current_x:.6f}, {current_y:.6f})", event_type="patrol_movement")
                     self.absolute_move(current_x, current_y, zoom_level)
                     
                     # Advance patrol step (for compatibility)
@@ -700,7 +699,7 @@ class PTZAutoTracker(ONVIFCameraBase):
                 # Alternate direction for next row
                 self.current_patrol_left_to_right = not self.current_patrol_left_to_right
             
-            log_event(logger, "info", "Horizontal patrol cycle complete, restarting from beginning", event_type="info")
+            log_event(logger, "info", "Horizontal patrol cycle complete, restarting from beginning", event_type="patrol_cycle_complete")
 
     def _vertical_patrol(self, zoom_level):
         """Vertical progression patrol (column pattern) with object focus capability."""
@@ -731,7 +730,7 @@ class PTZAutoTracker(ONVIFCameraBase):
                     # Ensure coordinates are within bounds
                     current_x, current_y = self._clamp_coordinates(current_x, current_y)
                     
-                    logging.debug(f"Vertical patrol moving to: ({current_x:.6f}, {current_y:.6f})")
+                    log_event(logger, "debug", f"Vertical patrol moving to: ({current_x:.6f}, {current_y:.6f})", event_type="patrol_movement")
                     self.absolute_move(current_x, current_y, zoom_level)
                     
                     # Advance patrol step (for compatibility)
@@ -743,7 +742,7 @@ class PTZAutoTracker(ONVIFCameraBase):
                 # Alternate direction for next column
                 self.current_patrol_top_to_bottom = not self.current_patrol_top_to_bottom
             
-            log_event(logger, "info", "Vertical patrol cycle complete, restarting from beginning", event_type="info")
+            log_event(logger, "info", "Vertical patrol cycle complete, restarting from beginning", event_type="patrol_cycle_complete")
 
     def _patrol_dwell_with_pause_check(self):
         """Dwell at patrol position while checking for pause/resume events - simplified."""
@@ -755,18 +754,18 @@ class PTZAutoTracker(ONVIFCameraBase):
                 
             # Check if patrol should pause for object focus
             if self.patrol_pause_event.is_set():
-                logging.debug("Patrol paused for object focus")
+                log_event(logger, "debug", "Patrol paused for object focus", event_type="patrol_pause")
                 
                 # Wait for resume signal with timeout
                 resume_signaled = self.patrol_resume_event.wait(timeout=30.0)  # 30 second max wait
                 
                 if resume_signaled:
-                    logging.debug("Patrol resume signal received")
+                    log_event(logger, "debug", "Patrol resume signal received", event_type="patrol_resume_signal")
                     self.patrol_resume_event.clear()
                     # Exit dwell early to continue patrol
                     break
                 else:
-                    logging.warning("Patrol resume timeout - forcing resume")
+                    log_event(logger, "warning", "Patrol resume timeout - forcing resume", event_type="patrol_resume_timeout")
                     self._force_reset_tracking_state()
                     break
             
