@@ -268,9 +268,9 @@ def _log_ffmpeg_output(stream, stream_id: str, output_type: str, process_type: s
                         bitrate_match = re.search(r'bitrate=\s*([\d.]+\w+)', decoded_line)
                         
                         if frame_match:
-                            extra_info["frame_count"] = int(frame_match.group(1))
+                            extra_info["frame_count"] = str(frame_match.group(1))
                         if fps_match:
-                            extra_info["fps"] = float(fps_match.group(1))
+                            extra_info["fps"] = fps_match.group(1)
                         if time_match:
                             extra_info["duration"] = time_match.group(1)
                         if bitrate_match:
