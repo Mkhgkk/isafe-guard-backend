@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 import os
+import logging
 from main import create_app
 from startup.services import create_app_services
 from utils.logging_config import setup_logging
@@ -19,6 +20,11 @@ setup_logging(
 if __name__ == "__main__":
     app = create_app()
     create_app_services(app)
+    
+    # Configure Werkzeug logging to use our logging setup
+    werkzeug_logger = logging.getLogger('werkzeug')
+    werkzeug_logger.setLevel(getattr(logging, log_level.upper()))
+    
     app.run(
         host=app.config["FLASK_DOMAIN"],
         port=app.config["FLASK_PORT"],
