@@ -1,6 +1,6 @@
 import numpy as np
 from contextlib import contextmanager
-from utils import start_gstreamer_process
+from utils.media_processing import start_gstreamer_process
 
 class StreamOutputManager:
     """Manages stream output and streaming."""

@@ -10,7 +10,7 @@ import numpy as np
 from bson import ObjectId  # pyright: ignore[reportMissingImports]
 
 from main.event.model import Event
-from utils import create_video_writer
+from utils.media_processing import create_video_writer
 from utils.notifications import send_email_notification, send_watch_notification
 
 from ..constants import DEFAULT_EVENT_COOLDOWN, DEFAULT_UNSAFE_RATIO_THRESHOLD
