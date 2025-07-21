@@ -6,6 +6,49 @@ from typing import Optional
 import numpy as np
 
 from gi.repository import Gst # pyright: ignore[reportMissingImports]
+import os
+
+# Set GStreamer debug level and redirect to Python logging
+os.environ.setdefault('GST_DEBUG', '2')
+os.environ.setdefault('GST_DEBUG_NO_COLOR', '1')
+
+# Global flag to track if debug handler is installed
+_debug_handler_installed = False
+
+def _gst_debug_handler(category, level, file, function, line, obj, msg, user_data):
+    """Custom GStreamer debug handler to redirect to Python logging."""
+    level_map = {
+        Gst.DebugLevel.ERROR: "error",
+        Gst.DebugLevel.WARNING: "warning", 
+        Gst.DebugLevel.INFO: "info",
+        Gst.DebugLevel.DEBUG: "debug"
+    }
+    
+    python_level = level_map.get(level, "info")
+    category_name = category.get_name() if category else "gstreamer"
+    
+    log_event(
+        logger, 
+        python_level,
+        f"GStreamer [{category_name}] {msg}",
+        event_type="gstreamer_debug",
+        extra={
+            "category": category_name,
+            "file": file,
+            "function": function,
+            "line": line
+        }
+    )
+
+def _install_gst_debug_handler():
+    """Install GStreamer debug handler if not already installed."""
+    global _debug_handler_installed
+    if not _debug_handler_installed:
+        Gst.init(None)  # Ensure GStreamer is initialized
+        Gst.debug_set_default_threshold(Gst.DebugLevel.WARNING)
+        Gst.debug_add_log_function(_gst_debug_handler, None)
+        _debug_handler_installed = True
+        log_event(logger, "info", "GStreamer debug handler installed", event_type="gstreamer_debug_setup")
 
 from ..types import PipelineConfig
 from .builder import PipelineBuilder
@@ -22,6 +65,9 @@ class GStreamerPipeline:
         self.connection_trials = 0
         self.last_frame_time = 0
         self.frame_callback = None
+        
+        # Install GStreamer debug handler
+        _install_gst_debug_handler()
         
     def create_and_start(self, frame_callback) -> bool:
         """Create and start the GStreamer pipeline."""
