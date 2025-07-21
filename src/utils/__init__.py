@@ -4,6 +4,7 @@ from utils.logging_config import get_logger, log_event
 logger = get_logger(__name__)
 import numpy as np
 import subprocess
+import threading
 from typing import Tuple, Optional
 from config import STATIC_DIR
 
@@ -100,6 +101,33 @@ def start_ffmpeg_process(stream_id: str) -> subprocess.Popen:
     return subprocess.Popen(ffmpeg_command, stdin=subprocess.PIPE)
 
 
+def _log_gstreamer_output(stream, log_level: str, stream_id: str, output_type: str):
+    """Log GStreamer output line by line."""
+    try:
+        for line in iter(stream.readline, b''):
+            if line.strip():
+                decoded_line = line.decode('utf-8', errors='replace').strip()
+                log_event(
+                    logger,
+                    log_level,
+                    f"GStreamer {output_type}: {decoded_line}",
+                    event_type="gstreamer_output",
+                    stream_id=stream_id,
+                    extra={"output_type": output_type, "raw_message": decoded_line}
+                )
+    except Exception as e:
+        log_event(
+            logger,
+            "error",
+            f"Error reading GStreamer {output_type} for stream {stream_id}: {str(e)}",
+            event_type="gstreamer_logging_error",
+            stream_id=stream_id,
+            extra={"output_type": output_type, "error": str(e)}
+        )
+    finally:
+        stream.close()
+
+
 def start_gstreamer_process(stream_id: str) -> subprocess.Popen:
     gst_command = [
         "gst-launch-1.0",
@@ -127,4 +155,57 @@ def start_gstreamer_process(stream_id: str) -> subprocess.Popen:
         "rtmpsink",
         f"location={RTMP_MEDIA_SERVER}/live/{stream_id}",
     ]
-    return subprocess.Popen(gst_command, stdin=subprocess.PIPE)
+    
+    log_event(
+        logger, 
+        "info", 
+        f"Starting GStreamer process for stream {stream_id}",
+        event_type="gstreamer_start",
+        stream_id=stream_id,
+        extra={"command": " ".join(gst_command), "rtmp_server": RTMP_MEDIA_SERVER}
+    )
+    
+    try:
+        process = subprocess.Popen(
+            gst_command, 
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE
+        )
+        
+        # Start threads to capture and log stdout/stderr
+        stdout_thread = threading.Thread(
+            target=_log_gstreamer_output,
+            args=(process.stdout, "info", stream_id, "stdout"),
+            daemon=True
+        )
+        stderr_thread = threading.Thread(
+            target=_log_gstreamer_output,
+            args=(process.stderr, "warning", stream_id, "stderr"),
+            daemon=True
+        )
+        
+        stdout_thread.start()
+        stderr_thread.start()
+        
+        log_event(
+            logger, 
+            "info", 
+            f"GStreamer process started successfully for stream {stream_id}",
+            event_type="gstreamer_started",
+            stream_id=stream_id,
+            extra={"pid": process.pid}
+        )
+        
+        return process
+        
+    except Exception as e:
+        log_event(
+            logger, 
+            "error", 
+            f"Failed to start GStreamer process for stream {stream_id}: {str(e)}",
+            event_type="gstreamer_error",
+            stream_id=stream_id,
+            extra={"error": str(e)}
+        )
+        raise

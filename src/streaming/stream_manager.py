@@ -162,7 +162,7 @@ class StreamManager:
                 
                 # Monitor stream health
                 if not self.pipeline.is_healthy():
-                    log_event(logger, "warning", f"Pipeline unhealthy for {self.stream_id}, restarting", event_type="warning")
+                    log_event(self.logger, "warning", f"Pipeline unhealthy for {self.stream_id}, restarting", event_type="warning")
                     self.pipeline.stop()
                     break
     
@@ -181,7 +181,7 @@ class StreamManager:
             except Empty:
                 continue
             except Exception as e:
-                log_event(logger, "error", f"Error in frame processing: {e}", event_type="error")
+                log_event(self.logger, "error", f"Error in frame processing: {e}", event_type="error")
                 time.sleep(0.1)
     
     def _process_single_frame(self, frame: np.ndarray):
