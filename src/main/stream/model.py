@@ -332,6 +332,9 @@ class Stream:
                 400,
             )
 
+        # Normalize coordinates according to specific rules
+        validated_patrol_area = self._normalize_patrol_coordinates(validated_patrol_area)
+
         # Check if stream exists in database
         stream = app.db.streams.find_one({"stream_id": stream_id})
         if not stream:
@@ -378,6 +381,41 @@ class Stream:
                 {"status": "error", "message": f"Failed to save patrol area: {str(e)}"}, 
                 500
             )
+
+    def _normalize_patrol_coordinates(self, patrol_area: dict) -> dict:
+        """
+        Normalize patrol area coordinates according to specific rules:
+        - Ensure xMax is not less than xMin (swap if xMax < xMin)
+        - Ensure yMax is not greater than yMin (swap if yMax > yMin)  
+        - No normalization for zMin/zMax coordinates
+        
+        Args:
+            patrol_area: Dictionary containing patrol coordinates
+            
+        Returns:
+            dict: Normalized patrol area with corrected coordinate values
+        """
+        normalized_area = patrol_area.copy()
+        
+        # Normalize X coordinates: ensure xMax >= xMin
+        x_min = patrol_area.get('xMin')
+        x_max = patrol_area.get('xMax')
+        if x_min is not None and x_max is not None and x_max < x_min:
+            normalized_area['xMin'] = x_max
+            normalized_area['xMax'] = x_min
+            log_event(logger, "info", f"Swapped xMin ({x_min}) and xMax ({x_max}) because xMax was less than xMin", event_type="info")
+        
+        # Normalize Y coordinates: ensure yMax <= yMin  
+        y_min = patrol_area.get('yMin')
+        y_max = patrol_area.get('yMax')
+        if y_min is not None and y_max is not None and y_max > y_min:
+            normalized_area['yMin'] = y_max
+            normalized_area['yMax'] = y_min
+            log_event(logger, "info", f"Swapped yMin ({y_min}) and yMax ({y_max}) because yMax was greater than yMin", event_type="info")
+        
+        # Z coordinates are not normalized - leave as provided
+        
+        return normalized_area
 
     def get_patrol_area(self):
         """Get saved patrol area from database."""

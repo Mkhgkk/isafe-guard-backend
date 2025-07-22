@@ -319,11 +319,15 @@ class PatrolMixin:
         if dwell_time is not None:
             self.patrol_dwell_time = dwell_time
         
+        # if zoom_level is not None:
+        #     if self.patrol_area['zMin'] <= zoom_level <= self.patrol_area['zMax']:
+        #         self.zoom_during_patrol = zoom_level
+        #     else:
+        #         log_event(logger, "warning", f"Zoom level {zoom_level} is outside allowed range", event_type="warning")
         if zoom_level is not None:
-            if self.patrol_area['zMin'] <= zoom_level <= self.patrol_area['zMax']:
                 self.zoom_during_patrol = zoom_level
-            else:
-                log_event(logger, "warning", f"Zoom level {zoom_level} is outside allowed range", event_type="warning")
+        else:
+            log_event(logger, "error", f"Zoom level is required", event_type="error")
                 
         if direction is not None:
             if direction in ["horizontal", "vertical"]:
