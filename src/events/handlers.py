@@ -20,16 +20,16 @@ class StreamValidator:
     def validate_stream_data(data: Dict[str, Any]) -> Optional[str]:
         """Validate and extract stream_id from data."""
         if not isinstance(data, dict):
-            log_event(logger, "warning", "Invalid data format received", event_type="validation_error", error_type="invalid_data_format")
+            log_event(logger, "warning", "Invalid data format received", event_type="validation_error")
             return None
         
         stream_id = data.get("stream_id")
         if not stream_id:
-            log_event(logger, "warning", "Missing stream_id in request", event_type="validation_error", error_type="missing_stream_id")
+            log_event(logger, "warning", "Missing stream_id in request", event_type="validation_error")
             return None
         
         if stream_id not in streams:
-            log_event(logger, "warning", "Stream not found", event_type="validation_error", error_type="stream_not_found", stream_id=stream_id)
+            log_event(logger, "warning", "Stream not found", event_type="validation_error", stream_id=stream_id)
             return None
         
         return stream_id
