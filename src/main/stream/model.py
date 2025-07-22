@@ -298,6 +298,147 @@ class Stream:
 
         return resp
 
+    def save_patrol_area(self):
+        """Save patrol area to database and update active stream."""
+        data = json.loads(request.data)
+        stream_id = data.get("stream_id")
+        patrol_area = data.get("patrol_area")
+
+        # Validate required fields
+        if not stream_id:
+            return tools.JsonResp(
+                {"status": "error", "message": "Missing stream_id in request data"},
+                400,
+            )
+
+        if not patrol_area:
+            return tools.JsonResp(
+                {"status": "error", "message": "Missing patrol_area in request data"},
+                400,
+            )
+
+        # Validate patrol area structure
+        patrol_area_schema = PatrolAreaSchema()
+        
+        try:
+            validated_patrol_area = patrol_area_schema.load(patrol_area)
+        except ValidationError as e:
+            return tools.JsonResp(
+                {
+                    "status": "error", 
+                    "message": "Invalid patrol area data", 
+                    "errors": e.messages
+                },
+                400,
+            )
+
+        # Check if stream exists in database
+        stream = app.db.streams.find_one({"stream_id": stream_id})
+        if not stream:
+            return tools.JsonResp(
+                {
+                    "status": "error",
+                    "message": f"Stream with ID '{stream_id}' not found in database",
+                },
+                404,
+            )
+
+        try:
+            # Update patrol area in database
+            result = app.db.streams.update_one(
+                {"stream_id": stream_id},
+                {"$set": {"patrol_area": validated_patrol_area}}
+            )
+
+            if result.modified_count == 0:
+                log_event(logger, "warning", f"No document was modified for stream_id: {stream_id}", event_type="warning")
+
+            # Update in-memory stream if it's active
+            video_streaming = streams.get(stream_id)
+            if video_streaming and video_streaming.ptz_auto_tracker:
+                video_streaming.ptz_auto_tracker.set_patrol_area(validated_patrol_area)
+                log_event(logger, "info", f"Updated patrol area for active stream: {stream_id}", event_type="info")
+
+            log_event(logger, "info", f"Patrol area saved successfully for stream: {stream_id}", event_type="info")
+            
+            return tools.JsonResp(
+                {
+                    "status": "success", 
+                    "message": "Patrol area saved successfully",
+                    "data": {
+                        "stream_id": stream_id,
+                        "patrol_area": validated_patrol_area
+                    }
+                }, 
+                200
+            )
+        except Exception as e:
+            log_event(logger, "error", f"Error saving patrol area for stream {stream_id}: {e}", event_type="error")
+            return tools.JsonResp(
+                {"status": "error", "message": f"Failed to save patrol area: {str(e)}"}, 
+                500
+            )
+
+    def get_patrol_area(self):
+        """Get saved patrol area from database."""
+        data = json.loads(request.data)
+        stream_id = data.get("stream_id")
+
+        # Validate required fields
+        if not stream_id:
+            return tools.JsonResp(
+                {"status": "error", "message": "Missing stream_id in request data"},
+                400,
+            )
+
+        # Check if stream exists in database
+        stream = app.db.streams.find_one({"stream_id": stream_id})
+        if not stream:
+            return tools.JsonResp(
+                {
+                    "status": "error",
+                    "message": f"Stream with ID '{stream_id}' not found in database",
+                },
+                404,
+            )
+
+        try:
+            # Get patrol area from stream data
+            patrol_area = stream.get("patrol_area")
+            
+            if patrol_area is None:
+                return tools.JsonResp(
+                    {
+                        "status": "success", 
+                        "message": "No patrol area configured for this stream",
+                        "data": {
+                            "stream_id": stream_id,
+                            "patrol_area": None
+                        }
+                    }, 
+                    200
+                )
+
+            log_event(logger, "info", f"Retrieved patrol area for stream: {stream_id}", event_type="info")
+            
+            return tools.JsonResp(
+                {
+                    "status": "success", 
+                    "message": "Patrol area retrieved successfully",
+                    "data": {
+                        "stream_id": stream_id,
+                        "patrol_area": patrol_area
+                    }
+                }, 
+                200
+            )
+        except Exception as e:
+            log_event(logger, "error", f"Error retrieving patrol area for stream {stream_id}: {e}", event_type="error")
+            return tools.JsonResp(
+                {"status": "error", "message": f"Failed to retrieve patrol area: {str(e)}"}, 
+                500
+            )
+
     @staticmethod
     def start_stream(
         rtsp_link: str,
