@@ -104,7 +104,7 @@ def change_autotrack():
                 video_streaming.ptz_auto_tracker.set_patrol_parameters(focus_max_zoom=1.0)
 
                 # video_streaming.ptz_auto_tracker.configure_patrol_grid(3, 2)
-                video_streaming.ptz_auto_tracker.set_patrol_parameters(x_positions=10, y_positions=4, dwell_time=1.5, zoom_level=0.04)
+                video_streaming.ptz_auto_tracker.set_patrol_parameters(x_positions=10, y_positions=4, dwell_time=1.5)
                 video_streaming.ptz_auto_tracker.start_patrol("horizontal")
 
         else:

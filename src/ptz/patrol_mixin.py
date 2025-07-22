@@ -300,9 +300,9 @@ class PatrolMixin:
         }
 
     def set_patrol_parameters(self, x_positions: Optional[int] = None, y_positions: Optional[int] = None, 
-                            dwell_time: Optional[float] = None, zoom_level: Optional[float] = None, 
-                            direction: Optional[str] = None, object_focus_duration: Optional[float] = None,
-                            tracking_cooldown_duration: Optional[float] = None, focus_max_zoom: Optional[float] = None) -> None:
+                            dwell_time: Optional[float] = None, direction: Optional[str] = None, 
+                            object_focus_duration: Optional[float] = None, tracking_cooldown_duration: Optional[float] = None, 
+                            focus_max_zoom: Optional[float] = None) -> None:
         """Set patrol parameters."""
         if not hasattr(self, 'patrol_area'):
             self.add_patrol_functionality()
@@ -318,12 +318,13 @@ class PatrolMixin:
         if dwell_time is not None:
             self.patrol_dwell_time = dwell_time
         
-        if zoom_level is not None:
-            # Validate zoom level is within allowed range (0.0 to 1.0)
+        # Update zoom_during_patrol from patrol_area if available
+        if hasattr(self, 'patrol_area') and 'zoom_level' in self.patrol_area:
+            zoom_level = self.patrol_area['zoom_level']
             if 0.0 <= zoom_level <= 1.0:
                 self.zoom_during_patrol = zoom_level
             else:
-                log_event(logger, "warning", f"Zoom level {zoom_level} is outside allowed range [0.0, 1.0]", event_type="warning")
+                log_event(logger, "warning", f"Zoom level {zoom_level} from patrol_area is outside allowed range [0.0, 1.0]", event_type="warning")
                 
         if direction is not None:
             if direction in ["horizontal", "vertical"]:
