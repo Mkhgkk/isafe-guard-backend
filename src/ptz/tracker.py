@@ -1,42 +1,73 @@
-from utils.logging_config import get_logger, log_event
-
-logger = get_logger(__name__)
 import queue
 import threading
 import time
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
 from .base import ONVIFCameraBase
+from .patrol_mixin import PatrolMixin
+from utils.logging_config import get_logger, log_event
+
+logger = get_logger(__name__)
 
 
 
-class PTZAutoTracker(ONVIFCameraBase):
+class PTZAutoTracker(ONVIFCameraBase, PatrolMixin):
     """Advanced PTZ auto-tracking camera controller with patrol functionality."""
+    
+    # Default configuration constants
+    DEFAULT_CENTER_TOLERANCE_X = 0.1
+    DEFAULT_CENTER_TOLERANCE_Y = 0.1
+    DEFAULT_PAN_VELOCITY = 0.8
+    DEFAULT_TILT_VELOCITY = 0.8
+    DEFAULT_ZOOM_VELOCITY = 0.02
+    DEFAULT_MIN_ZOOM = 0.1
+    DEFAULT_MAX_ZOOM = 0.3
+    DEFAULT_MOVE_THROTTLE_TIME = 0.5
+    DEFAULT_NO_OBJECT_TIMEOUT = 5.0
+    
+    # Target area ratios for zoom calculation
+    MIN_TARGET_AREA_RATIO = 0.1
+    MAX_TARGET_AREA_RATIO = 0.5
     
     def __init__(self, cam_ip: str, ptz_port: int, ptz_username: str, ptz_password: str) -> None:
         super().__init__(cam_ip, ptz_port, ptz_username, ptz_password)
         
+        # Initialize tracking configuration
+        self._init_tracking_config()
+        
+        # Initialize movement state
+        self._init_movement_state()
+        
+        # Initialize patrol functionality
+        self.add_patrol_functionality()
+
+    def _init_tracking_config(self) -> None:
+        """Initialize tracking configuration parameters."""
         # Tracking tolerances
-        self.center_tolerance_x: float = 0.1
-        self.center_tolerance_y: float = 0.1
+        self.center_tolerance_x: float = self.DEFAULT_CENTER_TOLERANCE_X
+        self.center_tolerance_y: float = self.DEFAULT_CENTER_TOLERANCE_Y
 
         # Movement velocities
-        self.pan_velocity: float = 0.8
-        self.tilt_velocity: float = 0.8
-        self.zoom_velocity: float = 0.02
+        self.pan_velocity: float = self.DEFAULT_PAN_VELOCITY
+        self.tilt_velocity: float = self.DEFAULT_TILT_VELOCITY
+        self.zoom_velocity: float = self.DEFAULT_ZOOM_VELOCITY
 
         # Zoom limits
-        self.min_zoom: float = 0.1
-        self.max_zoom: float = 0.3
+        self.min_zoom: float = self.DEFAULT_MIN_ZOOM
+        self.max_zoom: float = self.DEFAULT_MAX_ZOOM
 
         # Movement throttling
-        self.last_move_time: float = time.time()
-        self.move_throttle_time: float = 0.5
+        self.move_throttle_time: float = self.DEFAULT_MOVE_THROTTLE_TIME
 
         # Object detection timeout
-        self.no_object_timeout: float = 5
+        self.no_object_timeout: float = self.DEFAULT_NO_OBJECT_TIMEOUT
+        
+    def _init_movement_state(self) -> None:
+        """Initialize movement state variables."""
+        # Timing
+        self.last_move_time: float = time.time()
         self.last_detection_time: float = time.time()
         
         # Default/home position
@@ -48,21 +79,22 @@ class PTZAutoTracker(ONVIFCameraBase):
         self.is_moving: bool = False
         self.is_at_default_position: bool = False
         
-        # Movement queue for smooth operations
-        self.move_queue: queue.Queue[Tuple[float, float, float]] = queue.Queue()
-        self.move_thread: threading.Thread = threading.Thread(target=self._process_move_queue)
-        self.move_thread.daemon = True
-        self.move_thread.start()
-
         # PTZ metrics
         self.ptz_metrics: Dict[str, float] = {
             "zoom_level": self.min_zoom,
         }
         
         self.calibrating: bool = False
-
-        # Initialize patrol functionality
-        self.add_patrol_functionality()
+        
+        # Initialize movement queue
+        self._init_movement_queue()
+        
+    def _init_movement_queue(self) -> None:
+        """Initialize movement queue and processing thread."""
+        self.move_queue: queue.Queue[Tuple[float, float, float]] = queue.Queue()
+        self.move_thread: threading.Thread = threading.Thread(target=self._process_move_queue)
+        self.move_thread.daemon = True
+        self.move_thread.start()
 
     def update_default_position(self, pan: float, tilt: float, zoom: float) -> None:
         """Update the default/home position."""
@@ -80,52 +112,62 @@ class PTZAutoTracker(ONVIFCameraBase):
         if not bboxes:
             return 0.0, 0.0, 0.0
 
-        frame_center_x: float = frame_width / 2
-        frame_center_y: float = frame_height / 2
-
-        bbox_centers_x: List[float] = []
-        bbox_centers_y: List[float] = []
-        bbox_areas: List[float] = []
-
-        for bbox in bboxes:
-            x1, y1, x2, y2 = bbox
-
-            bbox_width: float = x2 - x1
-            bbox_height: float = y2 - y1
-            bbox_center_x: float = x1 + bbox_width / 2
-            bbox_center_y: float = y1 + bbox_height / 2
-
-            bbox_centers_x.append(bbox_center_x)
-            bbox_centers_y.append(bbox_center_y)
-            bbox_areas.append(bbox_width * bbox_height)
-
-        avg_center_x: float = float(np.mean(bbox_centers_x))
-        avg_center_y: float = float(np.mean(bbox_centers_y))
-
-        delta_x: float = (avg_center_x - frame_center_x) / frame_width
-        delta_y: float = (avg_center_y - frame_center_y) / frame_height
-
-        # Update tolerance based on zoom level
-        self.center_tolerance_x = max(
-            0.05, self.center_tolerance_x * (1 - self.ptz_metrics["zoom_level"])
-        )
-        self.center_tolerance_y = max(
-            0.05, self.center_tolerance_y * (1 - self.ptz_metrics["zoom_level"])
-        )
+        # Extract bbox data
+        bbox_data = self._extract_bbox_data(bboxes)
         
-        # Determine pan and tilt directions with threshold to avoid jitter
-        pan_direction: float = self._calculate_pan_tilt(
+        # Calculate frame deltas
+        frame_center_x = frame_width / 2
+        frame_center_y = frame_height / 2
+        delta_x = (bbox_data['avg_center_x'] - frame_center_x) / frame_width
+        delta_y = (bbox_data['avg_center_y'] - frame_center_y) / frame_height
+
+        # Update tolerances based on zoom level
+        self._update_tolerances_for_zoom()
+        
+        # Calculate movements
+        pan_direction = self._calculate_pan_tilt(
             delta_x, self.center_tolerance_x, self.pan_velocity
         )
-        tilt_direction: float = self._calculate_pan_tilt(
+        tilt_direction = self._calculate_pan_tilt(
             delta_y, self.center_tolerance_y, self.tilt_velocity, invert=True
         )
-
-        zoom_direction: float = self._calculate_zoom(
-            frame_width, frame_height, bbox_areas, bbox_centers_x, bbox_centers_y
+        zoom_direction = self._calculate_zoom(
+            frame_width, frame_height, bbox_data['areas'], 
+            bbox_data['centers_x'], bbox_data['centers_y']
         )
 
         return pan_direction, tilt_direction, zoom_direction
+    
+    def _extract_bbox_data(self, bboxes: List[Tuple[float, float, float, float]]) -> Dict[str, Any]:
+        """Extract and process bounding box data."""
+        centers_x: List[float] = []
+        centers_y: List[float] = []
+        areas: List[float] = []
+
+        for bbox in bboxes:
+            x1, y1, x2, y2 = bbox
+            bbox_width = x2 - x1
+            bbox_height = y2 - y1
+            center_x = x1 + bbox_width / 2
+            center_y = y1 + bbox_height / 2
+
+            centers_x.append(center_x)
+            centers_y.append(center_y)
+            areas.append(bbox_width * bbox_height)
+
+        return {
+            'centers_x': centers_x,
+            'centers_y': centers_y,
+            'areas': areas,
+            'avg_center_x': float(np.mean(centers_x)),
+            'avg_center_y': float(np.mean(centers_y))
+        }
+    
+    def _update_tolerances_for_zoom(self) -> None:
+        """Update center tolerances based on current zoom level."""
+        zoom_factor = 1 - self.ptz_metrics["zoom_level"]
+        self.center_tolerance_x = max(0.05, self.DEFAULT_CENTER_TOLERANCE_X * zoom_factor)
+        self.center_tolerance_y = max(0.05, self.DEFAULT_CENTER_TOLERANCE_Y * zoom_factor)
 
     def _calculate_pan_tilt(
         self, delta: float, tolerance: float, velocity: float, invert: bool = False
@@ -147,12 +189,9 @@ class PTZAutoTracker(ONVIFCameraBase):
         """Calculate zoom direction based on object size and position."""
         frame_area: float = frame_width * frame_height
 
-        # Target area ratio for object size in the frame
-        # min_target_area_ratio: float = 0.03
-        # max_target_area_ratio: float = 0.1
-
-        min_target_area_ratio: float = 0.1
-        max_target_area_ratio: float = 0.5
+        # Use class constants for target area ratios
+        min_target_area_ratio = self.MIN_TARGET_AREA_RATIO
+        max_target_area_ratio = self.MAX_TARGET_AREA_RATIO
 
         total_bbox_area: float = float(np.sum(bbox_areas))
         current_area_ratio: float = total_bbox_area / frame_area
@@ -286,104 +325,120 @@ class PTZAutoTracker(ONVIFCameraBase):
         """Tracking behavior during patrol mode - simplified transition logic."""
         current_time = time.time()
         
-        # Check if we're in cooldown period - ignore objects during cooldown
-        if self.is_in_tracking_cooldown:
-            if current_time >= self.tracking_cooldown_end_time:
-                # Cooldown period ended
-                self.is_in_tracking_cooldown = False
-                self.tracking_cooldown_end_time = 0.0
-                log_event(logger, "info", "Tracking cooldown period ended - objects can be tracked again", event_type="tracking_cooldown_end")
-            else:
-                # Still in cooldown
-                if bboxes is not None and len(bboxes) > 0:
-                    remaining_time = self.tracking_cooldown_end_time - current_time
-                    log_event(logger, "debug", f"Objects detected but in cooldown period ({remaining_time:.1f}s remaining)", event_type="tracking_cooldown_active")
-                return
+        # Handle cooldown period
+        if self._handle_cooldown_period(current_time, bboxes):
+            return
         
-        # Handle object detection
+        # Handle object detection and tracking
         if bboxes is not None and len(bboxes) > 0:
-            if not self.is_focusing_on_object:
-                # Start focusing on the object
-                log_event(logger, "info", "Object detected during patrol - starting object focus", event_type="object_focus_start")
-                self._start_object_focus()
-                self.object_focus_start_time = current_time
-                
-            # Continue focusing on object if within focus duration
-            if current_time - self.object_focus_start_time < self.object_focus_duration:
-                # Track the object with full sensitivity and FULL ZOOM RANGE
-                # Temporarily expand zoom limits for better object tracking
-                original_max_zoom = self.max_zoom
-                self.max_zoom = getattr(self, 'focus_max_zoom', 1.0)  # Use enhanced zoom limit
-                
-                pan, tilt, zoom = self.calculate_movement(frame_width, frame_height, bboxes)
-                
-                # Restore original zoom limit
-                self.max_zoom = original_max_zoom
-                
-                if not (pan == 0 and tilt == 0 and zoom == 0):
-                    self._enqueue_move(pan, tilt, zoom)
-                    
-                self.last_move_time = current_time
-                self.last_detection_time = current_time
-            else:
-                # Focus duration exceeded, end tracking
-                log_event(logger, "info", "Object focus duration exceeded - ending tracking", event_type="object_focus_timeout")
-                self._end_object_focus_with_cooldown()
+            self._handle_object_detection_during_patrol(current_time, frame_width, frame_height, bboxes)
         else:
-            # No objects detected
-            if self.is_focusing_on_object:
-                # Was focusing on object but it's gone
-                if current_time - self.object_focus_start_time >= 1.0:  # Minimum 1 second focus
-                    log_event(logger, "info", "Object lost during focus - ending tracking", event_type="object_lost")
-                    self._end_object_focus_with_cooldown()
+            self._handle_no_objects_during_patrol(current_time)
+    
+    def _handle_cooldown_period(self, current_time: float, bboxes: Optional[List[Tuple[float, float, float, float]]]) -> bool:
+        """Handle tracking cooldown period. Returns True if in cooldown."""
+        if not self.is_in_tracking_cooldown:
+            return False
+            
+        if current_time >= self.tracking_cooldown_end_time:
+            self.is_in_tracking_cooldown = False
+            self.tracking_cooldown_end_time = 0.0
+            log_event(logger, "info", "Tracking cooldown period ended - objects can be tracked again", event_type="tracking_cooldown_end")
+            return False
+        
+        # Still in cooldown
+        if bboxes is not None and len(bboxes) > 0:
+            remaining_time = self.tracking_cooldown_end_time - current_time
+            log_event(logger, "debug", f"Objects detected but in cooldown period ({remaining_time:.1f}s remaining)", event_type="tracking_cooldown_active")
+        return True
+    
+    def _handle_object_detection_during_patrol(self, current_time: float, frame_width: int, frame_height: int, bboxes: List[Tuple[float, float, float, float]]) -> None:
+        """Handle object detection during patrol."""
+        if not self.is_focusing_on_object:
+            log_event(logger, "info", "Object detected during patrol - starting object focus", event_type="object_focus_start")
+            self._start_object_focus()
+            self.object_focus_start_time = current_time
+            
+        # Continue focusing if within duration
+        if current_time - self.object_focus_start_time < self.object_focus_duration:
+            self._track_object_with_enhanced_zoom(frame_width, frame_height, bboxes, current_time)
+        else:
+            log_event(logger, "info", "Object focus duration exceeded - ending tracking", event_type="object_focus_timeout")
+            self._end_object_focus_with_cooldown()
+    
+    def _handle_no_objects_during_patrol(self, current_time: float) -> None:
+        """Handle case when no objects are detected during patrol."""
+        if self.is_focusing_on_object and current_time - self.object_focus_start_time >= 1.0:
+            log_event(logger, "info", "Object lost during focus - ending tracking", event_type="object_lost")
+            self._end_object_focus_with_cooldown()
+    
+    def _track_object_with_enhanced_zoom(self, frame_width: int, frame_height: int, bboxes: List[Tuple[float, float, float, float]], current_time: float) -> None:
+        """Track object with enhanced zoom capabilities."""
+        original_max_zoom = self.max_zoom
+        self.max_zoom = self.focus_max_zoom
+        
+        try:
+            pan, tilt, zoom = self.calculate_movement(frame_width, frame_height, bboxes)
+            if not (pan == 0 and tilt == 0 and zoom == 0):
+                self._enqueue_move(pan, tilt, zoom)
+            self.last_move_time = current_time
+            self.last_detection_time = current_time
+        finally:
+            self.max_zoom = original_max_zoom
 
-    def _start_object_focus(self):
+    def _start_object_focus(self) -> None:
         """Start focusing on detected object during patrol - simplified."""
         try:
-            # Store current patrol position
             self._store_current_patrol_position()
-            
-            # Set focus state
-            self.is_focusing_on_object = True
-            self.patrol_paused = True
-            
-            # Signal patrol thread to pause
-            self.patrol_pause_event.set()
-            
+            self._set_focus_state()
             log_event(logger, "debug", "Object focus started - patrol paused", event_type="patrol_pause")
-            
         except Exception as e:
             log_event(logger, "error", f"Error starting object focus: {e}", event_type="error")
-            # Reset state on error
-            self.is_focusing_on_object = False
-            self.patrol_paused = False
+            self._reset_focus_state()
+    
+    def _set_focus_state(self) -> None:
+        """Set the focus state for object tracking."""
+        self.is_focusing_on_object = True
+        self.patrol_paused = True
+        self.patrol_pause_event.set()
+    
+    def _reset_focus_state(self) -> None:
+        """Reset focus state on error."""
+        self.is_focusing_on_object = False
+        self.patrol_paused = False
 
-    def _store_current_patrol_position(self):
+    def _store_current_patrol_position(self) -> None:
         """Store the current patrol position to return to after tracking."""
         try:
-            # Calculate current coordinates based on patrol grid position
-            current_x = self.patrol_area['xMin'] + (self.current_patrol_x_step * self.patrol_x_step)
-            current_y = self.patrol_area['yMin'] - (self.current_patrol_y_step * self.patrol_y_step)
-            
-            # Clamp coordinates to patrol area
-            current_x = max(self.patrol_area['xMin'], min(self.patrol_area['xMax'], current_x))
-            current_y = max(self.patrol_area['yMax'], min(self.patrol_area['yMin'], current_y))
-            
-            self.patrol_position_before_tracking = {
-                'x_step': self.current_patrol_x_step,
-                'y_step': self.current_patrol_y_step,
-                'left_to_right': self.current_patrol_left_to_right,
-                'top_to_bottom': self.current_patrol_top_to_bottom,
-                'x_coord': current_x,
-                'y_coord': current_y,
-                'zoom': self.zoom_during_patrol
-            }
-            
+            current_x, current_y = self._calculate_current_patrol_coordinates()
+            self.patrol_position_before_tracking = self._create_patrol_position_dict(current_x, current_y)
             log_event(logger, "debug", f"Stored patrol position: step({self.current_patrol_x_step},{self.current_patrol_y_step}) coord({current_x:.3f},{current_y:.3f})", event_type="patrol_position_stored")
-            
         except Exception as e:
             log_event(logger, "error", f"Error storing patrol position: {e}", event_type="error")
             self.patrol_position_before_tracking = None
+    
+    def _calculate_current_patrol_coordinates(self) -> Tuple[float, float]:
+        """Calculate current patrol coordinates based on grid position."""
+        current_x = self.patrol_area['xMin'] + (self.current_patrol_x_step * self.patrol_x_step)
+        current_y = self.patrol_area['yMin'] - (self.current_patrol_y_step * self.patrol_y_step)
+        
+        # Clamp coordinates to patrol area
+        current_x = max(self.patrol_area['xMin'], min(self.patrol_area['xMax'], current_x))
+        current_y = max(self.patrol_area['yMax'], min(self.patrol_area['yMin'], current_y))
+        
+        return current_x, current_y
+    
+    def _create_patrol_position_dict(self, current_x: float, current_y: float) -> Dict[str, Any]:
+        """Create patrol position dictionary for storage."""
+        return {
+            'x_step': self.current_patrol_x_step,
+            'y_step': self.current_patrol_y_step,
+            'left_to_right': self.current_patrol_left_to_right,
+            'top_to_bottom': self.current_patrol_top_to_bottom,
+            'x_coord': current_x,
+            'y_coord': current_y,
+            'zoom': self.zoom_during_patrol
+        }
 
     def _return_to_stored_patrol_position(self):
         """Return camera to the stored patrol position before tracking - runs on separate thread."""
@@ -396,6 +451,11 @@ class PTZAutoTracker(ONVIFCameraBase):
             try:
                 self.position_return_in_progress = True
                 stored = self.patrol_position_before_tracking
+                
+                if stored is None:
+                    log_event(logger, "warning", "Stored position is None in return thread", event_type="warning")
+                    self.position_return_in_progress = False
+                    return
                 
                 log_event(logger, "info", f"Returning to patrol position: step({stored['x_step']},{stored['y_step']}) coord({stored['x_coord']:.3f},{stored['y_coord']:.3f})", event_type="patrol_position_return")
                 
@@ -425,16 +485,19 @@ class PTZAutoTracker(ONVIFCameraBase):
         
         # Don't wait for completion - let it run asynchronously
 
-    def _clear_movement_queue(self):
+    def _clear_movement_queue(self) -> None:
         """Clear all pending movements from the movement queue."""
         try:
+            cleared_count = 0
             while not self.move_queue.empty():
                 try:
                     self.move_queue.get_nowait()
                     self.move_queue.task_done()
+                    cleared_count += 1
                 except queue.Empty:
                     break
-            log_event(logger, "debug", "Movement queue cleared", event_type="movement_queue_cleared")
+            if cleared_count > 0:
+                log_event(logger, "debug", f"Movement queue cleared ({cleared_count} items)", event_type="movement_queue_cleared")
         except Exception as e:
             log_event(logger, "warning", f"Error clearing movement queue: {e}", event_type="warning")
 
@@ -479,25 +542,42 @@ class PTZAutoTracker(ONVIFCameraBase):
         self.patrol_position_before_tracking = None
         log_event(logger, "debug", "Stored patrol position cleaned up", event_type="patrol_position_cleanup")
 
-    def _force_reset_tracking_state(self):
+    def _force_reset_tracking_state(self) -> None:
         """Force reset all tracking-related state in case of errors."""
         log_event(logger, "warning", "Force resetting tracking state", event_type="tracking_state_reset")
         
-        self.is_focusing_on_object = False
-        self.patrol_paused = False
-        self.object_focus_start_time = 0.0
-        self.patrol_pause_event.clear()
-        self.patrol_resume_event.set()
+        # Reset all tracking flags
+        self._reset_tracking_flags()
+        
+        # Reset patrol state
+        self._reset_patrol_state()
+        
+        # Clear position data
         self.patrol_position_before_tracking = None
+        
+        # Stop movements safely
+        self._safe_stop_movements()
+    
+    def _reset_tracking_flags(self) -> None:
+        """Reset all tracking-related flags."""
+        self.is_focusing_on_object = False
+        self.object_focus_start_time = 0.0
         self.is_in_tracking_cooldown = False
         self.tracking_cooldown_end_time = 0.0
         
-        # Stop any movements
+    def _reset_patrol_state(self) -> None:
+        """Reset patrol state flags and events."""
+        self.patrol_paused = False
+        self.patrol_pause_event.clear()
+        self.patrol_resume_event.set()
+        
+    def _safe_stop_movements(self) -> None:
+        """Safely stop movements and clear queue."""
         try:
             self.stop_movement()
             self._clear_movement_queue()
-        except:
-            pass
+        except Exception as e:
+            log_event(logger, "warning", f"Error stopping movements during reset: {e}", event_type="warning")
 
     def _advance_patrol_step(self):
         """Called when patrol advances to next position - kept for compatibility."""
@@ -524,345 +604,7 @@ class PTZAutoTracker(ONVIFCameraBase):
         # TODO: move to preset monitoring position
         self.calibrating = False
 
-    def _predict_movement_time(self, pan: float, tilt: float) -> None:
+    def _predict_movement_time(self, pan: float, tilt: float) -> float:
         """Predict movement time (placeholder for future implementation)."""
-        combined_movement: float = abs(pan) + abs(tilt)
-        pass
+        return abs(pan) + abs(tilt)
 
-    # Patrol functionality
-    def add_patrol_functionality(self, patrol_area=None):
-        """Add patrol functionality to the PTZ camera."""
-        if patrol_area is None:
-            self.patrol_area = {
-                'zMin': 0.199530029, 
-                'zMax': 0.489974976, 
-                'xMin': 0.215444446, 
-                'xMax': 0.391888916, 
-                'yMin': -0.58170867, 
-                'yMax': -1
-            }
-        else:
-            self.patrol_area = patrol_area
-            
-        # Add patrol-related attributes
-        self.is_patrolling = False
-        self.patrol_thread = None
-        self.patrol_x_step = 0.0  # Will be calculated by configure_patrol_grid
-        self.patrol_y_step = 0.0  # Will be calculated by configure_patrol_grid
-        self.patrol_dwell_time = 2.0
-        self.patrol_stop_event = threading.Event()
-        self.patrol_direction = "horizontal"
-        self.zoom_during_patrol = self.patrol_area['zMin']
-        
-        # Patrol tracking behavior
-        self.patrol_paused = False
-        self.patrol_pause_event = threading.Event()
-        self.patrol_resume_event = threading.Event()
-        self.object_focus_duration = 3.0  # Default 3 seconds to focus on detected objects during patrol
-        self.object_focus_start_time = 0.0
-        self.is_focusing_on_object = False
-        self.pre_focus_position = None  # Store position before focusing on object
-        
-        # Patrol position tracking for resume functionality
-        self.current_patrol_x_step = 0
-        self.current_patrol_y_step = 0
-        self.current_patrol_left_to_right = True
-        self.current_patrol_top_to_bottom = True
-        
-        # Object tracking cooldown - ignore objects for N seconds after tracking
-        self.patrol_tracking_cooldown_duration = 5.0  # 5 seconds cooldown
-        self.tracking_cooldown_end_time = 0.0
-        self.is_in_tracking_cooldown = False
-        
-        # Backward compatibility (in case old variable is referenced elsewhere)
-        self.patrol_tracking_cooldown_steps = 2  # Legacy variable for compatibility
-        
-        # Store patrol position to return to after tracking
-        self.patrol_position_before_tracking = None
-        self.position_return_in_progress = False  # Track if position return is happening
-        
-        # Enhanced zoom control for object focus
-        self.focus_max_zoom = 1.0  # Allow higher zoom during object focus
-        
-        # Default grid configuration (4x3 grid)
-        self.configure_patrol_grid(4, 3)
-
-    def configure_patrol_grid(self, x_positions=4, y_positions=3):
-        """Configure patrol as a grid with specified number of positions."""
-        if not hasattr(self, 'patrol_area'):
-            self.add_patrol_functionality()
-        
-        x_range = self.patrol_area['xMax'] - self.patrol_area['xMin']
-        y_range = abs(self.patrol_area['yMax'] - self.patrol_area['yMin'])
-        
-        # Calculate step sizes based on number of positions
-        self.patrol_x_step = x_range / (x_positions - 1) if x_positions > 1 else 0
-        self.patrol_y_step = y_range / (y_positions - 1) if y_positions > 1 else 0
-        
-        self.patrol_x_positions = x_positions
-        self.patrol_y_positions = y_positions
-        
-        log_event(logger, "info", f"Patrol configured for {x_positions}x{y_positions} grid", event_type="patrol_grid_configured")
-        log_event(logger, "info", f"X step size: {self.patrol_x_step:.6f}, Y step size: {self.patrol_y_step:.6f}", event_type="patrol_step_size")
-
-    def start_patrol(self, direction="horizontal"):
-        """Start the patrol function in a separate thread."""
-        if not hasattr(self, 'patrol_area'):
-            self.add_patrol_functionality()
-        
-        if direction not in ["horizontal", "vertical"]:
-            log_event(logger, "warning", f"Invalid patrol direction: {direction}. Using 'horizontal'.", event_type="warning")
-            direction = "horizontal"
-        
-        self.patrol_direction = direction
-            
-        if self.is_patrolling:
-            self.stop_patrol()
-            
-        self.is_patrolling = True
-        self.patrol_stop_event.clear()
-        self.patrol_thread = threading.Thread(target=self._patrol_routine)
-        self.patrol_thread.daemon = True
-        self.patrol_thread.start()
-        log_event(logger, "info", f"Patrol started in {direction} progression mode", event_type="info")
-        
-    def stop_patrol(self):
-        """Stop the patrol function."""
-        if not self.is_patrolling:
-            return
-            
-        self.patrol_stop_event.set()
-        if self.patrol_thread:
-            self.patrol_thread.join(timeout=5.0)
-        self.is_patrolling = False
-        self.stop_movement()
-        log_event(logger, "info", "Patrol stopped", event_type="info")
-
-    def _patrol_routine(self):
-        """Main patrol routine that implements a scanning pattern."""
-        try:
-            zoom_level = self.zoom_during_patrol
-            
-            if self.patrol_direction == "horizontal":
-                self._horizontal_patrol(zoom_level)
-            else:
-                self._vertical_patrol(zoom_level)
-                
-        except Exception as e:
-            log_event(logger, "error", f"Error in patrol routine: {e}", event_type="error")
-            self.is_patrolling = False
-
-    def _clamp_coordinates(self, x, y):
-        """Ensure coordinates stay within patrol area bounds."""
-        x = max(self.patrol_area['xMin'], min(self.patrol_area['xMax'], x))
-        y = max(self.patrol_area['yMax'], min(self.patrol_area['yMin'], y))
-        return x, y
-
-    def _horizontal_patrol(self, zoom_level):
-        """Horizontal progression patrol (snake pattern) with object focus capability."""
-        while not self.patrol_stop_event.is_set():
-            self.current_patrol_left_to_right = True
-            
-            for y_step in range(self.patrol_y_positions):
-                if self.patrol_stop_event.is_set():
-                    break
-                
-                self.current_patrol_y_step = y_step
-                current_y = self.patrol_area['yMin'] - (y_step * self.patrol_y_step)
-                current_y = max(self.patrol_area['yMax'], current_y)
-                
-                # Determine x positions for this row
-                x_positions = list(range(self.patrol_x_positions))
-                if not self.current_patrol_left_to_right:
-                    x_positions.reverse()
-                
-                for x_step in x_positions:
-                    if self.patrol_stop_event.is_set():
-                        break
-                    
-                    self.current_patrol_x_step = x_step
-                    current_x = self.patrol_area['xMin'] + (x_step * self.patrol_x_step)
-                    current_x = min(self.patrol_area['xMax'], current_x)
-                    
-                    # Ensure coordinates are within bounds
-                    current_x, current_y = self._clamp_coordinates(current_x, current_y)
-                    
-                    log_event(logger, "debug", f"Horizontal patrol moving to: ({current_x:.6f}, {current_y:.6f})", event_type="patrol_movement")
-                    self.absolute_move(current_x, current_y, zoom_level)
-                    
-                    # Advance patrol step (for compatibility)
-                    self._advance_patrol_step()
-                    
-                    # Wait at position, but check for pause events
-                    self._patrol_dwell_with_pause_check()
-                
-                # Alternate direction for next row
-                self.current_patrol_left_to_right = not self.current_patrol_left_to_right
-            
-            log_event(logger, "info", "Horizontal patrol cycle complete, restarting from beginning", event_type="patrol_cycle_complete")
-
-    def _vertical_patrol(self, zoom_level):
-        """Vertical progression patrol (column pattern) with object focus capability."""
-        while not self.patrol_stop_event.is_set():
-            self.current_patrol_top_to_bottom = True
-            
-            for x_step in range(self.patrol_x_positions):
-                if self.patrol_stop_event.is_set():
-                    break
-                
-                self.current_patrol_x_step = x_step
-                current_x = self.patrol_area['xMin'] + (x_step * self.patrol_x_step)
-                current_x = min(self.patrol_area['xMax'], current_x)
-                
-                # Determine y positions for this column
-                y_positions = list(range(self.patrol_y_positions))
-                if not self.current_patrol_top_to_bottom:
-                    y_positions.reverse()
-                
-                for y_step in y_positions:
-                    if self.patrol_stop_event.is_set():
-                        break
-                    
-                    self.current_patrol_y_step = y_step
-                    current_y = self.patrol_area['yMin'] - (y_step * self.patrol_y_step)
-                    current_y = max(self.patrol_area['yMax'], current_y)
-                    
-                    # Ensure coordinates are within bounds
-                    current_x, current_y = self._clamp_coordinates(current_x, current_y)
-                    
-                    log_event(logger, "debug", f"Vertical patrol moving to: ({current_x:.6f}, {current_y:.6f})", event_type="patrol_movement")
-                    self.absolute_move(current_x, current_y, zoom_level)
-                    
-                    # Advance patrol step (for compatibility)
-                    self._advance_patrol_step()
-                    
-                    # Wait at position, but check for pause events
-                    self._patrol_dwell_with_pause_check()
-                
-                # Alternate direction for next column
-                self.current_patrol_top_to_bottom = not self.current_patrol_top_to_bottom
-            
-            log_event(logger, "info", "Vertical patrol cycle complete, restarting from beginning", event_type="patrol_cycle_complete")
-
-    def _patrol_dwell_with_pause_check(self):
-        """Dwell at patrol position while checking for pause/resume events - simplified."""
-        dwell_start = time.time()
-        
-        while time.time() - dwell_start < self.patrol_dwell_time:
-            if self.patrol_stop_event.is_set():
-                break
-                
-            # Check if patrol should pause for object focus
-            if self.patrol_pause_event.is_set():
-                log_event(logger, "debug", "Patrol paused for object focus", event_type="patrol_pause")
-                
-                # Wait for resume signal with timeout
-                resume_signaled = self.patrol_resume_event.wait(timeout=30.0)  # 30 second max wait
-                
-                if resume_signaled:
-                    log_event(logger, "debug", "Patrol resume signal received", event_type="patrol_resume_signal")
-                    self.patrol_resume_event.clear()
-                    # Exit dwell early to continue patrol
-                    break
-                else:
-                    log_event(logger, "warning", "Patrol resume timeout - forcing resume", event_type="patrol_resume_timeout")
-                    self._force_reset_tracking_state()
-                    break
-            
-            time.sleep(0.1)  # Short sleep to avoid busy waiting
-
-    def is_patrol_active(self):
-        """Returns whether patrol is currently active."""
-        return self.is_patrolling
-
-    def get_patrol_direction(self):
-        """Returns the current patrol direction."""
-        if not hasattr(self, 'patrol_direction'):
-            return "horizontal"
-        return self.patrol_direction
-
-    def get_patrol_grid_info(self):
-        """Returns current patrol grid configuration."""
-        if not hasattr(self, 'patrol_x_positions'):
-            return {"x_positions": 4, "y_positions": 3}
-        return {
-            "x_positions": self.patrol_x_positions,
-            "y_positions": self.patrol_y_positions,
-            "x_step": self.patrol_x_step,
-            "y_step": self.patrol_y_step
-        }
-
-    def set_patrol_parameters(self, x_positions=None, y_positions=None, dwell_time=None, 
-                            zoom_level=None, direction=None, object_focus_duration=None,
-                            tracking_cooldown_duration=None, focus_max_zoom=None):
-        """Set patrol parameters."""
-        if not hasattr(self, 'patrol_area'):
-            self.add_patrol_functionality()
-        
-        # Update grid configuration if positions are specified
-        if x_positions is not None or y_positions is not None:
-            current_x = getattr(self, 'patrol_x_positions', 4)
-            current_y = getattr(self, 'patrol_y_positions', 3)
-            new_x = x_positions if x_positions is not None else current_x
-            new_y = y_positions if y_positions is not None else current_y
-            self.configure_patrol_grid(new_x, new_y)
-        
-        if dwell_time is not None:
-            self.patrol_dwell_time = dwell_time
-        
-        if zoom_level is not None:
-            if self.patrol_area['zMin'] <= zoom_level <= self.patrol_area['zMax']:
-                self.zoom_during_patrol = zoom_level
-            else:
-                log_event(logger, "warning", f"Zoom level {zoom_level} is outside allowed range", event_type="warning")
-        if direction is not None:
-            if direction in ["horizontal", "vertical"]:
-                self.patrol_direction = direction
-            else:
-                log_event(logger, "warning", f"Invalid patrol direction: {direction}", event_type="warning")
-                
-        if object_focus_duration is not None:
-            self.object_focus_duration = max(1.0, object_focus_duration)  # Minimum 1 second
-            
-        if tracking_cooldown_duration is not None:
-            self.patrol_tracking_cooldown_duration = max(0.0, tracking_cooldown_duration)
-            
-        if focus_max_zoom is not None:
-            self.focus_max_zoom = max(0.1, focus_max_zoom)  # Set custom focus zoom limit
-
-    def get_patrol_status(self):
-        """Get comprehensive patrol status information."""
-        current_time = time.time()
-        cooldown_remaining = 0
-        if self.is_in_tracking_cooldown and self.tracking_cooldown_end_time > current_time:
-            cooldown_remaining = self.tracking_cooldown_end_time - current_time
-            
-        return {
-            "is_patrolling": self.is_patrolling,
-            "is_focusing_on_object": getattr(self, 'is_focusing_on_object', False),
-            "patrol_paused": getattr(self, 'patrol_paused', False),
-            "patrol_direction": self.get_patrol_direction(),
-            "grid_info": self.get_patrol_grid_info(),
-            "object_focus_duration": getattr(self, 'object_focus_duration', 3.0),
-            "dwell_time": self.patrol_dwell_time,
-            "tracking_cooldown": {
-                "is_in_cooldown": getattr(self, 'is_in_tracking_cooldown', False),
-                "time_remaining": cooldown_remaining,
-                "total_cooldown_duration": getattr(self, 'patrol_tracking_cooldown_duration', 5.0)
-            },
-            "current_position": {
-                "x_step": getattr(self, 'current_patrol_x_step', 0),
-                "y_step": getattr(self, 'current_patrol_y_step', 0),
-                "left_to_right": getattr(self, 'current_patrol_left_to_right', True),
-                "top_to_bottom": getattr(self, 'current_patrol_top_to_bottom', True)
-            },
-            "stored_position": getattr(self, 'patrol_position_before_tracking', None),
-            "position_return_in_progress": getattr(self, 'position_return_in_progress', False)
-        }
-
-    def set_patrol_area(self, patrol_area):
-        """Set the patrol area boundaries."""
-        self.patrol_area = patrol_area
-        # Recalculate steps based on new area
-        if hasattr(self, 'patrol_x_positions'):
-            self.configure_patrol_grid(self.patrol_x_positions, self.patrol_y_positions)
