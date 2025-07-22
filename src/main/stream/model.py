@@ -24,8 +24,7 @@ class PatrolAreaSchema(Schema):
     xMax = fields.Float(required=True)
     yMin = fields.Float(required=True)
     yMax = fields.Float(required=True)
-    zMin = fields.Float(required=True)
-    zMax = fields.Float(required=True)
+    zoom_level = fields.Float(required=True, validate=validate.Range(min=0.0, max=1.0))
 
 
 class StreamSchema(Schema):
@@ -387,10 +386,10 @@ class Stream:
         Normalize patrol area coordinates according to specific rules:
         - Ensure xMax is not less than xMin (swap if xMax < xMin)
         - Ensure yMax is not greater than yMin (swap if yMax > yMin)  
-        - No normalization for zMin/zMax coordinates
+        - zoom_level is validated by schema and not normalized here
         
         Args:
-            patrol_area: Dictionary containing patrol coordinates
+            patrol_area: Dictionary containing patrol coordinates and zoom_level
             
         Returns:
             dict: Normalized patrol area with corrected coordinate values
@@ -413,7 +412,7 @@ class Stream:
             normalized_area['yMax'] = y_min
             log_event(logger, "info", f"Swapped yMin ({y_min}) and yMax ({y_max}) because yMax was greater than yMin", event_type="info")
         
-        # Z coordinates are not normalized - leave as provided
+        # zoom_level is handled by schema validation (0.0-1.0 range)
         
         return normalized_area
 

@@ -98,9 +98,9 @@ def change_autotrack():
                 # TODO:
                 # sort yMin and yMax to work with both cameras
 
-                # video_streaming.ptz_auto_tracker.set_patrol_area({'zMin': 0.04, 'zMax': 0.088, 'xMin': -0.43849999999999967, 'xMax': 0.6418333333333334, 'yMin': 1, 'yMax': 0.01904761904761898})
-                # video_streaming.ptz_auto_tracker.set_patrol_area({'zMin': 0.0700000152, 'zMax': 0.150000021, 'xMin': -0.485888898, 'xMax': 0.462777704, 'yMin': -1, 'yMax': 0.377272725})
-                # video_streaming.ptz_auto_tracker.set_patrol_area({'zMin': 0.0700000152, 'zMax': 0.150000021, 'xMin': -0.485888898, 'xMax': 0.462777704, 'yMin': 0.377272725, 'yMax': -1}) # working patrol area for unv camrea
+                # video_streaming.ptz_auto_tracker.set_patrol_area({'zoom_level': 0.066, 'xMin': -0.43849999999999967, 'xMax': 0.6418333333333334, 'yMin': 1, 'yMax': 0.01904761904761898})
+                # video_streaming.ptz_auto_tracker.set_patrol_area({'zoom_level': 0.11, 'xMin': -0.485888898, 'xMax': 0.462777704, 'yMin': -1, 'yMax': 0.377272725})
+                # video_streaming.ptz_auto_tracker.set_patrol_area({'zoom_level': 0.11, 'xMin': -0.485888898, 'xMax': 0.462777704, 'yMin': 0.377272725, 'yMax': -1}) # working patrol area for unv camera
                 video_streaming.ptz_auto_tracker.set_patrol_parameters(focus_max_zoom=1.0)
 
                 # video_streaming.ptz_auto_tracker.configure_patrol_grid(3, 2)

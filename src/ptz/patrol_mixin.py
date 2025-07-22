@@ -26,8 +26,7 @@ class PatrolMixin:
     
     # Default patrol area
     DEFAULT_PATROL_AREA = {
-        'zMin': 0.199530029, 
-        'zMax': 0.489974976, 
+        'zoom_level': 0.3, 
         'xMin': 0.215444446, 
         'xMax': 0.391888916, 
         'yMin': -0.58170867, 
@@ -58,7 +57,7 @@ class PatrolMixin:
         self.patrol_dwell_time = self.DEFAULT_PATROL_DWELL_TIME
         self.patrol_stop_event = threading.Event()
         self.patrol_direction = "horizontal"
-        self.zoom_during_patrol = self.patrol_area['zMin']
+        self.zoom_during_patrol = self.patrol_area.get('zoom_level', 0.3)
         
     def _init_patrol_tracking(self) -> None:
         """Initialize patrol tracking behavior variables."""
@@ -319,15 +318,12 @@ class PatrolMixin:
         if dwell_time is not None:
             self.patrol_dwell_time = dwell_time
         
-        # if zoom_level is not None:
-        #     if self.patrol_area['zMin'] <= zoom_level <= self.patrol_area['zMax']:
-        #         self.zoom_during_patrol = zoom_level
-        #     else:
-        #         log_event(logger, "warning", f"Zoom level {zoom_level} is outside allowed range", event_type="warning")
         if zoom_level is not None:
+            # Validate zoom level is within allowed range (0.0 to 1.0)
+            if 0.0 <= zoom_level <= 1.0:
                 self.zoom_during_patrol = zoom_level
-        else:
-            log_event(logger, "error", f"Zoom level is required", event_type="error")
+            else:
+                log_event(logger, "warning", f"Zoom level {zoom_level} is outside allowed range [0.0, 1.0]", event_type="warning")
                 
         if direction is not None:
             if direction in ["horizontal", "vertical"]:
