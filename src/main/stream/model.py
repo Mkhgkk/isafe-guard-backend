@@ -18,6 +18,16 @@ from streaming import StreamManager
 logger = get_logger(__name__)
 
 
+class PatrolAreaSchema(Schema):
+    """Schema for patrol area coordinates."""
+    xMin = fields.Float(required=True)
+    xMax = fields.Float(required=True)
+    yMin = fields.Float(required=True)
+    yMax = fields.Float(required=True)
+    zMin = fields.Float(required=True)
+    zMax = fields.Float(required=True)
+
+
 class StreamSchema(Schema):
     stream_id = fields.String(required=True)
     rtsp_link = fields.String(required=True)
@@ -44,6 +54,7 @@ class StreamSchema(Schema):
     ptz_password = fields.String()
     ptz_port = fields.Integer()
     ptz_username = fields.String()
+    patrol_area = fields.Nested(PatrolAreaSchema, missing=None, allow_none=True)
 
     # class Meta:
     #     unknown = INCLUDE
@@ -299,6 +310,7 @@ class Stream:
         home_pan: Optional[float] = None,
         home_tilt: Optional[float] = None,
         home_zoom: Optional[float] = None,
+        patrol_area: Optional[dict] = None,
         *args: Any,
         **kwargs: Any,
     ) -> None:
@@ -322,14 +334,14 @@ class Stream:
         if supports_ptz:
             ptz_thread = threading.Thread(
                 target=Stream.initialize_camera_controller, 
-                args=(cam_ip, ptz_port, ptz_username, ptz_password, stream_id), 
+                args=(cam_ip, ptz_port, ptz_username, ptz_password, stream_id, patrol_area), 
                 daemon=True 
             )
             ptz_thread.start()
 
     @staticmethod
     def initialize_camera_controller(
-        cam_ip, ptz_port, ptz_username, ptz_password, stream_id
+        cam_ip, ptz_port, ptz_username, ptz_password, stream_id, patrol_area=None
     ):
         """This function will be executed in a background thread to avoid blocking the loop."""
         try:
@@ -342,6 +354,14 @@ class Stream:
             # if camera controller is initialized successfully, then we initialize auto tracker
             ptz_auto_tracker = PTZAutoTracker(cam_ip, ptz_port, ptz_username, ptz_password)
             stream.ptz_auto_tracker = ptz_auto_tracker
+
+            # Load saved patrol area if available
+            if patrol_area:
+                try:
+                    ptz_auto_tracker.set_patrol_area(patrol_area)
+                    log_event(logger, "info", f"Loaded saved patrol area for stream {stream_id}: {patrol_area}", event_type="info")
+                except Exception as e:
+                    log_event(logger, "warning", f"Failed to set patrol area for stream {stream_id}: {e}", event_type="warning")
 
             log_event(logger, "info", f"PTZ configured for stream {stream_id}.", event_type="info")
         except Exception as e:
