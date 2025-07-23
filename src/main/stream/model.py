@@ -182,11 +182,6 @@ class Stream:
             
             Stream.stop_stream(stream_id)
             
-            # Update the `is_active` status
-            app.db.streams.update_one(
-                {"stream_id": stream_id}, {"$set": {"is_active": False}}
-            )
-            
             return self._create_success_response("Stream stopped successfully.", "ok")
             
         except ValueError as e:
@@ -225,11 +220,6 @@ class Stream:
             try:
                 Stream.start_stream(**stream_config)
                 
-                # Update the `is_active` status
-                app.db.streams.update_one(
-                    {"stream_id": stream_id}, {"$set": {"is_active": True}}
-                )
-                
                 log_event(logger, "info", f"Successfully restarted stream: {stream_id}", event_type="stream_restart")
                 
                 return self._create_success_response(
@@ -262,11 +252,6 @@ class Stream:
             stream = self._get_stream_from_db(stream_id, {"_id": 0})
             
             Stream.start_stream(**stream)
-            
-            # Update the `is_active` status
-            app.db.streams.update_one(
-                {"stream_id": stream_id}, {"$set": {"is_active": True}}
-            )
             
             return self._create_success_response("Stream started successfully.", "ok")
             
@@ -309,10 +294,6 @@ class Stream:
             finally:
                 if is_stream_running:
                     Stream.start_stream(**data)
-                    # Update the `is_active` status
-                    app.db.streams.update_one(
-                        {"stream_id": stream_id}, {"$set": {"is_active": True}}
-                    )
                     
         except ValueError as e:
             return self._create_error_response(str(e), status_code=404 if "not found" in str(e) else 400)
@@ -539,6 +520,16 @@ class Stream:
         video_streaming = StreamManager(rtsp_link, model_name, stream_id, ptz_autotrack)
         video_streaming.start_stream()
         streams[stream_id] = video_streaming
+        
+        # Update the database to mark stream as active
+        try:
+            app.db.streams.update_one(
+                {"stream_id": stream_id}, 
+                {"$set": {"is_active": True}}
+            )
+            log_event(logger, "info", f"Updated stream {stream_id} status to active in database", event_type="info")
+        except Exception as e:
+            log_event(logger, "error", f"Failed to update stream {stream_id} active status in database: {e}", event_type="error")
 
         # Schedule stop stream
         # stop_time = datetime.datetime.fromtimestamp(end_timestamp)
@@ -586,7 +577,15 @@ class Stream:
     @staticmethod
     def stop_stream(stream_id):
         if stream_id not in streams:
-            # raise ValueError(f"Stream ID {stream_id} does not exist in streams.")
+            # Stream not in memory, but still update database status if needed
+            try:
+                app.db.streams.update_one(
+                    {"stream_id": stream_id}, 
+                    {"$set": {"is_active": False}}
+                )
+                log_event(logger, "info", f"Updated stream {stream_id} status to inactive in database (not in memory)", event_type="info")
+            except Exception as e:
+                log_event(logger, "error", f"Failed to update stream {stream_id} inactive status in database: {e}", event_type="error")
             return
 
         try:
@@ -595,14 +594,31 @@ class Stream:
                 video_streaming.stop_streaming()
                 video_streaming.camera_controller = None
             else:
-                # raise ValueError(f"Stream ID {stream_id} is not active.")
                 return
 
             del streams[stream_id]
+            
+            # Update the database to mark stream as inactive
+            try:
+                app.db.streams.update_one(
+                    {"stream_id": stream_id}, 
+                    {"$set": {"is_active": False}}
+                )
+                log_event(logger, "info", f"Updated stream {stream_id} status to inactive in database", event_type="info")
+            except Exception as e:
+                log_event(logger, "error", f"Failed to update stream {stream_id} inactive status in database: {e}", event_type="error")
 
             # if stream_id in camera_controllers:
             #     del camera_controllers[stream_id]
         except Exception as e:
+            # Still try to update database even if stopping failed
+            try:
+                app.db.streams.update_one(
+                    {"stream_id": stream_id}, 
+                    {"$set": {"is_active": False}}
+                )
+            except Exception:
+                pass
             raise RuntimeError(f"Failed to stop stream {stream_id}: {e}")
 
     @staticmethod
