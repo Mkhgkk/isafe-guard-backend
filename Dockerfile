@@ -114,5 +114,7 @@ COPY . /app
 
 EXPOSE 5000
 
-CMD ["/bin/bash", "-c", "poetry run python src/run.py"]
-# CMD ["poetry", "run", "gunicorn", "--bind", "0.0.0.0:5000", "--worker-class", "eventlet", "--workers", "1", "--worker-connections", "2000", "--timeout", "120", "--log-level", "debug", "--access-logfile", "-", "--error-logfile", "-", "--pythonpath", "src", "wsgi:app"]
+# CMD ["/bin/bash", "-c", "poetry run python src/run.py"]
+
+# Production mode - single process optimized for ML models
+CMD ["poetry", "run", "python", "src/wsgi.py"]
