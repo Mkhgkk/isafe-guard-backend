@@ -188,6 +188,116 @@ class Stream:
                 {"message": "Something went wrong", "error": "internal_error"}, 500
             )
 
+    def restart(self):
+        """
+        Restart a stream by stopping it and then starting it again.
+        Expects JSON data with stream_id.
+        """
+        try:
+            data = json.loads(request.data)
+            stream_id_only = StreamSchema(only=("stream_id",))
+            validation_errors = stream_id_only.validate(data)
+            if validation_errors:
+                log_event(logger, "error", f"Validation failed for restart: {validation_errors}", event_type="error")
+                return tools.JsonResp(
+                    {"message": "Validation failed!", "error": validation_errors}, 400
+                )
+            
+            stream_id = data["stream_id"]
+            
+            # Check if stream exists in active streams
+            video_streaming = streams.get(stream_id)
+            # if video_streaming is None:
+            #     log_event(logger, "warning", f"Attempted to restart non-existent or inactive stream: {stream_id}", event_type="warning")
+            #     return tools.JsonResp(
+            #         {
+            #             "message": f"Stream with ID '{stream_id}' not found or is not active.",
+            #             "error": "stream_not_active",
+            #         },
+            #         404,
+            #     )
+
+            log_event(logger, "info", f"Restarting stream: {stream_id}", event_type="stream_restart")
+
+            # Get stream configuration from database first
+            try:
+                stream_config = app.db.streams.find_one({"stream_id": stream_id})
+                if not stream_config:
+                    log_event(logger, "error", f"Stream configuration not found in database: {stream_id}", event_type="error")
+                    return tools.JsonResp(
+                        {
+                            "message": f"Stream configuration not found for '{stream_id}'.",
+                            "error": "stream_config_not_found",
+                        },
+                        404,
+                    )
+            except Exception as e:
+                log_event(logger, "error", f"Database error while fetching stream config {stream_id}: {e}", event_type="error")
+                return tools.JsonResp(
+                    {"message": "Database error occurred.", "error": "database_error"},
+                    500,
+                )
+
+            # Stop the stream first if stream is active
+            if video_streaming and video_streaming.running:
+                try:
+                    Stream.stop_stream(stream_id)
+                    log_event(logger, "info", f"Successfully stopped stream: {stream_id}", event_type="stream_stop")
+                except Exception as e:
+                    log_event(logger, "error", f"Error stopping stream {stream_id}: {e}", event_type="error")
+                    return tools.JsonResp(
+                        {
+                            "message": f"Failed to stop stream: {str(e)}",
+                            "error": "stop_failed"
+                        }, 
+                        500
+                    )
+
+            # Start the stream with the configuration
+            try:
+                Stream.start_stream(**stream_config)
+                
+                # Update the `is_active` status
+                app.db.streams.update_one(
+                    {"stream_id": stream_id}, {"$set": {"is_active": True}}
+                )
+                
+                log_event(logger, "info", f"Successfully restarted stream: {stream_id}", event_type="stream_restart")
+                
+                return tools.JsonResp(
+                    {
+                        "message": f"Stream '{stream_id}' restarted successfully.",
+                        "data": {"stream_id": stream_id}
+                    },
+                    200,
+                )
+                
+            except Exception as e:
+                log_event(logger, "error", f"Error starting stream {stream_id}: {e}", event_type="error")
+                return tools.JsonResp(
+                    {
+                        "message": f"Failed to start stream after stop: {str(e)}",
+                        "error": "start_failed"
+                    },
+                    500,
+                )
+
+        except json.JSONDecodeError:
+            log_event(logger, "error", "Failed to decode JSON data in restart request", event_type="error")
+            return tools.JsonResp(
+                {"message": "Invalid JSON data format.", "error": "invalid_json"}, 
+                400
+            )
+        except Exception as e:
+            log_event(logger, "error", f"Unexpected error in restart: {e}", event_type="error")
+            return tools.JsonResp(
+                {
+                    "message": f"An unexpected error occurred: {str(e)}",
+                    "error": "internal_error"
+                }, 
+                500
+            )
+
     def start(self):
         data = json.loads(request.data)
         stream_id_only = StreamSchema(only=("stream_id",))

@@ -34,6 +34,11 @@ def stop_stream():
     return Stream().stop()
 
 
+@stream_blueprint.route("/restart_stream", methods=["POST"])
+def restart_stream():
+    return Stream().restart()
+
+
 def stream_video(file_path):
     def generate():
         with open(file_path, "rb") as video_file:
@@ -133,7 +138,7 @@ def change_autotrack():
         return tools.JsonResp({"status": "error", "message": "wrong data format!"}, 400)
 
 
-@stream_blueprint.route("/create_schedule", methods=["POST"])
+# @stream_blueprint.route("/create_schedule", methods=["POST"])
 @stream_blueprint.route("/update_stream", methods=["POST"])
 def update_stream():
     return Stream().update_stream()
