@@ -108,9 +108,9 @@ class Stream:
 
     def create_stream(self):
         try:
-            data = self._parse_request_data()
-            stream= data.get("stream")
-            start_stream = data.get("start_stream", False)
+            payload = self._parse_request_data()
+            data= payload.get("stream")
+            start_stream = payload.get("start_stream", False)
 
             validation_errors = stream_schema.validate(data)
 
