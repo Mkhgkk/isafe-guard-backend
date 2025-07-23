@@ -109,8 +109,11 @@ class Stream:
     def create_stream(self):
         try:
             data = self._parse_request_data()
+            stream= data.get("stream")
+            start_stream = data.get("start_stream", False)
+
             validation_errors = stream_schema.validate(data)
-            
+
             # Validate data
             if validation_errors:
                 return self._create_error_response("Validation failed!", validation_errors)
@@ -129,6 +132,11 @@ class Stream:
             stream = app.db.streams.insert_one(data)
             inserted_id = str(stream.inserted_id)
             data["_id"] = inserted_id
+
+            if start_stream:
+                # Start the stream immediately if requested
+                Stream.start_stream(**data)
+                log_event(logger, "info", f"Stream {stream_id} started immediately after creation.", event_type="stream_start")
             
             return self._create_success_response("Stream has been successfully created.", data)
             
