@@ -182,9 +182,9 @@ class SocketIOHandlers:
         room = self.room_manager.get_ptz_room_name(stream_id)
         
         try:
-            if direction == "zoom_in":
-                self._handle_zoom_in(camera_controller, zoom_amount, room)
-            elif stop:
+            # if direction == "zoom_in":
+            #     self._handle_zoom_in(camera_controller, zoom_amount, room)
+            if stop:
                 camera_controller.stop_camera()
                 log_event(logger, "info", f"Camera stopped for stream {stream_id}", event_type="info")
             else:
