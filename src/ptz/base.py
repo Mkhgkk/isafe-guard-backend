@@ -31,25 +31,74 @@ class ONVIFCameraBase:
             log_event(logger, "error", f"Error getting PTZ status: {e}", event_type="error")
             return None
 
+    # def get_current_position(self) -> Tuple[float, float, float]:
+    #     """Get current pan, tilt, and zoom position."""
+    #     try:
+    #         status = self.ptz_service.GetStatus({"ProfileToken": self.profile_token})
+    #         if not status:
+    #             raise ValueError(
+    #                 "GetStatus() returned None. Check camera connectivity and credentials."
+    #             )
+    #         if not hasattr(status, "Position"):
+    #             raise ValueError(
+    #                 "Status object does not contain a 'Position' attribute."
+    #             )
+            
+    #         log_event(logger, "error", f"{status}", event_type="error")
+            
+    #         current_pan = status.Position.PanTilt.x
+    #         current_tilt = status.Position.PanTilt.y
+    #         current_zoom = status.Position.Zoom.x
+    #         return float(current_pan), float(current_tilt), float(current_zoom)
+    #     except Exception as e:
+    #         log_event(logger, "error", f"An error occurred while getting current position: {e}", event_type="error")
+    #         return 0.0, 0.0, 0.0
+
     def get_current_position(self) -> Tuple[float, float, float]:
-        """Get current pan, tilt, and zoom position."""
+        """Get current pan, tilt, and zoom position with multiple fallback methods."""
         try:
             status = self.ptz_service.GetStatus({"ProfileToken": self.profile_token})
             if not status:
-                raise ValueError(
-                    "GetStatus() returned None. Check camera connectivity and credentials."
-                )
-            if not hasattr(status, "Position"):
-                raise ValueError(
-                    "Status object does not contain a 'Position' attribute."
-                )
+                raise ValueError("GetStatus() returned None.")
             
-            current_pan = status.Position.PanTilt.x
-            current_tilt = status.Position.PanTilt.y
-            current_zoom = status.Position.Zoom.x
-            return float(current_pan), float(current_tilt), float(current_zoom)
+            # Method 1: Try normal Position attribute
+            if hasattr(status, "Position") and status.Position is not None:
+                current_pan = status.Position.PanTilt.x
+                current_tilt = status.Position.PanTilt.y
+                current_zoom = status.Position.Zoom.x
+                return float(current_pan), float(current_tilt), float(current_zoom)
+            
+            # Method 2: Parse XML elements HIKVision style
+            # This is a common workaround for cameras that return XML-like structures
+            # in the Position attribute, especially for HIKVision cameras.
+            if hasattr(status, '_value_1') and status._value_1:
+                import xml.etree.ElementTree as ET
+                for element in status._value_1:
+                    if element.tag.endswith('Position'):
+                        pan_tilt = element.find('.//{http://www.onvif.org/ver10/schema}PanTilt')
+                        zoom = element.find('.//{http://www.onvif.org/ver10/schema}Zoom')
+                        
+                        if pan_tilt is not None and zoom is not None:
+                            pan = float(pan_tilt.get('x', 0.0))
+                            tilt = float(pan_tilt.get('y', 0.0))
+                            zoom_val = float(zoom.get('x', 0.0))
+                            return pan, tilt, zoom_val
+            
+            # Method 3: Try accessing as dictionary
+            if isinstance(status, dict) and 'Position' in status:
+                pos = status['Position']
+                if pos and 'PanTilt' in pos and 'Zoom' in pos:
+                    return (
+                        float(pos['PanTilt']['x']),
+                        float(pos['PanTilt']['y']),
+                        float(pos['Zoom']['x'])
+                    )
+            
+            log_event(logger, "warning", "All position parsing methods failed", event_type="warning")
+            return 0.0, 0.0, 0.0
+            
         except Exception as e:
-            log_event(logger, "error", f"An error occurred while getting current position: {e}", event_type="error")
+            log_event(logger, "error", f"Error getting current position: {e}", event_type="error")
             return 0.0, 0.0, 0.0
 
     def get_zoom_level(self) -> float:
