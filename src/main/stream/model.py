@@ -51,6 +51,7 @@ class StreamSchema(Schema):
     supports_ptz = fields.Boolean()
     cam_ip = fields.String()
     ptz_password = fields.String()
+    profile_name = fields.String()
     ptz_port = fields.Integer()
     ptz_username = fields.String()
     patrol_area = fields.Nested(PatrolAreaSchema, missing=None, allow_none=True)
@@ -511,6 +512,7 @@ class Stream:
         ptz_port: Optional[int] = None,
         ptz_username: Optional[str] = None,
         ptz_password: Optional[str] = None,
+        profile_name: Optional[str] = None,
         home_pan: Optional[float] = None,
         home_tilt: Optional[float] = None,
         home_zoom: Optional[float] = None,
@@ -547,25 +549,25 @@ class Stream:
         if supports_ptz:
             ptz_thread = threading.Thread(
                 target=Stream.initialize_camera_controller, 
-                args=(cam_ip, ptz_port, ptz_username, ptz_password, stream_id, patrol_area), 
+                args=(cam_ip, ptz_port, ptz_username, ptz_password, stream_id, profile_name, patrol_area), 
                 daemon=True 
             )
             ptz_thread.start()
 
     @staticmethod
     def initialize_camera_controller(
-        cam_ip, ptz_port, ptz_username, ptz_password, stream_id, patrol_area=None
+        cam_ip, ptz_port, ptz_username, ptz_password, stream_id, profile_name=None, patrol_area=None
     ):
         """This function will be executed in a background thread to avoid blocking the loop."""
         try:
             stream = streams[stream_id]
             camera_controller = CameraController(
-                cam_ip, ptz_port, ptz_username, ptz_password
+                cam_ip, ptz_port, ptz_username, ptz_password, profile_name
             )
             stream.camera_controller = camera_controller
 
             # if camera controller is initialized successfully, then we initialize auto tracker
-            ptz_auto_tracker = PTZAutoTracker(cam_ip, ptz_port, ptz_username, ptz_password)
+            ptz_auto_tracker = PTZAutoTracker(cam_ip, ptz_port, ptz_username, ptz_password, profile_name)
             stream.ptz_auto_tracker = ptz_auto_tracker
 
             # Load saved patrol area if available

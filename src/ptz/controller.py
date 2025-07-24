@@ -9,8 +9,8 @@ from .base import ONVIFCameraBase
 class CameraController(ONVIFCameraBase):
     """Camera controller for basic PTZ operations."""
     
-    def __init__(self, ip: str, port: int, username: str, password: str) -> None:
-        super().__init__(ip, port, username, password)
+    def __init__(self, ip: str, port: int, username: str, password: str, profile_name: Optional[str] = None) -> None:
+        super().__init__(ip, port, username, password, profile_name)
 
     def move_camera(self, direction: str, zoom_amount: Optional[float] = None) -> None:
         """Move camera in specified direction or zoom to specified level."""

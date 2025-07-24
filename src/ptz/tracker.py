@@ -31,8 +31,8 @@ class PTZAutoTracker(ONVIFCameraBase, PatrolMixin):
     MIN_TARGET_AREA_RATIO = 0.1
     MAX_TARGET_AREA_RATIO = 0.5
     
-    def __init__(self, cam_ip: str, ptz_port: int, ptz_username: str, ptz_password: str) -> None:
-        super().__init__(cam_ip, ptz_port, ptz_username, ptz_password)
+    def __init__(self, cam_ip: str, ptz_port: int, ptz_username: str, ptz_password: str, profile_name: Optional[str] = None) -> None:
+        super().__init__(cam_ip, ptz_port, ptz_username, ptz_password, profile_name)
         
         # Initialize tracking configuration
         self._init_tracking_config()

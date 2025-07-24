@@ -9,7 +9,7 @@ from onvif import exceptions # pyright: ignore[reportMissingImports]
 class ONVIFCameraBase:
     """Base class for ONVIF camera operations with common functionality."""
     
-    def __init__(self, ip: str, port: int, username: str, password: str) -> None:
+    def __init__(self, ip: str, port: int, username: str, password: str, profile_name: Optional[str] = None) -> None:
         self.camera = ONVIFCamera(ip, port, username, password)
         self.ptz_service = self.camera.create_ptz_service()
         self.media_service = self.camera.create_media_service()
@@ -20,7 +20,16 @@ class ONVIFCameraBase:
                 "No profiles returned from the camera. Please check connection or credentials."
             )
         
-        self.profile_token = self.profiles[0].token
+        if profile_name:
+            # Find profile by name
+            self.profile_token = next(
+                (profile.token for profile in self.profiles if profile.Name == profile_name),
+                None
+            )
+            if not self.profile_token:
+                raise ValueError(f"Profile '{profile_name}' not found.")
+        else:
+            self.profile_token = self.profiles[0].token
 
     def get_ptz_status(self) -> Optional[dict]:
         """Get PTZ status from the camera."""
