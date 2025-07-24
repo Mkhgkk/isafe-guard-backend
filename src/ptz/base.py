@@ -110,26 +110,42 @@ class ONVIFCameraBase:
             log_event(logger, "error", f"An error occurred while getting zoom level: {e}", event_type="error")
             return 0.0
 
+    # def continuous_move(self, pan: float, tilt: float, zoom: float) -> None:
+    #     """Execute continuous movement with specified velocities."""
+    #     try:
+    #         request = self.ptz_service.create_type("ContinuousMove")
+    #         request.ProfileToken = self.profile_token
+
+    #         status = self.ptz_service.GetStatus({"ProfileToken": self.profile_token})
+    #         if not status:
+    #             raise ValueError(
+    #                 "GetStatus() returned None. Check camera connectivity and credentials."
+    #             )
+    #         if not hasattr(status, "Position"):
+    #             raise ValueError(
+    #                 "Status object does not contain a 'Position' attribute."
+    #             )
+
+    #         request.Velocity = status.Position
+    #         request.Velocity.PanTilt.x = pan
+    #         request.Velocity.PanTilt.y = tilt
+    #         request.Velocity.Zoom.x = zoom
+
+    #         self.ptz_service.ContinuousMove(request)
+    #     except exceptions.ONVIFError as e:
+    #         log_event(logger, "error", f"Error in continuous move: {e}", event_type="error")
+
     def continuous_move(self, pan: float, tilt: float, zoom: float) -> None:
         """Execute continuous movement with specified velocities."""
         try:
             request = self.ptz_service.create_type("ContinuousMove")
             request.ProfileToken = self.profile_token
 
-            status = self.ptz_service.GetStatus({"ProfileToken": self.profile_token})
-            if not status:
-                raise ValueError(
-                    "GetStatus() returned None. Check camera connectivity and credentials."
-                )
-            if not hasattr(status, "Position"):
-                raise ValueError(
-                    "Status object does not contain a 'Position' attribute."
-                )
-
-            request.Velocity = status.Position
-            request.Velocity.PanTilt.x = pan
-            request.Velocity.PanTilt.y = tilt
-            request.Velocity.Zoom.x = zoom
+            # Build velocity structure manually instead of using status.Position
+            request.Velocity = {
+                'PanTilt': {'x': pan, 'y': tilt},
+                'Zoom': {'x': zoom}
+            }
 
             self.ptz_service.ContinuousMove(request)
         except exceptions.ONVIFError as e:
