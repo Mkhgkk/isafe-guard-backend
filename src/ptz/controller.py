@@ -12,7 +12,7 @@ class CameraController(ONVIFCameraBase):
     def __init__(self, ip: str, port: int, username: str, password: str, profile_name: Optional[str] = None) -> None:
         super().__init__(ip, port, username, password, profile_name)
 
-    def move_camera(self, direction: str, zoom_amount: Optional[float] = None) -> None:
+    def move_camera(self, direction: str, speed: Optional[float] = None) -> None:
         """Move camera in specified direction or zoom continuously."""
         if direction in ["zoom_in", "zoom_out"]:
             # # Use absolute move for zoom
@@ -26,7 +26,8 @@ class CameraController(ONVIFCameraBase):
                 continuous_move_request = self.ptz_service.create_type("ContinuousMove")
                 continuous_move_request.ProfileToken = self.profile_token
 
-                zoom_speed = 0.5
+                zoom_speed = 0.5 if speed is None else speed
+
                 zoom_velocity = zoom_speed if direction == "zoom_in" else -zoom_speed
 
                 continuous_move_request.Velocity = {
@@ -50,8 +51,11 @@ class CameraController(ONVIFCameraBase):
                     "Zoom": {"x": 0.0},
                 }
 
-                pan_speed = 0.8
-                tilt_speed = 0.8
+                # pan_speed = 0.8
+                # tilt_speed = 0.8
+
+                pan_speed = speed if speed is not None else 0.8
+                tilt_speed = speed if speed is not None else 0.8
 
                 if direction == "up":
                     continuous_move_request.Velocity["PanTilt"]["y"] = tilt_speed

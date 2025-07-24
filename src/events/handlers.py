@@ -177,7 +177,8 @@ class SocketIOHandlers:
             log_event(logger, "warning", "Missing direction in PTZ move request", event_type="warning")
             return
         
-        zoom_amount = data.get("zoom_amount")
+        # zoom_amount = data.get("zoom_amount")
+        speed = data.get("speed", None)
         stop = data.get("stop", False)
         room = self.room_manager.get_ptz_room_name(stream_id)
         
@@ -188,7 +189,7 @@ class SocketIOHandlers:
                 camera_controller.stop_camera()
                 log_event(logger, "info", f"Camera stopped for stream {stream_id}", event_type="info")
             else:
-                camera_controller.move_camera(direction)
+                camera_controller.move_camera(direction, speed=speed)
                 log_event(logger, "info", f"Camera moved {direction} for stream {stream_id}", event_type="info")
         except Exception as e:
             log_event(logger, "error", f"Error controlling camera for stream {stream_id}: {e}", event_type="error")
