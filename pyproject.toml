@@ -17,7 +17,6 @@ apscheduler = "3.11.0"
 flask-cors = "5.0.0"
 pymongo = "4.10.1"
 pytz = "2024.2"
-ultralytics = "8.3.48"
 flask-socketio = "5.4.1"
 marshmallow = "3.23.1"
 onvif-zeep = {git="https://github.com/Mkhgkk/python-onvif-zeep.git", branch="fix/update-xaddr-url-handling"}
@@ -29,9 +28,10 @@ tensorrt = "10.6.0"
 tensorrt-cu12-bindings = "10.6.0"
 tensorrt-cu12-libs = "10.6.0"
 pygobject = "3.40.0"
-gunicorn = "^23.0.0"
-eventlet = "^0.40.1"
-gevent = "^25.5.1"
+gunicorn = "23.0.0"
+eventlet = "0.40.1"
+gevent = "25.5.1"
+ultralytics = "8.3.170"
 
 [build-system]
 requires = ["poetry-core"]

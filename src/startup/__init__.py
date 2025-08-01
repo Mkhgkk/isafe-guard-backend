@@ -72,6 +72,11 @@ def configure_detection_models(precision=DEFAULT_PRECISION):
                 format="engine",
                 half=True,
                 imgsz=640,
+                # dynamic=True,
+                nms=True,
+                conf=0.6,
+                iou=0.45,
+                agnostic_nms=True,  
             )
 
             if exported_engine_path and os.path.isfile(exported_engine_path):
