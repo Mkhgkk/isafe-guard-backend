@@ -32,6 +32,7 @@ gunicorn = "23.0.0"
 eventlet = "0.40.1"
 gevent = "25.5.1"
 ultralytics = "8.3.170"
+tritonclient = {extras = ["all"], version = "2.40.0"}
 
 [build-system]
 requires = ["poetry-core"]
