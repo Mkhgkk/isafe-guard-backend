@@ -41,6 +41,7 @@ class StreamSchema(Schema):
                 "MobileScaffolding",
                 "CuttingWelding",
                 "Fire",
+                "HeavyEquipment"  # Corrected typo from "heavty_equipment" to "HeavYEquipment"
             ]
         ),
     )

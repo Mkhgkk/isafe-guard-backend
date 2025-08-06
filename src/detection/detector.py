@@ -14,12 +14,14 @@ from detection.mobile_scaffolding import detect_mobile_scaffolding
 from detection.ladder import detect_ladder
 from detection.cutting_welding import detect_cutting_welding
 from detection.fire_smoke import detect_fire_smoke
+from detection.heavy_equipment import detect_heavy_equipment
 from ultralytics.engine.results import Results
 
+from config import DEFAULT_PRECISION
 MODELS_PATH = video_directory = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "../models")
 )
-PRECISION = "fp16"
+# PRECISION = "fp16"
 
 
 class Detector:
@@ -32,21 +34,22 @@ class Detector:
         :raises ValueError: If the model name is not recognized.
         """
         model_paths = {
-            "PPE": os.path.join(MODELS_PATH, f"ppe/{PRECISION}/model.engine"),
+            "PPE": os.path.join(MODELS_PATH, f"ppe/{DEFAULT_PRECISION}/model.engine"),
             "PPEAerial": os.path.join(
-                MODELS_PATH, f"ppe_aerial/{PRECISION}/model.engine"
+                MODELS_PATH, f"ppe_aerial/{DEFAULT_PRECISION}/model.engine"
             ),
-            "Ladder": os.path.join(MODELS_PATH, f"ladder/{PRECISION}/model.engine"),
+            "Ladder": os.path.join(MODELS_PATH, f"ladder/{DEFAULT_PRECISION}/model.engine"),
             "MobileScaffolding": os.path.join(
-                MODELS_PATH, f"mobile_scaffolding/{PRECISION}/model.engine"
+                MODELS_PATH, f"mobile_scaffolding/{DEFAULT_PRECISION}/model.engine"
             ),
             "Scaffolding": os.path.join(
-                MODELS_PATH, f"scaffolding/{PRECISION}/model.engine"
+                MODELS_PATH, f"scaffolding/{DEFAULT_PRECISION}/model.engine"
             ),
             "CuttingWelding": os.path.join(
-                MODELS_PATH, f"cutting_welding/{PRECISION}/model.engine"
+                MODELS_PATH, f"cutting_welding/{DEFAULT_PRECISION}/model.engine"
             ),
-            "Fire": os.path.join(MODELS_PATH, f"fire_smoke/{PRECISION}/model.engine"),
+            "Fire": os.path.join(MODELS_PATH, f"fire_smoke/{DEFAULT_PRECISION}/model.engine"),
+            "HeavyEquipment": os.path.join(MODELS_PATH, f"heavy_equipment/{DEFAULT_PRECISION}/model.engine"),
         }
 
         model_path = model_paths.get(self.model_name)
@@ -77,6 +80,8 @@ class Detector:
             result = detect_fire_smoke(frame, results)
         elif self.model_name == "CuttingWelding":
             result = detect_cutting_welding(frame, results)
+        elif self.model_name == "HeavyEquipment":
+            result = detect_heavy_equipment(frame, results)
         else:
             log_event(logger, "error", f"Model name '{self.model_name}' is not recognized.", event_type="error")
             raise ValueError(f"Unknown model name: {self.model_name}")

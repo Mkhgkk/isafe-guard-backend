@@ -44,6 +44,7 @@ def configure_detection_models(precision=DEFAULT_PRECISION):
         "ladder",
         "mobile_scaffolding",
         "scaffolding",
+        "heavy_equipment"
     ]
 
     for model in models:
@@ -70,13 +71,13 @@ def configure_detection_models(precision=DEFAULT_PRECISION):
             log_event(logger, "info", f"Exporting model: {model_path} to TensorRT format", event_type="info")
             exported_engine_path = model_instance.export(
                 format="engine",
-                half=True,
+                half= True if precision == "fp16" else False,
                 imgsz=640,
-                # dynamic=True,
-                nms=True,
-                conf=0.6,
-                iou=0.45,
-                agnostic_nms=True,  
+                dynamic=True,
+                # nms=True,
+                # conf=0.6,
+                # iou=0.45,
+                # agnostic_nms=True,  
             )
 
             if exported_engine_path and os.path.isfile(exported_engine_path):
