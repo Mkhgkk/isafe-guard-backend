@@ -36,7 +36,7 @@ class FrameProcessor:
         self._handle_ptz_tracking(person_bboxes or [])
         
         # Draw status information
-        draw_status_info(processed_frame, reasons, fps)
+        draw_status_info(processed_frame, reasons, fps, len(person_bboxes or []), final_status)
         
         return FrameProcessingResult(
             processed_frame=processed_frame,

@@ -277,7 +277,7 @@ def draw_text_with_freetype(image, text, position, font_height, color=None, thic
             final_color = color if color is not None else (255, 255, 255)
             draw_text_opencv_fallback(image, text, position, final_color)
 
-def draw_status_info(image, reasons=[], fps=None):
+def draw_status_info(image, reasons=[],  fps=None, num_person_bboxes=0, final_status="Safe"):
     """Thread-safe version of draw_status_info"""
     try:
         # Set starting position (y only since x will be calculated for right alignment)
@@ -286,6 +286,7 @@ def draw_status_info(image, reasons=[], fps=None):
         x_pos = 0  # Will be calculated for each text element
 
         font_height = 22
+        section_spacing = line_height * 1.5  # Consistent spacing between sections
         
         # Determine status based on reasons list
         status = "unsafe" if reasons and len(reasons) > 0 else "safe"
@@ -312,7 +313,7 @@ def draw_status_info(image, reasons=[], fps=None):
             status_color,
             -1
         )
-        y_pos += line_height * 1.5
+        y_pos += section_spacing
         
         # Draw reasons if any with adaptive color
         if reasons and len(reasons) > 0:
@@ -335,10 +336,35 @@ def draw_status_info(image, reasons=[], fps=None):
                     None  # Adaptive color
                 )
                 y_pos += line_height
+
+            y_pos += (section_spacing - line_height)  # Adjust for last reason's line_height
+
+        # Draw number of detected persons
+        if num_person_bboxes > 0:
+            draw_text_with_freetype(
+                image,
+                "[worker(s)]",
+                (x_pos, y_pos),
+                font_height,
+                None  # Adaptive color
+            )
+            y_pos += line_height
+            
+            draw_text_with_freetype(
+                image,
+                str(num_person_bboxes),
+                (x_pos, y_pos),
+                font_height,
+                None  # Adaptive color
+            )
+            y_pos += section_spacing
         
         # Draw FPS if provided with adaptive color
         if fps is not None:
-            y_pos += line_height * 0.5  # Add some spacing
+            # Add spacing before FPS if workers section was shown
+            if num_person_bboxes <= 0:
+                y_pos += section_spacing  # Add section spacing if workers section wasn't shown
+            
             draw_text_with_freetype(
                 image,
                 f"{int(fps)} fps",
