@@ -44,7 +44,8 @@ def configure_detection_models(precision=DEFAULT_PRECISION):
         "ladder",
         "mobile_scaffolding",
         "scaffolding",
-        "heavy_equipment"
+        "heavy_equipment",
+        "proximity",
     ]
 
     for model in models:
