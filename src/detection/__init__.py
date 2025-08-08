@@ -289,7 +289,11 @@ def draw_status_info(image, reasons=[],  fps=None, num_person_bboxes=0, final_st
         section_spacing = line_height * 1.5  # Consistent spacing between sections
         
         # Determine status based on reasons list
-        status = "unsafe" if reasons and len(reasons) > 0 else "safe"
+        # status = "unsafe" if reasons and len(reasons) > 0 else "safe"
+        if reasons and len(reasons) > 0:
+            status = "unsafe"
+        else:
+            status = final_status
         
         # Status color is fixed regardless of background (semantic meaning)
         status_color = (0, 0, 255) if status == "unsafe" else (0, 255, 0)  # Red for unsafe, Green for safe
@@ -343,16 +347,7 @@ def draw_status_info(image, reasons=[],  fps=None, num_person_bboxes=0, final_st
         if num_person_bboxes > 0:
             draw_text_with_freetype(
                 image,
-                "[worker(s)]",
-                (x_pos, y_pos),
-                font_height,
-                None  # Adaptive color
-            )
-            y_pos += line_height
-            
-            draw_text_with_freetype(
-                image,
-                str(num_person_bboxes),
+                f"{str(num_person_bboxes)} worker(s)",
                 (x_pos, y_pos),
                 font_height,
                 None  # Adaptive color
@@ -361,10 +356,6 @@ def draw_status_info(image, reasons=[],  fps=None, num_person_bboxes=0, final_st
         
         # Draw FPS if provided with adaptive color
         if fps is not None:
-            # Add spacing before FPS if workers section was shown
-            if num_person_bboxes <= 0:
-                y_pos += section_spacing  # Add section spacing if workers section wasn't shown
-            
             draw_text_with_freetype(
                 image,
                 f"{int(fps)} fps",

@@ -50,7 +50,8 @@ class Detector:
             ),
             "Fire": os.path.join(MODELS_PATH, f"fire_smoke/{DEFAULT_PRECISION}/model.engine"),
             "HeavyEquipment": os.path.join(MODELS_PATH, f"heavy_equipment/{DEFAULT_PRECISION}/model.engine"),
-            "Proximity": os.path.join(MODELS_PATH, f"proximity/{DEFAULT_PRECISION}/model.engine"),
+            "Proximity": os.path.join(MODELS_PATH, f"heavy_equipment/{DEFAULT_PRECISION}/model.engine"),
+            # "Proximity": os.path.join(MODELS_PATH, f"proximity/{DEFAULT_PRECISION}/model.engine"),
         }
 
         model_path = model_paths.get(self.model_name)

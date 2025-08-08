@@ -10,10 +10,42 @@ from detection import draw_text_with_background
 from ultralytics.engine.results import Results
 from config import FRAME_HEIGHT, FRAME_WIDTH
 
-cls_names = ['Worker', 'Hard hat', 'Grab Crane', 'Forklift', 'Signaler', 'Grab Crane Arm']
+# cls_names = ['Worker', 'Hard hat', 'Grab Crane', 'Forklift', 'Signaler', 'Grab Crane Arm']
+cls_names = [
+    "Backhoe loader",
+    "Cement truck", 
+    "Compactor",
+    "Dozer",
+    "Dump truck",
+    "Excavator",
+    "Grader",
+    "Mobile crane",
+    "Tower crane",
+    "Wheel loader",
+    "Worker",
+    "Hard hat",
+    "Red hardhat",
+    "Scaffolds",
+    "Lifted load",
+    "Crane hook",
+    "Hook"
+]
 
 WORKER_CLASSES = ['Worker']
-VEHICLE_CLASSES = ['Forklift', 'Grab Crane', 'Grab Crane Arm']
+# VEHICLE_CLASSES = ['Forklift', 'Grab Crane', 'Grab Crane Arm']
+
+VEHICLE_CLASSES = [
+    "Backhoe loader",
+    "Cement truck",
+    "Compactor",
+    "Dozer",
+    "Dump truck",
+    "Excavator",
+    "Grader",
+    "Mobile crane",
+    "Tower crane",
+    "Wheel loader"
+]
 
 DANGER_DIST_METERS = 2  # in meters
 VEHICLE_MOVING_THRESH = 10
@@ -132,7 +164,7 @@ def detect_proximity(
         elif cls_name == "Hard hat":
             hat_box.append(box)
             cv2.rectangle(image, (box[0], box[1]), (box[2], box[3]), (0, 255, 0), 2)
-        elif cls_name == "Signaler":
+        elif cls_name == "Red hardhat":
             signaler_box.append(box)
             cv2.rectangle(image, (box[0], box[1]), (box[2], box[3]), (255, 255, 0), 2)
 
@@ -282,4 +314,4 @@ def detect_proximity(
 
 
 
-    return final_status, [], []
+    return "unsafe", [], []
