@@ -42,7 +42,8 @@ class StreamSchema(Schema):
                 "CuttingWelding",
                 "Fire",
                 "HeavyEquipment",  
-                "Proximity"  
+                "Proximity",  
+                "Approtium"
             ]
         ),
     )

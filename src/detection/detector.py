@@ -16,6 +16,7 @@ from detection.cutting_welding import detect_cutting_welding
 from detection.fire_smoke import detect_fire_smoke
 from detection.heavy_equipment import detect_heavy_equipment
 from detection.proximity import detect_proximity
+from detection.approtium import detect_approtium
 from ultralytics.engine.results import Results
 
 from config import DEFAULT_PRECISION
@@ -52,6 +53,7 @@ class Detector:
             "HeavyEquipment": os.path.join(MODELS_PATH, f"heavy_equipment/{DEFAULT_PRECISION}/model.engine"),
             "Proximity": os.path.join(MODELS_PATH, f"heavy_equipment/{DEFAULT_PRECISION}/model.engine"),
             # "Proximity": os.path.join(MODELS_PATH, f"proximity/{DEFAULT_PRECISION}/model.engine"),
+            "Approtium": os.path.join(MODELS_PATH, f"approtium/{DEFAULT_PRECISION}/model.engine"),
         }
 
         model_path = model_paths.get(self.model_name)
@@ -86,6 +88,8 @@ class Detector:
             result = detect_heavy_equipment(frame, results)
         elif self.model_name == "Proximity":
             result = detect_proximity(frame, results)
+        elif self.model_name == "Approtium":
+            result = detect_approtium(frame, results)
         else:
             log_event(logger, "error", f"Model name '{self.model_name}' is not recognized.", event_type="error")
             raise ValueError(f"Unknown model name: {self.model_name}")

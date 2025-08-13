@@ -10,7 +10,6 @@ from detection import draw_text_with_background
 from ultralytics.engine.results import Results
 from config import FRAME_HEIGHT, FRAME_WIDTH
 
-# cls_names = ['Worker', 'Hard hat', 'Grab Crane', 'Forklift', 'Signaler', 'Grab Crane Arm']
 cls_names = [
     "Backhoe loader",
     "Cement truck", 
@@ -32,7 +31,6 @@ cls_names = [
 ]
 
 WORKER_CLASSES = ['Worker']
-# VEHICLE_CLASSES = ['Forklift', 'Grab Crane', 'Grab Crane Arm']
 
 VEHICLE_CLASSES = [
     "Backhoe loader",
@@ -93,16 +91,37 @@ def get_vehicle_ground_edges(box):
         np.array([[[x2, y2]]], dtype=np.float32),
     ]
 
-font = cv2.FONT_HERSHEY_SIMPLEX
 prev_time = time.time()
 
 def detect_proximity(
     image: np.ndarray, results: List[Results]
 ) -> Tuple[str, List[str], List[Tuple[int, int, int, int]]]:
-    results = results[0]  # Assuming results is a list of Results objects
+    """
+    Detect proximity violations between workers and heavy equipment/vehicles.
+    
+    Args:
+        image: Input image frame
+        results: YOLO detection results
+        
+    Returns:
+        Tuple of (status, reasons, person_boxes):
+        - status: "Safe" or "UnSafe" 
+        - reasons: List of violation reasons (e.g., ["proximity_violation", "missing_helmet"])
+        - person_boxes: List of detected worker bounding boxes
+    """
     
     final_status = "Safe"
-
+    reasons: List[str] = []
+    person_boxes: List[Tuple[int, int, int, int]] = []
+    
+    # Process all results, not just the first one
+    all_detections = []
+    for result in results:
+        all_detections.extend(result.boxes.data.tolist())
+    
+    if not all_detections:
+        return final_status, reasons, person_boxes
+        
     worker_positions = []
     vehicle_positions = []
     Grab_crane_box, cran_arm_box, forklift_box = [], [], []
@@ -110,11 +129,10 @@ def detect_proximity(
 
 
 
-    dets =  []
+    dets = []
 
-    for result in results.boxes.data: # type: ignore
-        x1, y1, x2, y2, conf, cls = result.tolist()
-        # cls_name = model.names[int(cls)]
+    for detection in all_detections:
+        x1, y1, x2, y2, conf, cls = detection
         cls_name = cls_names[int(cls)]
         box = [int(x1), int(y1), int(x2), int(y2)]
 
@@ -125,10 +143,7 @@ def detect_proximity(
     dets = np.array(dets)
 
     # Update the tracker
-    trk_res = tracker.update(dets, image)  # --> M X (x, y, x, y, id, conf, cls, ind)
-
-
-
+    tracker.update(dets, image)  # --> M X (x, y, x, y, id, conf, cls, ind)
 
     for trk in tracker.active_tracks:
         if not trk.history_observations:
@@ -139,14 +154,11 @@ def detect_proximity(
         box = [int(x) for x in trk.history_observations[-1]]
         if cls_name in VEHICLE_CLASSES:
             cv2.rectangle(image, (box[0], box[1]), (box[2], box[3]), (0, 255, 0), 2)
-            cv2.putText(
+            draw_text_with_background(
                 image,
                 f"{cls_name}_id:{int(trk.id)}",
-                (box[0], box[1] - 5),
-                font,
-                0.6,
-                (0, 255, 0),
-                2,
+                (box[0], box[1] - 10),
+                (0, 255, 0)
             )
             bottom_center = get_bottom_center(box)
             world_center = transform_to_world(bottom_center)
@@ -235,19 +247,31 @@ def detect_proximity(
         cv2.rectangle(
             image, (int(box[0]), int(box[1])), (int(box[2]), int(box[3])), color, 2
         )
-        cv2.putText(image, label, (int(box[0]), int(box[1]) - 10), font, 0.6, color, 2)
+        draw_text_with_background(
+            image, 
+            label, 
+            (int(box[0]), int(box[1]) - 10), 
+            color
+        )
 
         # if label in ['Worker with helmet', 'Worker without helmet']:
         if "Worker with helmet" in label or "Worker without helmet" in label:
             bottom_center = get_bottom_center(box)
-
             world_center = transform_to_world(bottom_center)
             worker_positions.append((world_center, box))
+            
+            # Add to person_boxes for return value
+            person_boxes.append((int(box[0]), int(box[1]), int(box[2]), int(box[3])))
+            
+            # Add safety violations to reasons
+            if "without helmet" in label:
+                if "missing_helmet" not in reasons:
+                    reasons.append("missing_helmet")
 
         
     # ---------------- PROXIMITY CHECK ----------------
     for w_pt, w_box in worker_positions:
-        for v_world_pt, v_box in vehicle_positions:
+        for _, v_box in vehicle_positions:
             # check history:
             if len(v_box.history_observations) < 10:
                 continue
@@ -277,41 +301,28 @@ def detect_proximity(
             color = (0, 0, 255) if dist < DANGER_DIST_METERS else (0, 255, 0)
 
             if dist < DANGER_DIST_METERS:
-                cv2.putText(
+                draw_text_with_background(
                     image,
                     f"ALERT: {dist:.2f}m",
-                    (int(w_box[0]), int(w_box[1]) - 10),
-                    font,
-                    0.6,
-                    color,
-                    2,
+                    (int(w_box[0]), int(w_box[1]) - 30),
+                    (0, 0, 255)
                 )
+                # Add proximity violation to reasons
+                if "proximity_violation" not in reasons:
+                    reasons.append("proximity_violation")
+                final_status = "UnSafe"
 
             pt1 = (int((w_box[0] + w_box[2]) // 2), int(w_box[3]))
             pt2 = (int((v_box1[0] + v_box1[2]) // 2), int(v_box1[3]))
             cv2.line(image, pt1, pt2, color, 2)
-            cv2.putText(
+            draw_text_with_background(
                 image,
                 f"{dist:.2f}m",
                 ((int(pt1[0]) + pt2[0]) // 2, (pt1[1] + pt2[1]) // 2),
-                font,
-                0.6,
-                color,
-                2,
+                color
             )
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-    return "unsafe", [], []
+    # Ensure reasons are unique
+    reasons = list(set(reasons))
+    
+    return final_status, reasons, person_boxes

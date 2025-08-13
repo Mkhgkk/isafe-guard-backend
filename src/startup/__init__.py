@@ -46,6 +46,7 @@ def configure_detection_models(precision=DEFAULT_PRECISION):
         "scaffolding",
         "heavy_equipment",
         "proximity",
+        "approtium",
     ]
 
     for model in models:
