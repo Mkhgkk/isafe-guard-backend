@@ -38,14 +38,14 @@ def detect_approtium(
                         image,
                         (coords[0], coords[1]),
                         (coords[2], coords[3]),
-                        (0, 255, 0),
+                        (255, 0, 255),
                         2,
                     )
                     draw_text_with_background(
                         image,
                         "White helmet",
                         (coords[0], coords[1] - 10),
-                        (0, 0, 255),
+                        (255, 0, 255),
                     )
                     # self.draw_text_with_background(image, f"Hard Hat", (coords[0], coords[1] - 10), font_scale, (0, 255, 0), thickness)
                     hat_boxes.append(coords)
@@ -54,14 +54,14 @@ def detect_approtium(
                         image,
                         (coords[0], coords[1]),
                         (coords[2], coords[3]),
-                        (0, 255, 0),
+                        (255, 0, 255),
                         2,
                     )
                     draw_text_with_background(
                         image,
                         "yellow helmet",
-                        (coords[0],  coords[1] - 10),
-                        (0, 0, 255),
+                        (coords[0], coords[1] - 10),
+                        (255, 0, 255),
                     )
                     # self.draw_text_with_background(image, f"Hard Hat", (coords[0], coords[1] - 10), font_scale, (0, 255, 0), thickness)
                     hat_boxes.append(coords)

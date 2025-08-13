@@ -10,6 +10,9 @@ MODELS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "models"))
 FRAME_WIDTH = 1280
 FRAME_HEIGHT = 720
 
+# FRAME_WIDTH = 1920
+# FRAME_HEIGHT = 1080
+
 RECONNECT_WAIT_TIME_IN_SECS = 5
 
 WATCH_NOTIFICATION_URL = "http://118.67.143.38:7000/external/camera"

@@ -1,8 +1,9 @@
 from ..types import PipelineConfig
 
+
 class PipelineBuilder:
     """Builder class for creating GStreamer pipelines."""
-    
+
     @staticmethod
     def create_primary_pipeline(config: PipelineConfig) -> str:
         """Create the primary GStreamer pipeline with TCP transport."""
@@ -19,7 +20,7 @@ class PipelineBuilder:
             f"! appsink name={config.sink_name} drop=true max-buffers={config.max_buffers} "
             f"emit-signals=true sync=false"
         )
-    
+
     @staticmethod
     def create_alternative_pipeline(config: PipelineConfig) -> str:
         """Create an alternative, more flexible pipeline."""

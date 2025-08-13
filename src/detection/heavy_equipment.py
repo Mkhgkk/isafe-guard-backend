@@ -8,7 +8,7 @@ from ultralytics.engine.results import Results
 def detect_heavy_equipment(
     image: np.ndarray, results: List[Results]
 ) -> Tuple[str, List[str], List[Tuple[int, int, int, int]]]:
-    
+
     person_boxes: List[List[int]] = []
     hat_boxes: List[List[int]] = []
     final_status: str = "Safe"
@@ -19,90 +19,90 @@ def detect_heavy_equipment(
             coords = list(map(int, box[:4]))
             confi = float(box[4])
             clas = int(box[5])
-            if confi > 0.6:
+            if confi > 0.4:
                 cv2.rectangle(
-                        image,
-                        (coords[0], coords[1]),
-                        (coords[2], coords[3]),
-                        (255, 0, 255),
-                        2,
-                    )
-                if clas == 0:  
+                    image,
+                    (coords[0], coords[1]),
+                    (coords[2], coords[3]),
+                    (255, 0, 255),
+                    2,
+                )
+                if clas == 0:
                     draw_text_with_background(
                         image,
                         "backhoe_loader",
                         (coords[0], coords[1] - 10),
-                        (255,0,255),
+                        (255, 0, 255),
                     )
-                elif clas == 1:  
+                elif clas == 1:
                     draw_text_with_background(
                         image,
                         "cement_truck",
                         (coords[0], coords[1] - 10),
-                        (255,0,255),
+                        (255, 0, 255),
                     )
                 elif clas == 2:
                     draw_text_with_background(
                         image,
                         "compactor",
                         (coords[0], coords[1] - 10),
-                        (255,0,255),
+                        (255, 0, 255),
                     )
                 elif clas == 3:
                     draw_text_with_background(
                         image,
                         "dozer",
                         (coords[0], coords[1] - 10),
-                        (255,0,255),
+                        (255, 0, 255),
                     )
                 elif clas == 4:
                     draw_text_with_background(
                         image,
                         "dump_truck",
                         (coords[0], coords[1] - 10),
-                        (255,0,255),
+                        (255, 0, 255),
                     )
                 elif clas == 5:
                     draw_text_with_background(
                         image,
                         "excavator",
                         (coords[0], coords[1] - 10),
-                        (255,0,255),
+                        (255, 0, 255),
                     )
                 elif clas == 6:
                     draw_text_with_background(
                         image,
                         "grader",
                         (coords[0], coords[1] - 10),
-                        (255,0,255),
+                        (255, 0, 255),
                     )
                 elif clas == 7:
                     draw_text_with_background(
                         image,
                         "mobile_crane",
                         (coords[0], coords[1] - 10),
-                        (255,0,255),
+                        (255, 0, 255),
                     )
                 elif clas == 8:
                     draw_text_with_background(
                         image,
                         "tower_crane",
                         (coords[0], coords[1] - 10),
-                        (255,0,255),
+                        (255, 0, 255),
                     )
                 elif clas == 9:
                     draw_text_with_background(
                         image,
                         "wheel_loader",
                         (coords[0], coords[1] - 10),
-                        (255,0,255),
+                        (255, 0, 255),
                     )
                 elif clas == 10:
                     draw_text_with_background(
                         image,
                         "worker",
                         (coords[0], coords[1] - 10),
-                        (255,0,255),
+                        (255, 0, 255),
                     )
                     person_boxes.append(coords)
                 elif clas == 11:
@@ -110,7 +110,7 @@ def detect_heavy_equipment(
                         image,
                         "hard_hat",
                         (coords[0], coords[1] - 10),
-                        (255,0,255),
+                        (255, 0, 255),
                     )
                     hat_boxes.append(coords)
                 elif clas == 12:
@@ -118,7 +118,7 @@ def detect_heavy_equipment(
                         image,
                         "red_hard_hat",
                         (coords[0], coords[1] - 10),
-                        (255,0,255),
+                        (255, 0, 255),
                     )
                     hat_boxes.append(coords)
                 elif clas == 13:
@@ -126,30 +126,29 @@ def detect_heavy_equipment(
                         image,
                         "scaffolding",
                         (coords[0], coords[1] - 10),
-                        (255,0,255),
+                        (255, 0, 255),
                     )
                 elif clas == 14:
                     draw_text_with_background(
                         image,
                         "lifted_load",
                         (coords[0], coords[1] - 10),
-                        (255,0,255),
+                        (255, 0, 255),
                     )
                 elif clas == 15:
                     draw_text_with_background(
                         image,
                         "crane_hook",
                         (coords[0], coords[1] - 10),
-                        (255,0,255),
+                        (255, 0, 255),
                     )
                 elif clas == 16:
                     draw_text_with_background(
                         image,
                         "hook",
                         (coords[0], coords[1] - 10),
-                        (255,0,255),
+                        (255, 0, 255),
                     )
-                
 
     # hard hat detection logic
     for perBox in person_boxes:
@@ -196,4 +195,3 @@ def detect_heavy_equipment(
     ]
 
     return final_status, reasons, bboxes
-       

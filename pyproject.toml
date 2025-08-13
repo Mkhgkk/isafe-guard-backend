@@ -36,6 +36,7 @@ tritonclient = {extras = ["all"], version = "2.40.0"}
 pycuda = "^2025.1.1"
 boxmot = "^15.0.2"
 miniball = "^1.2.0"
+sahi = {git = "https://github.com/Mkhgkk/sahi.git", rev = "feat/tensorrt_ultralytics"}
 
 [build-system]
 requires = ["poetry-core"]
