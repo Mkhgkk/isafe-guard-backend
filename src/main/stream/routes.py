@@ -155,12 +155,14 @@ def set_danger_zone():
     get image data
     get list of of coordinates
     get current ptz location (consider that the camera can be moved)
+    get static mode preference (whether camera is moving or stationary)
     """
     try:
         data = json.loads(request.data)
         image = data.get("image")
         coords = data.get("coords")
         stream_id = data.get("streamId")
+        static_mode = data.get("static", True)  # Default to True (static mode)
         print(data)
 
         parsed_url = urlparse(image)
@@ -177,14 +179,90 @@ def set_danger_zone():
         # safe_area_tracker.update_safe_area(reference_frame, safe_area_box)
         safe_area_tracker = safe_area_trackers[stream_id]
         safe_area_tracker.update_safe_area(reference_frame, safe_area_box)
+        safe_area_tracker.set_static_mode(static_mode)
 
         # Send response
-        return tools.JsonResp({"status": "Success", "message": "ok", "data": "ok"}, 200)
+        return tools.JsonResp({
+            "status": "Success", 
+            "message": "Danger zone updated successfully", 
+            "data": {
+                "static_mode": static_mode,
+                "message": "Camera mode set to {} processing".format("static" if static_mode else "dynamic")
+            }
+        }, 200)
 
     except Exception as e:
         print("An error occurred: ", e)
         traceback.print_exc()
-        return tools.JsonResp({"status": "error", "message": e}, 400)
+        return tools.JsonResp({"status": "error", "message": str(e)}, 400)
+
+
+@stream_blueprint.route("/set_camera_mode", methods=["POST"])
+def set_camera_mode():
+    """
+    Update the camera mode (static or dynamic) for hazard area tracking
+    """
+    try:
+        data = json.loads(request.data)
+        stream_id = data.get("streamId")
+        static_mode = data.get("static", True)
+
+        if stream_id not in safe_area_trackers:
+            return tools.JsonResp({
+                "status": "error", 
+                "message": "Stream not found or tracker not initialized"
+            }, 404)
+
+        safe_area_tracker = safe_area_trackers[stream_id]
+        safe_area_tracker.set_static_mode(static_mode)
+
+        return tools.JsonResp({
+            "status": "Success",
+            "message": "Camera mode updated successfully",
+            "data": {
+                "static_mode": static_mode,
+                "message": "Camera mode set to {} processing".format("static" if static_mode else "dynamic")
+            }
+        }, 200)
+
+    except Exception as e:
+        print("An error occurred: ", e)
+        traceback.print_exc()
+        return tools.JsonResp({"status": "error", "message": str(e)}, 400)
+
+
+@stream_blueprint.route("/get_camera_mode", methods=["POST"])
+def get_camera_mode():
+    """
+    Get the current camera mode (static or dynamic) for hazard area tracking
+    """
+    try:
+        data = json.loads(request.data)
+        stream_id = data.get("streamId")
+
+        if stream_id not in safe_area_trackers:
+            return tools.JsonResp({
+                "status": "error", 
+                "message": "Stream not found or tracker not initialized"
+            }, 404)
+
+        safe_area_tracker = safe_area_trackers[stream_id]
+        static_mode = safe_area_tracker.static
+
+        return tools.JsonResp({
+            "status": "Success",
+            "message": "Camera mode retrieved successfully",
+            "data": {
+                "static_mode": static_mode,
+                "message": "Camera is in {} mode".format("static" if static_mode else "dynamic")
+            }
+        }, 200)
+
+    except Exception as e:
+        print("An error occurred: ", e)
+        traceback.print_exc()
+        return tools.JsonResp({"status": "error", "message": str(e)}, 400)
+
 
 # @stream_blueprint.route("/get_current_ptz_values", methods=["POST"])
 # def get_current_ptz_values():

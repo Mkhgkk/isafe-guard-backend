@@ -52,6 +52,10 @@ class SafeAreaTracker:
         self.frame_counter = 0
         self.last_transformed_areas = []
 
+    def set_static_mode(self, static: bool) -> None:
+        """Update the static mode setting for the tracker."""
+        self.static = static
+
     def draw_safe_area(self, frame: np.ndarray) -> np.ndarray:
         if self.reference_frame is None or not self.safe_area_box:
             return frame
