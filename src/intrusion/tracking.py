@@ -9,12 +9,14 @@ from typing import Optional, List, Tuple, Sequence
 
 
 class SafeAreaTracker:
-    def __init__(self) -> None:
+    def __init__(self, static=True) -> None:
         self.reference_frame: Optional[np.ndarray] = None
         self.homography_buffer: deque[np.ndarray] = deque(maxlen=50)
         self.safe_area_box: Optional[List[np.ndarray]] = None
         self.ref_tensor: Optional[torch.Tensor] = None
-        
+
+        self.static: bool = static
+
         # Frame skipping variables
         self.frame_counter: int = 0
         self.last_transformed_areas: List[np.ndarray] = []
@@ -45,13 +47,26 @@ class SafeAreaTracker:
         self.ref_tensor = frame2tensor(ref_gray, self.device)
 
         self.homography_buffer.clear()
-        
+
         # Reset frame counter when updating safe area
         self.frame_counter = 0
         self.last_transformed_areas = []
 
     def draw_safe_area(self, frame: np.ndarray) -> np.ndarray:
         if self.reference_frame is None or not self.safe_area_box:
+            return frame
+
+        if self.static:
+            # draw safe area on frame and return without further homography processing
+            overlay: np.ndarray = frame.copy()
+
+            for safe_area_box in self.safe_area_box:
+                safe_area_int = np.array(safe_area_box, dtype=np.int32)
+                cv2.fillPoly(overlay, [safe_area_int], (0, 255, 255))
+                cv2.polylines(frame, [safe_area_int], True, (0, 255, 255), 2)
+
+            alpha: float = 0.4
+            frame = cv2.addWeighted(overlay, alpha, frame, 1 - alpha, 0)
             return frame
 
         ref_gray: np.ndarray = cv2.cvtColor(self.reference_frame, cv2.COLOR_BGR2GRAY)
@@ -100,17 +115,24 @@ class SafeAreaTracker:
         return frame
 
     def get_transformed_safe_areas(self, frame: np.ndarray) -> List[np.ndarray]:
+        if self.reference_frame is None or not self.safe_area_box:
+            return []
+
+        if self.static:
+            # return original safe areas without transformation when static
+            return [
+                np.array(safe_area_box, dtype=np.int32)
+                for safe_area_box in self.safe_area_box
+            ]
+
         # Increment frame counter
         self.frame_counter += 1
-        
+
         # Skip two frames (process every third frame)
         if self.frame_counter % 3 != 1:
             return self.last_transformed_areas
-        
+
         transformed_hazard_zones: List[np.ndarray] = []
-        if self.reference_frame is None or not self.safe_area_box:
-            self.last_transformed_areas = []
-            return []
 
         ref_gray: np.ndarray = cv2.cvtColor(self.reference_frame, cv2.COLOR_BGR2GRAY)
         curr_gray: np.ndarray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
