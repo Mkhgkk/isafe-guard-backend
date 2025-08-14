@@ -12,12 +12,13 @@ class FrameProcessor:
     """Handles frame processing logic."""
     
     def __init__(self, detector: Detector, safe_area_tracker: SafeAreaTracker, 
-                 stream_id: str, ptz_autotrack: bool = False):
+                 stream_id: str, ptz_autotrack: bool = False, intrusion_detection: bool = True):
         self.detector = detector
         self.safe_area_tracker = safe_area_tracker
         self.stream_id = stream_id
         self.ptz_autotrack = ptz_autotrack
         self.ptz_auto_tracker = None
+        self.intrusion_detection = intrusion_detection
     
     def process_frame(self, frame: np.ndarray, fps: float) -> FrameProcessingResult:
         """Process a single frame through the complete pipeline."""
@@ -49,6 +50,10 @@ class FrameProcessor:
     def _process_safe_areas(self, processed_frame: np.ndarray, 
                           original_frame: np.ndarray) -> np.ndarray:
         """Process safe areas and draw them on the frame."""
+        # Skip drawing safe areas if intrusion detection is disabled
+        if not self.intrusion_detection:
+            return processed_frame
+            
         transformed_hazard_zones = self.safe_area_tracker.get_transformed_safe_areas(
             original_frame
         )
@@ -59,6 +64,10 @@ class FrameProcessor:
     def _check_intrusions(self, frame: np.ndarray, person_bboxes: List,
                          status: str, reasons: List[str]) -> Tuple[str, List[str]]:
         """Check for intrusions and emit alerts."""
+        # Skip intrusion detection if it's disabled
+        if not self.intrusion_detection:
+            return status, reasons
+            
         transformed_hazard_zones = self.safe_area_tracker.get_transformed_safe_areas(frame)
         intruders = detect_intrusion(transformed_hazard_zones, person_bboxes)
         
@@ -79,3 +88,7 @@ class FrameProcessor:
         """Handle PTZ auto-tracking if enabled."""
         if self.ptz_autotrack and self.ptz_auto_tracker:
             self.ptz_auto_tracker.track(FRAME_WIDTH, FRAME_HEIGHT, person_bboxes)
+    
+    def set_intrusion_detection(self, enabled: bool):
+        """Update the intrusion detection setting dynamically."""
+        self.intrusion_detection = enabled

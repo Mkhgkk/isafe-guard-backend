@@ -72,6 +72,7 @@ class StreamSchema(Schema):
     ptz_username = fields.String()
     patrol_area = fields.Nested(PatrolAreaSchema, missing=None, allow_none=True)
     safe_area = fields.Nested(SafeAreaSchema, missing=None, allow_none=True)
+    intrusion_detection = fields.Boolean(load_default=True)
 
     # class Meta:
     #     unknown = INCLUDE
@@ -688,17 +689,22 @@ class Stream:
         home_zoom: Optional[float] = None,
         patrol_area: Optional[dict] = None,
         safe_area: Optional[dict] = None,
+        intrusion_detection: Optional[bool] = None,
         **kwargs: Any,
     ) -> None:
         supports_ptz = all([cam_ip, ptz_port, ptz_username, ptz_password])
         ptz_autotrack = all([home_pan, home_tilt, home_zoom])
+        
+        # Default intrusion detection to True if not specified
+        if intrusion_detection is None:
+            intrusion_detection = True
 
         if stream_id in streams:
             log_event(logger, "info", f"Stream {stream_id} is already running!", event_type="info")
             return
 
         # Start the video stream immediately
-        video_streaming = StreamManager(rtsp_link, model_name, stream_id, ptz_autotrack)
+        video_streaming = StreamManager(rtsp_link, model_name, stream_id, ptz_autotrack, intrusion_detection)
         video_streaming.start_stream()
         streams[stream_id] = video_streaming
         
@@ -886,6 +892,53 @@ class Stream:
             raise RuntimeError(
                 f"Failed to update RTSP link for stream {stream_id}: {e}"
             )
+
+    def toggle_intrusion_detection(self):
+        """Toggle intrusion detection for a stream."""
+        try:
+            data = self._parse_request_data()
+            stream_id = data.get("stream_id")
+            
+            if not stream_id:
+                return self._create_error_response("Missing stream_id in request data")
+            
+            # Get current stream from database
+            current_stream = self._get_stream_from_db(stream_id)
+            
+            # Toggle the intrusion detection value
+            current_intrusion = current_stream.get("intrusion_detection", True)
+            new_intrusion_value = not current_intrusion
+            
+            # Update in database
+            result = app.db.streams.update_one(
+                {"stream_id": stream_id},
+                {"$set": {"intrusion_detection": new_intrusion_value}}
+            )
+            
+            if result.modified_count == 0:
+                log_event(logger, "warning", f"No document was modified for stream_id: {stream_id}", event_type="warning")
+            
+            # Update running stream if it exists
+            stream_manager = streams.get(stream_id)
+            if stream_manager and stream_manager.running:
+                stream_manager.set_intrusion_detection(new_intrusion_value)
+                log_event(logger, "info", f"Updated running stream intrusion detection for {stream_id}", event_type="info")
+            
+            log_event(logger, "info", f"Intrusion detection toggled for stream {stream_id}: {current_intrusion} -> {new_intrusion_value}", event_type="info")
+            
+            return self._create_success_response(
+                f"Intrusion detection {'enabled' if new_intrusion_value else 'disabled'} for stream {stream_id}",
+                {
+                    "stream_id": stream_id,
+                    "intrusion_detection": new_intrusion_value
+                }
+            )
+            
+        except ValueError as e:
+            return self._create_error_response(str(e), status_code=404 if "not found" in str(e) else 400)
+        except Exception as e:
+            log_event(logger, "error", f"Error toggling intrusion detection: {e}", event_type="error")
+            return self._create_error_response("Failed to toggle intrusion detection", "toggle_intrusion_failed")
 
     @staticmethod
     def start_active_streams():

@@ -22,10 +22,11 @@ class StreamManager:
     """Main class for managing RTSP stream processing."""
     
     def __init__(self, rtsp_link: str, model_name: str, stream_id: str, 
-                 ptz_autotrack: bool = False):
+                 ptz_autotrack: bool = False, intrusion_detection: bool = True):
         self.stream_id = stream_id
         self.rtsp_link = rtsp_link
         self.model_name = model_name
+        self.intrusion_detection = intrusion_detection
         
         # Initialize logger
         self.logger = get_logger(f"StreamManager.{stream_id}")
@@ -94,6 +95,18 @@ class StreamManager:
                 stream_id=self.stream_id
             )
     
+    def set_intrusion_detection(self, enabled: bool):
+        """Update the intrusion detection setting dynamically."""
+        self.intrusion_detection = enabled
+        if hasattr(self, 'frame_processor'):
+            self.frame_processor.set_intrusion_detection(enabled)
+            log_event(
+                self.logger, "info", 
+                f"Intrusion detection {'enabled' if enabled else 'disabled'} for stream {self.stream_id}",
+                event_type="intrusion_detection_updated",
+                stream_id=self.stream_id
+            )
+    
     def _initialize_components(self):
         """Initialize core detection and tracking components."""
         self.detector = Detector(self.model_name)
@@ -115,7 +128,7 @@ class StreamManager:
         """Initialize management components."""
         self.health_monitor = StreamHealthMonitor(self.stream_id, self.pipeline)
         self.frame_processor = FrameProcessor(
-            self.detector, self.safe_area_tracker, self.stream_id, self.ptz_autotrack
+            self.detector, self.safe_area_tracker, self.stream_id, self.ptz_autotrack, self.intrusion_detection
         )
         self.recorder = StreamRecorder(self.event_processor, self.stats)
         self.output_manager = StreamOutputManager(self.stream_id)
