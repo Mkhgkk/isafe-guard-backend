@@ -72,7 +72,7 @@ class StreamSchema(Schema):
     ptz_username = fields.String()
     patrol_area = fields.Nested(PatrolAreaSchema, missing=None, allow_none=True)
     safe_area = fields.Nested(SafeAreaSchema, missing=None, allow_none=True)
-    intrusion_detection = fields.Boolean(load_default=True)
+    intrusion_detection = fields.Boolean(load_default=False)
 
     # class Meta:
     #     unknown = INCLUDE
@@ -695,9 +695,9 @@ class Stream:
         supports_ptz = all([cam_ip, ptz_port, ptz_username, ptz_password])
         ptz_autotrack = all([home_pan, home_tilt, home_zoom])
         
-        # Default intrusion detection to True if not specified
+        # Default intrusion detection to False if not specified
         if intrusion_detection is None:
-            intrusion_detection = True
+            intrusion_detection = False
 
         if stream_id in streams:
             log_event(logger, "info", f"Stream {stream_id} is already running!", event_type="info")
@@ -905,9 +905,16 @@ class Stream:
             # Get current stream from database
             current_stream = self._get_stream_from_db(stream_id)
             
-            # Toggle the intrusion detection value
-            current_intrusion = current_stream.get("intrusion_detection", True)
+            # Check if safe area is configured when trying to enable intrusion detection
+            current_intrusion = current_stream.get("intrusion_detection", False)
             new_intrusion_value = not current_intrusion
+            
+            # If trying to enable intrusion detection, check if safe area is configured
+            if new_intrusion_value and not current_stream.get("safe_area"):
+                return self._create_error_response(
+                    "Please configure a hazard area before enabling intrusion detection",
+                    "hazard_area_required"
+                )
             
             # Update in database
             result = app.db.streams.update_one(

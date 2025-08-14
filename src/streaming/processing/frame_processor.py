@@ -12,7 +12,7 @@ class FrameProcessor:
     """Handles frame processing logic."""
     
     def __init__(self, detector: Detector, safe_area_tracker: SafeAreaTracker, 
-                 stream_id: str, ptz_autotrack: bool = False, intrusion_detection: bool = True):
+                 stream_id: str, ptz_autotrack: bool = False, intrusion_detection: bool = False):
         self.detector = detector
         self.safe_area_tracker = safe_area_tracker
         self.stream_id = stream_id
