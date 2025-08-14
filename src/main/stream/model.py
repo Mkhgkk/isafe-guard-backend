@@ -27,6 +27,19 @@ class PatrolAreaSchema(Schema):
     zoom_level = fields.Float(required=True, validate=validate.Range(min=0.0, max=1.0))
 
 
+class SafeAreaSchema(Schema):
+    """Schema for safe/hazard area configuration."""
+    coords = fields.List(
+        fields.List(fields.Float(), validate=validate.Length(equal=2)),
+        required=True,
+        validate=validate.Length(min=3)  # At least 3 points for a polygon
+    )
+    static_mode = fields.Boolean(load_default=True)
+    reference_image = fields.String()
+    created_at = fields.DateTime()
+    updated_at = fields.DateTime()
+
+
 class StreamSchema(Schema):
     stream_id = fields.String(required=True)
     rtsp_link = fields.String(required=True)
@@ -58,6 +71,7 @@ class StreamSchema(Schema):
     ptz_port = fields.Integer()
     ptz_username = fields.String()
     patrol_area = fields.Nested(PatrolAreaSchema, missing=None, allow_none=True)
+    safe_area = fields.Nested(SafeAreaSchema, missing=None, allow_none=True)
 
     # class Meta:
     #     unknown = INCLUDE
@@ -506,6 +520,159 @@ class Stream:
                 500
             )
 
+    def save_safe_area(self):
+        """Save safe area configuration to database and update active stream."""
+        try:
+            data = self._parse_request_data()
+            stream_id = data.get("streamId")
+            coords = data.get("coords")
+            static_mode = data.get("static", True)
+            reference_image = data.get("image")
+            
+            # Validate required fields
+            if not stream_id:
+                return tools.JsonResp(
+                    {"status": "error", "message": "Missing streamId in request data"},
+                    400,
+                )
+            
+            if not coords:
+                return tools.JsonResp(
+                    {"status": "error", "message": "Missing coords in request data"},
+                    400,
+                )
+            
+            # Create safe area data structure
+            from datetime import datetime
+            safe_area_data = {
+                "coords": coords,
+                "static_mode": static_mode,
+                "reference_image": reference_image,
+                "updated_at": datetime.utcnow()
+            }
+            
+            # If no existing safe area, add created_at
+            existing_stream = self._get_stream_from_db(stream_id)
+            if not existing_stream.get("safe_area"):
+                safe_area_data["created_at"] = datetime.utcnow()
+            
+            # Validate safe area structure
+            safe_area_schema = SafeAreaSchema()
+            
+            try:
+                validated_safe_area = safe_area_schema.load(safe_area_data)
+            except ValidationError as e:
+                return tools.JsonResp(
+                    {
+                        "status": "error", 
+                        "message": "Invalid safe area data", 
+                        "errors": e.messages
+                    },
+                    400,
+                )
+            
+            # Update safe area in database
+            result = app.db.streams.update_one(
+                {"stream_id": stream_id},
+                {"$set": {"safe_area": validated_safe_area}}
+            )
+            
+            if result.modified_count == 0:
+                log_event(logger, "warning", f"No document was modified for stream_id: {stream_id}", event_type="warning")
+            
+            # Update the SafeAreaTracker for active stream
+            from main.shared import safe_area_trackers
+            if stream_id in safe_area_trackers:
+                safe_area_tracker = safe_area_trackers[stream_id]
+                safe_area_tracker.set_static_mode(static_mode)
+                log_event(logger, "info", f"Updated SafeAreaTracker static mode for active stream: {stream_id}", event_type="info")
+            
+            log_event(logger, "info", f"Safe area saved successfully for stream: {stream_id}", event_type="info")
+            
+            return tools.JsonResp(
+                {
+                    "status": "success", 
+                    "message": "Safe area saved successfully",
+                    "data": {
+                        "stream_id": stream_id,
+                        "safe_area": validated_safe_area
+                    }
+                }, 
+                200
+            )
+            
+        except ValueError as e:
+            return tools.JsonResp(
+                {"status": "error", "message": str(e)}, 
+                404 if "not found" in str(e) else 400
+            )
+        except Exception as e:
+            log_event(logger, "error", f"Error saving safe area: {e}", event_type="error")
+            return tools.JsonResp(
+                {"status": "error", "message": f"Failed to save safe area: {str(e)}"}, 
+                500
+            )
+
+    def get_safe_area(self):
+        """Get saved safe area configuration from database."""
+        try:
+            data = self._parse_request_data()
+            stream_id = data.get("streamId")
+            
+            # Validate required fields
+            if not stream_id:
+                return tools.JsonResp(
+                    {"status": "error", "message": "Missing streamId in request data"},
+                    400,
+                )
+            
+            # Get stream from database
+            stream = self._get_stream_from_db(stream_id)
+            
+            # Get safe area from stream data
+            safe_area = stream.get("safe_area")
+            
+            if safe_area is None:
+                return tools.JsonResp(
+                    {
+                        "status": "success", 
+                        "message": "No safe area configured for this stream",
+                        "data": {
+                            "stream_id": stream_id,
+                            "safe_area": None,
+                            "static_mode": True  # Default to static
+                        }
+                    }, 
+                    200
+                )
+            
+            log_event(logger, "info", f"Retrieved safe area for stream: {stream_id}", event_type="info")
+            
+            return tools.JsonResp(
+                {
+                    "status": "success", 
+                    "message": "Safe area retrieved successfully",
+                    "data": {
+                        "stream_id": stream_id,
+                        "safe_area": safe_area,
+                        "static_mode": safe_area.get("static_mode", True)
+                    }
+                }, 
+                200
+            )
+            
+        except ValueError as e:
+            return tools.JsonResp(
+                {"status": "error", "message": str(e)}, 
+                404 if "not found" in str(e) else 400
+            )
+        except Exception as e:
+            log_event(logger, "error", f"Error retrieving safe area: {e}", event_type="error")
+            return tools.JsonResp(
+                {"status": "error", "message": f"Failed to retrieve safe area: {str(e)}"}, 
+                500
+            )
+
     @staticmethod
     def start_stream(
         rtsp_link: str,
@@ -520,6 +687,7 @@ class Stream:
         home_tilt: Optional[float] = None,
         home_zoom: Optional[float] = None,
         patrol_area: Optional[dict] = None,
+        safe_area: Optional[dict] = None,
         **kwargs: Any,
     ) -> None:
         supports_ptz = all([cam_ip, ptz_port, ptz_username, ptz_password])
@@ -533,6 +701,69 @@ class Stream:
         video_streaming = StreamManager(rtsp_link, model_name, stream_id, ptz_autotrack)
         video_streaming.start_stream()
         streams[stream_id] = video_streaming
+        
+        # Initialize SafeAreaTracker with saved data if available
+        # The SafeAreaTracker is now guaranteed to be in the dictionary since StreamManager is created
+        from main.shared import safe_area_trackers
+        
+        # Debug logging
+        log_event(logger, "info", f"Stream startup debug for {stream_id}: safe_area={'exists' if safe_area else 'None'}, tracker_in_dict={stream_id in safe_area_trackers}", event_type="info")
+        if safe_area:
+            log_event(logger, "info", f"Safe area data: static_mode={safe_area.get('static_mode', 'missing')}, coords_count={len(safe_area.get('coords', []))}, ref_image={safe_area.get('reference_image', 'missing')}", event_type="info")
+        
+        if safe_area and stream_id in safe_area_trackers:
+            safe_area_tracker = safe_area_trackers[stream_id]
+            try:
+                # Set static mode from database
+                static_mode = safe_area.get("static_mode", True)
+                safe_area_tracker.set_static_mode(static_mode)
+                
+                # Load safe area coordinates if they exist
+                coords = safe_area.get("coords")
+                reference_image = safe_area.get("reference_image")
+                
+                if coords and len(coords) > 0:
+                    # Try to load reference frame and set up safe area
+                    if reference_image:
+                        try:
+                            import cv2
+                            import os
+                            from urllib.parse import urlparse
+                            
+                            # Parse the reference image path using same logic as routes.py
+                            parsed_url = urlparse(reference_image)
+                            file_name = os.path.basename(parsed_url.path)
+                            
+                            # Use same path construction as in routes.py
+                            REFERENCE_FRAME_DIR = "../static/frame_refs"
+                            image_path = os.path.join(
+                                os.path.dirname(__file__), REFERENCE_FRAME_DIR, file_name
+                            )
+                            
+                            log_event(logger, "info", f"Attempting to load reference image for {stream_id}: {image_path} (from {reference_image})", event_type="info")
+                            
+                            # Load the reference frame
+                            reference_frame = cv2.imread(image_path)
+                            if reference_frame is not None:
+                                safe_area_tracker.update_safe_area(reference_frame, coords)
+                                log_event(logger, "info", f"Loaded safe area with {len(coords)} zones and reference frame for stream {stream_id}", event_type="info")
+                            else:
+                                log_event(logger, "warning", f"Could not load reference frame for stream {stream_id}: {image_path}", event_type="warning")
+                        except Exception as img_e:
+                            log_event(logger, "warning", f"Failed to load reference frame for stream {stream_id}: {img_e}", event_type="warning")
+                    
+                    log_event(logger, "info", f"Loaded safe area static mode ({static_mode}) with {len(coords)} coordinate zones for stream {stream_id}", event_type="info")
+                else:
+                    log_event(logger, "info", f"Loaded safe area static mode ({static_mode}) for stream {stream_id} (no coordinates)", event_type="info")
+                    
+            except Exception as e:
+                log_event(logger, "warning", f"Failed to initialize safe area for stream {stream_id}: {e}", event_type="warning")
+        elif safe_area:
+            log_event(logger, "warning", f"Safe area data exists for stream {stream_id} but SafeAreaTracker not found in registry", event_type="warning")
+        elif stream_id in safe_area_trackers:
+            log_event(logger, "info", f"SafeAreaTracker exists for stream {stream_id} but no safe area data in database", event_type="info")
+        else:
+            log_event(logger, "info", f"No safe area configuration found for stream {stream_id} and no tracker registered", event_type="info")
         
         # Update the database to mark stream as active
         try:

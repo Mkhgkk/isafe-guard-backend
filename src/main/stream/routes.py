@@ -156,6 +156,7 @@ def set_danger_zone():
     get list of of coordinates
     get current ptz location (consider that the camera can be moved)
     get static mode preference (whether camera is moving or stationary)
+    Save to database and update in-memory tracker
     """
     try:
         data = json.loads(request.data)
@@ -164,6 +165,50 @@ def set_danger_zone():
         stream_id = data.get("streamId")
         static_mode = data.get("static", True)  # Default to True (static mode)
         print(data)
+
+        # Save to database first using the Stream model's save method
+        stream_model = Stream()
+        
+        # Create safe area data structure
+        from datetime import datetime, timezone
+        from flask import current_app as app
+        
+        # Validate required fields
+        if not stream_id or not coords:
+            return tools.JsonResp({
+                "status": "error", 
+                "message": "Missing required fields: streamId or coords"
+            }, 400)
+        
+        # Check if stream exists
+        existing_stream = app.db.streams.find_one({"stream_id": stream_id})
+        if not existing_stream:
+            return tools.JsonResp({
+                "status": "error", 
+                "message": "Stream not found"
+            }, 404)
+
+        safe_area_data = {
+            "coords": coords,
+            "static_mode": static_mode,
+            "reference_image": image,
+            "updated_at": datetime.now(timezone.utc)
+        }
+        
+        # If no existing safe area, add created_at
+        if not existing_stream.get("safe_area"):
+            safe_area_data["created_at"] = datetime.now(timezone.utc)
+        
+        # Update safe area in database
+        result = app.db.streams.update_one(
+            {"stream_id": stream_id},
+            {"$set": {"safe_area": safe_area_data}}
+        )
+        
+        if result.modified_count == 0:
+            logger.warning(f"No document was modified for stream_id: {stream_id}")
+        
+        logger.info(f"Safe area saved successfully for stream: {stream_id}")
 
         parsed_url = urlparse(image)
         path = parsed_url.path
@@ -176,10 +221,11 @@ def set_danger_zone():
         reference_frame = cv2.imread(image_path)
         safe_area_box = coords
 
-        # safe_area_tracker.update_safe_area(reference_frame, safe_area_box)
-        safe_area_tracker = safe_area_trackers[stream_id]
-        safe_area_tracker.update_safe_area(reference_frame, safe_area_box)
-        safe_area_tracker.set_static_mode(static_mode)
+        # Update in-memory tracker if stream is active
+        if stream_id in safe_area_trackers:
+            safe_area_tracker = safe_area_trackers[stream_id]
+            safe_area_tracker.update_safe_area(reference_frame, safe_area_box)
+            safe_area_tracker.set_static_mode(static_mode)
 
         # Send response
         return tools.JsonResp({
@@ -207,14 +253,51 @@ def set_camera_mode():
         stream_id = data.get("streamId")
         static_mode = data.get("static", True)
 
-        if stream_id not in safe_area_trackers:
+        # Update database - create minimal safe area entry if none exists
+        from flask import current_app as app
+        stream_doc = app.db.streams.find_one({"stream_id": stream_id})
+        if not stream_doc:
             return tools.JsonResp({
                 "status": "error", 
-                "message": "Stream not found or tracker not initialized"
+                "message": "Stream not found"
             }, 404)
 
-        safe_area_tracker = safe_area_trackers[stream_id]
-        safe_area_tracker.set_static_mode(static_mode)
+        # Update or create safe area with new static mode
+        from datetime import datetime, timezone
+        if stream_doc.get("safe_area"):
+            # Update existing safe area
+            result = app.db.streams.update_one(
+                {"stream_id": stream_id},
+                {
+                    "$set": {
+                        "safe_area.static_mode": static_mode,
+                        "safe_area.updated_at": datetime.now(timezone.utc)
+                    }
+                }
+            )
+            if result.modified_count == 0:
+                logger.warning(f"No document was modified when updating static mode for stream_id: {stream_id}")
+        else:
+            # Create minimal safe area entry
+            safe_area_data = {
+                "static_mode": static_mode,
+                "coords": [],
+                "created_at": datetime.now(timezone.utc),
+                "updated_at": datetime.now(timezone.utc)
+            }
+            result = app.db.streams.update_one(
+                {"stream_id": stream_id},
+                {"$set": {"safe_area": safe_area_data}}
+            )
+            if result.modified_count == 0:
+                logger.warning(f"No document was created when setting static mode for stream_id: {stream_id}")
+
+        logger.info(f"Static mode updated to {static_mode} for stream: {stream_id}")
+
+        # Update in-memory tracker if active
+        if stream_id in safe_area_trackers:
+            safe_area_tracker = safe_area_trackers[stream_id]
+            safe_area_tracker.set_static_mode(static_mode)
 
         return tools.JsonResp({
             "status": "Success",
@@ -240,14 +323,18 @@ def get_camera_mode():
         data = json.loads(request.data)
         stream_id = data.get("streamId")
 
-        if stream_id not in safe_area_trackers:
+        # Get from database
+        from flask import current_app as app
+        stream_doc = app.db.streams.find_one({"stream_id": stream_id})
+        if not stream_doc:
             return tools.JsonResp({
                 "status": "error", 
-                "message": "Stream not found or tracker not initialized"
+                "message": "Stream not found"
             }, 404)
 
-        safe_area_tracker = safe_area_trackers[stream_id]
-        static_mode = safe_area_tracker.static
+        # Get static mode from database, default to True
+        safe_area = stream_doc.get("safe_area", {})
+        static_mode = safe_area.get("static_mode", True)
 
         return tools.JsonResp({
             "status": "Success",
@@ -262,6 +349,12 @@ def get_camera_mode():
         print("An error occurred: ", e)
         traceback.print_exc()
         return tools.JsonResp({"status": "error", "message": str(e)}, 400)
+
+
+@stream_blueprint.route("/get_safe_area", methods=["POST"])
+def get_safe_area():
+    """Get saved safe area configuration from database."""
+    return Stream().get_safe_area()
 
 
 # @stream_blueprint.route("/get_current_ptz_values", methods=["POST"])
