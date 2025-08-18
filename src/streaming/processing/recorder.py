@@ -10,9 +10,14 @@ from ..types import StreamStats
 class StreamRecorder:
     """Handles video recording logic."""
     
-    def __init__(self, event_processor: EventProcessor, stats: StreamStats):
+    def __init__(self, event_processor: EventProcessor, stats: StreamStats, saving_video: bool = False):
         self.event_processor = event_processor
         self.stats = stats
+        self.saving_video = saving_video
+    
+    def set_saving_video(self, enabled: bool):
+        """Update the saving video setting."""
+        self.saving_video = enabled
     
     def handle_recording(self, frame: np.ndarray, processing_result: FrameProcessingResult):
         """Handle recording logic for the current frame."""
@@ -24,6 +29,10 @@ class StreamRecorder:
     def _check_start_recording(self, frame: np.ndarray, 
                              processing_result: FrameProcessingResult):
         """Check if recording should be started."""
+        # Don't start recording if saving_video is disabled
+        if not self.saving_video:
+            return
+            
         if (not self.event_processor.recording_state.is_recording and
             self.stats.total_frames % DEFAULT_FRAME_INTERVAL == 0):
             

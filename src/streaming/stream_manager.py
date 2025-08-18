@@ -22,11 +22,12 @@ class StreamManager:
     """Main class for managing RTSP stream processing."""
     
     def __init__(self, rtsp_link: str, model_name: str, stream_id: str, 
-                 ptz_autotrack: bool = False, intrusion_detection: bool = False):
+                 ptz_autotrack: bool = False, intrusion_detection: bool = False, saving_video: bool = False):
         self.stream_id = stream_id
         self.rtsp_link = rtsp_link
         self.model_name = model_name
         self.intrusion_detection = intrusion_detection
+        self.saving_video = saving_video
         
         # Initialize logger
         self.logger = get_logger(f"StreamManager.{stream_id}")
@@ -106,6 +107,27 @@ class StreamManager:
                 event_type="intrusion_detection_updated",
                 stream_id=self.stream_id
             )
+
+    def set_saving_video(self, enabled: bool):
+        """Update the saving video setting dynamically."""
+        self.saving_video = enabled
+        if hasattr(self, 'recorder'):
+            self.recorder.set_saving_video(enabled)
+            # If disabling saving video, stop any current recording
+            if not enabled and self.recorder.event_processor.recording_state.is_recording:
+                self.recorder.event_processor.stop_recording()
+                log_event(
+                    self.logger, "info", 
+                    f"Stopped active recording due to saving video being disabled for stream {self.stream_id}",
+                    event_type="recording_stopped",
+                    stream_id=self.stream_id
+                )
+        log_event(
+            self.logger, "info", 
+            f"Saving video {'enabled' if enabled else 'disabled'} for stream {self.stream_id}",
+            event_type="saving_video_updated",
+            stream_id=self.stream_id
+        )
     
     def _initialize_components(self):
         """Initialize core detection and tracking components."""
@@ -130,7 +152,7 @@ class StreamManager:
         self.frame_processor = FrameProcessor(
             self.detector, self.safe_area_tracker, self.stream_id, self.ptz_autotrack, self.intrusion_detection
         )
-        self.recorder = StreamRecorder(self.event_processor, self.stats)
+        self.recorder = StreamRecorder(self.event_processor, self.stats, self.saving_video)
         self.output_manager = StreamOutputManager(self.stream_id)
     
     def start_stream(self):

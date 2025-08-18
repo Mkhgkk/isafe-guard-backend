@@ -44,6 +44,11 @@ def toggle_intrusion_detection():
     return Stream().toggle_intrusion_detection()
 
 
+@stream_blueprint.route("/toggle_saving_video", methods=["POST"])
+def toggle_saving_video():
+    return Stream().toggle_saving_video()
+
+
 def stream_video(file_path):
     def generate():
         with open(file_path, "rb") as video_file:

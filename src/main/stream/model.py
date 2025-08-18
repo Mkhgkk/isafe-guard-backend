@@ -73,6 +73,7 @@ class StreamSchema(Schema):
     patrol_area = fields.Nested(PatrolAreaSchema, missing=None, allow_none=True)
     safe_area = fields.Nested(SafeAreaSchema, missing=None, allow_none=True)
     intrusion_detection = fields.Boolean(load_default=False)
+    saving_video = fields.Boolean(load_default=False)
 
     # class Meta:
     #     unknown = INCLUDE
@@ -690,6 +691,7 @@ class Stream:
         patrol_area: Optional[dict] = None,
         safe_area: Optional[dict] = None,
         intrusion_detection: Optional[bool] = None,
+        saving_video: Optional[bool] = None,
         **kwargs: Any,
     ) -> None:
         supports_ptz = all([cam_ip, ptz_port, ptz_username, ptz_password])
@@ -698,13 +700,17 @@ class Stream:
         # Default intrusion detection to False if not specified
         if intrusion_detection is None:
             intrusion_detection = False
+        
+        # Default saving video to False if not specified
+        if saving_video is None:
+            saving_video = False
 
         if stream_id in streams:
             log_event(logger, "info", f"Stream {stream_id} is already running!", event_type="info")
             return
 
         # Start the video stream immediately
-        video_streaming = StreamManager(rtsp_link, model_name, stream_id, ptz_autotrack, intrusion_detection)
+        video_streaming = StreamManager(rtsp_link, model_name, stream_id, ptz_autotrack, intrusion_detection, saving_video)
         video_streaming.start_stream()
         streams[stream_id] = video_streaming
         
@@ -946,6 +952,53 @@ class Stream:
         except Exception as e:
             log_event(logger, "error", f"Error toggling intrusion detection: {e}", event_type="error")
             return self._create_error_response("Failed to toggle intrusion detection", "toggle_intrusion_failed")
+
+    def toggle_saving_video(self):
+        """Toggle saving video for a stream."""
+        try:
+            data = self._parse_request_data()
+            stream_id = data.get("stream_id")
+            
+            if not stream_id:
+                return self._create_error_response("Missing stream_id in request data")
+            
+            # Get current stream from database
+            current_stream = self._get_stream_from_db(stream_id)
+            
+            # Toggle saving video state
+            current_saving_video = current_stream.get("saving_video", False)
+            new_saving_video_value = not current_saving_video
+            
+            # Update in database
+            result = app.db.streams.update_one(
+                {"stream_id": stream_id},
+                {"$set": {"saving_video": new_saving_video_value}}
+            )
+            
+            if result.modified_count == 0:
+                log_event(logger, "warning", f"No document was modified for stream_id: {stream_id}", event_type="warning")
+            
+            # Update running stream if it exists
+            stream_manager = streams.get(stream_id)
+            if stream_manager and stream_manager.running:
+                stream_manager.set_saving_video(new_saving_video_value)
+                log_event(logger, "info", f"Updated running stream saving video for {stream_id}", event_type="info")
+            
+            log_event(logger, "info", f"Saving video toggled for stream {stream_id}: {current_saving_video} -> {new_saving_video_value}", event_type="info")
+            
+            return self._create_success_response(
+                f"Saving video {'enabled' if new_saving_video_value else 'disabled'} for stream {stream_id}",
+                {
+                    "stream_id": stream_id,
+                    "saving_video": new_saving_video_value
+                }
+            )
+            
+        except ValueError as e:
+            return self._create_error_response(str(e), status_code=404 if "not found" in str(e) else 400)
+        except Exception as e:
+            log_event(logger, "error", f"Error toggling saving video: {e}", event_type="error")
+            return self._create_error_response("Failed to toggle saving video", "toggle_saving_video_failed")
 
     @staticmethod
     def start_active_streams():
