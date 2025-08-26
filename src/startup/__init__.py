@@ -9,6 +9,8 @@ from config import DEFAULT_PRECISION, BASE_DIR
 
 logger = get_logger(__name__)
 
+USE_NPU = os.getenv("USE_NPU", "false").lower() == "false"
+
 MODELS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../models"))
 NAMESPACE = "/default"
 
@@ -36,6 +38,16 @@ def configure_detection_models(precision=DEFAULT_PRECISION):
     - Check if .pt models exist; if not download the models
     - Check respective precision directory for .engine model; if not export .engine
     """
+    if USE_NPU:
+        # Do some setup for NPU if needed i.e. exit program if weights are not configured properly etc.
+        log_event(
+            logger,
+            "info",
+            "NPU is enabled. Skipping TensorRT engine export.",
+            event_type="info",
+        )
+        return
+
     models = [
         "ppe",
         "ppe_aerial",
@@ -70,16 +82,21 @@ def configure_detection_models(precision=DEFAULT_PRECISION):
 
             model_instance = YOLO(model_path, task="detect")
 
-            log_event(logger, "info", f"Exporting model: {model_path} to TensorRT format", event_type="info")
+            log_event(
+                logger,
+                "info",
+                f"Exporting model: {model_path} to TensorRT format",
+                event_type="info",
+            )
             exported_engine_path = model_instance.export(
                 format="engine",
-                half= True if precision == "fp16" else False,
+                half=True if precision == "fp16" else False,
                 imgsz=640,
                 dynamic=True,
                 # nms=True,
                 # conf=0.6,
                 # iou=0.45,
-                # agnostic_nms=True,  
+                # agnostic_nms=True,
             )
 
             if exported_engine_path and os.path.isfile(exported_engine_path):
@@ -104,5 +121,5 @@ def get_system_utilization():
     emit_event(
         event_type=EventType.SYSTEM_STATUS,
         data={"cpu": cpu_usage, "gpu": gpu_usage},
-        broadcast=True 
+        broadcast=True,
     )
