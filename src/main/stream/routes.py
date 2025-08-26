@@ -75,14 +75,34 @@ def change_autotrack():
                 },
                 400,
             )
-        
+
         if not video_streaming.ptz_auto_tracker:
             return tools.JsonResp(
-                {"status": "error", "message": "This stream does not support ptz auto tracking!"}, 400
-            ) 
-        
+                {
+                    "status": "error",
+                    "message": "This stream does not support ptz auto tracking!",
+                },
+                400,
+            )
+
         video_streaming.ptz_autotrack = not video_streaming.ptz_autotrack
 
+        if video_streaming.ptz_autotrack:
+            if video_streaming.camera_controller and video_streaming.ptz_auto_tracker:
+                # obtain current ptz coordinates
+                camera_controller = video_streaming.camera_controller
+                pan, tilt, zoom = camera_controller.get_current_position()
+
+                # set these coordinates and default position
+                video_streaming.ptz_auto_tracker.update_default_position(
+                    pan, tilt, zoom
+                )
+        else:
+            # stop stop tracking
+            if video_streaming.ptz_auto_tracker:
+                video_streaming.ptz_auto_tracker.reset_camera_position()
+
+        # # Start patrol
         # if video_streaming.ptz_autotrack:
         #     if video_streaming.camera_controller and video_streaming.ptz_auto_tracker:
         #         # obtain current ptz coordinates
@@ -91,47 +111,30 @@ def change_autotrack():
 
         #         # set these coordinates and default position
         #         video_streaming.ptz_auto_tracker.update_default_position(pan, tilt, zoom)
-        # else: 
-        #     # stop stop tracking
-        #     if video_streaming.ptz_auto_tracker:
-        #         video_streaming.ptz_auto_tracker.reset_camera_position()
-            
 
-        # Start patrol
-        if video_streaming.ptz_autotrack:
-            if video_streaming.camera_controller and video_streaming.ptz_auto_tracker:
-                # obtain current ptz coordinates
-                camera_controller = video_streaming.camera_controller
-                pan, tilt, zoom = camera_controller.get_current_position()
+        #         # video_streaming.ptz_auto_tracker.set_patrol_parameters(x_step=0.02, y_step=0.05, dwell_time=3.0)
+        #         # video_streaming.ptz_auto_tracker.start_patrol(direction="vertical")
 
-                # set these coordinates and default position
-                video_streaming.ptz_auto_tracker.update_default_position(pan, tilt, zoom)
+        #         # TODO:
+        #         # sort yMin and yMax to work with both cameras
 
-                # video_streaming.ptz_auto_tracker.set_patrol_parameters(x_step=0.02, y_step=0.05, dwell_time=3.0)
-                # video_streaming.ptz_auto_tracker.start_patrol(direction="vertical")
+        #         # video_streaming.ptz_auto_tracker.set_patrol_area({'zoom_level': 0.066, 'xMin': -0.43849999999999967, 'xMax': 0.6418333333333334, 'yMin': 1, 'yMax': 0.01904761904761898})
+        #         # video_streaming.ptz_auto_tracker.set_patrol_area({'zoom_level': 0.11, 'xMin': -0.485888898, 'xMax': 0.462777704, 'yMin': -1, 'yMax': 0.377272725})
+        #         # video_streaming.ptz_auto_tracker.set_patrol_area({'zoom_level': 0.11, 'xMin': -0.485888898, 'xMax': 0.462777704, 'yMin': 0.377272725, 'yMax': -1}) # working patrol area for unv camera
+        #         video_streaming.ptz_auto_tracker.set_patrol_parameters(focus_max_zoom=1.0)
 
-                # TODO:
-                # sort yMin and yMax to work with both cameras
+        #         # video_streaming.ptz_auto_tracker.configure_patrol_grid(3, 2)
+        #         video_streaming.ptz_auto_tracker.set_patrol_parameters(x_positions=10, y_positions=4, dwell_time=1.5)
+        #         video_streaming.ptz_auto_tracker.start_patrol("horizontal")
 
-                # video_streaming.ptz_auto_tracker.set_patrol_area({'zoom_level': 0.066, 'xMin': -0.43849999999999967, 'xMax': 0.6418333333333334, 'yMin': 1, 'yMax': 0.01904761904761898})
-                # video_streaming.ptz_auto_tracker.set_patrol_area({'zoom_level': 0.11, 'xMin': -0.485888898, 'xMax': 0.462777704, 'yMin': -1, 'yMax': 0.377272725})
-                # video_streaming.ptz_auto_tracker.set_patrol_area({'zoom_level': 0.11, 'xMin': -0.485888898, 'xMax': 0.462777704, 'yMin': 0.377272725, 'yMax': -1}) # working patrol area for unv camera
-                video_streaming.ptz_auto_tracker.set_patrol_parameters(focus_max_zoom=1.0)
-
-                # video_streaming.ptz_auto_tracker.configure_patrol_grid(3, 2)
-                video_streaming.ptz_auto_tracker.set_patrol_parameters(x_positions=10, y_positions=4, dwell_time=1.5)
-                video_streaming.ptz_auto_tracker.start_patrol("horizontal")
-
-        else:
-            video_streaming.ptz_auto_tracker.stop_patrol()
-            video_streaming.ptz_auto_tracker.reset_camera_position()
-
-
+        # else:
+        #     video_streaming.ptz_auto_tracker.stop_patrol()
+        #     video_streaming.ptz_auto_tracker.reset_camera_position()
 
         # emit change autotrack change
         room = f"ptz-{stream_id}"
         data = {"ptz_autotrack": video_streaming.ptz_autotrack}
-        emit_event(event_type=EventType.PTZ_AUTOTRACK, data=data, room=room )
+        emit_event(event_type=EventType.PTZ_AUTOTRACK, data=data, room=room)
 
         return tools.JsonResp(
             {
@@ -178,46 +181,47 @@ def set_danger_zone():
 
         # Save to database first using the Stream model's save method
         stream_model = Stream()
-        
+
         # Create safe area data structure
         from datetime import datetime, timezone
         from flask import current_app as app
-        
+
         # Validate required fields
         if not stream_id or not coords:
-            return tools.JsonResp({
-                "status": "error", 
-                "message": "Missing required fields: streamId or coords"
-            }, 400)
-        
+            return tools.JsonResp(
+                {
+                    "status": "error",
+                    "message": "Missing required fields: streamId or coords",
+                },
+                400,
+            )
+
         # Check if stream exists
         existing_stream = app.db.streams.find_one({"stream_id": stream_id})
         if not existing_stream:
-            return tools.JsonResp({
-                "status": "error", 
-                "message": "Stream not found"
-            }, 404)
+            return tools.JsonResp(
+                {"status": "error", "message": "Stream not found"}, 404
+            )
 
         safe_area_data = {
             "coords": coords,
             "static_mode": static_mode,
             "reference_image": image,
-            "updated_at": datetime.now(timezone.utc)
+            "updated_at": datetime.now(timezone.utc),
         }
-        
+
         # If no existing safe area, add created_at
         if not existing_stream.get("safe_area"):
             safe_area_data["created_at"] = datetime.now(timezone.utc)
-        
+
         # Update safe area in database
         result = app.db.streams.update_one(
-            {"stream_id": stream_id},
-            {"$set": {"safe_area": safe_area_data}}
+            {"stream_id": stream_id}, {"$set": {"safe_area": safe_area_data}}
         )
-        
+
         if result.modified_count == 0:
             logger.warning(f"No document was modified for stream_id: {stream_id}")
-        
+
         logger.info(f"Safe area saved successfully for stream: {stream_id}")
 
         parsed_url = urlparse(image)
@@ -238,14 +242,19 @@ def set_danger_zone():
             safe_area_tracker.set_static_mode(static_mode)
 
         # Send response
-        return tools.JsonResp({
-            "status": "Success", 
-            "message": "Danger zone updated successfully", 
-            "data": {
-                "static_mode": static_mode,
-                "message": "Camera mode set to {} processing".format("static" if static_mode else "dynamic")
-            }
-        }, 200)
+        return tools.JsonResp(
+            {
+                "status": "Success",
+                "message": "Danger zone updated successfully",
+                "data": {
+                    "static_mode": static_mode,
+                    "message": "Camera mode set to {} processing".format(
+                        "static" if static_mode else "dynamic"
+                    ),
+                },
+            },
+            200,
+        )
 
     except Exception as e:
         print("An error occurred: ", e)
@@ -265,15 +274,16 @@ def set_camera_mode():
 
         # Update database - create minimal safe area entry if none exists
         from flask import current_app as app
+
         stream_doc = app.db.streams.find_one({"stream_id": stream_id})
         if not stream_doc:
-            return tools.JsonResp({
-                "status": "error", 
-                "message": "Stream not found"
-            }, 404)
+            return tools.JsonResp(
+                {"status": "error", "message": "Stream not found"}, 404
+            )
 
         # Update or create safe area with new static mode
         from datetime import datetime, timezone
+
         if stream_doc.get("safe_area"):
             # Update existing safe area
             result = app.db.streams.update_one(
@@ -281,26 +291,29 @@ def set_camera_mode():
                 {
                     "$set": {
                         "safe_area.static_mode": static_mode,
-                        "safe_area.updated_at": datetime.now(timezone.utc)
+                        "safe_area.updated_at": datetime.now(timezone.utc),
                     }
-                }
+                },
             )
             if result.modified_count == 0:
-                logger.warning(f"No document was modified when updating static mode for stream_id: {stream_id}")
+                logger.warning(
+                    f"No document was modified when updating static mode for stream_id: {stream_id}"
+                )
         else:
             # Create minimal safe area entry
             safe_area_data = {
                 "static_mode": static_mode,
                 "coords": [],
                 "created_at": datetime.now(timezone.utc),
-                "updated_at": datetime.now(timezone.utc)
+                "updated_at": datetime.now(timezone.utc),
             }
             result = app.db.streams.update_one(
-                {"stream_id": stream_id},
-                {"$set": {"safe_area": safe_area_data}}
+                {"stream_id": stream_id}, {"$set": {"safe_area": safe_area_data}}
             )
             if result.modified_count == 0:
-                logger.warning(f"No document was created when setting static mode for stream_id: {stream_id}")
+                logger.warning(
+                    f"No document was created when setting static mode for stream_id: {stream_id}"
+                )
 
         logger.info(f"Static mode updated to {static_mode} for stream: {stream_id}")
 
@@ -309,14 +322,19 @@ def set_camera_mode():
             safe_area_tracker = safe_area_trackers[stream_id]
             safe_area_tracker.set_static_mode(static_mode)
 
-        return tools.JsonResp({
-            "status": "Success",
-            "message": "Camera mode updated successfully",
-            "data": {
-                "static_mode": static_mode,
-                "message": "Camera mode set to {} processing".format("static" if static_mode else "dynamic")
-            }
-        }, 200)
+        return tools.JsonResp(
+            {
+                "status": "Success",
+                "message": "Camera mode updated successfully",
+                "data": {
+                    "static_mode": static_mode,
+                    "message": "Camera mode set to {} processing".format(
+                        "static" if static_mode else "dynamic"
+                    ),
+                },
+            },
+            200,
+        )
 
     except Exception as e:
         print("An error occurred: ", e)
@@ -335,25 +353,30 @@ def get_camera_mode():
 
         # Get from database
         from flask import current_app as app
+
         stream_doc = app.db.streams.find_one({"stream_id": stream_id})
         if not stream_doc:
-            return tools.JsonResp({
-                "status": "error", 
-                "message": "Stream not found"
-            }, 404)
+            return tools.JsonResp(
+                {"status": "error", "message": "Stream not found"}, 404
+            )
 
         # Get static mode from database, default to True
         safe_area = stream_doc.get("safe_area", {})
         static_mode = safe_area.get("static_mode", True)
 
-        return tools.JsonResp({
-            "status": "Success",
-            "message": "Camera mode retrieved successfully",
-            "data": {
-                "static_mode": static_mode,
-                "message": "Camera is in {} mode".format("static" if static_mode else "dynamic")
-            }
-        }, 200)
+        return tools.JsonResp(
+            {
+                "status": "Success",
+                "message": "Camera mode retrieved successfully",
+                "data": {
+                    "static_mode": static_mode,
+                    "message": "Camera is in {} mode".format(
+                        "static" if static_mode else "dynamic"
+                    ),
+                },
+            },
+            200,
+        )
 
     except Exception as e:
         print("An error occurred: ", e)
@@ -385,18 +408,19 @@ def get_safe_area():
 #                 },
 #                 400,
 #             )
-        
+
 #         current_pan, current_tilt, current_zoom = camera_controller.get_current_position()
 #         # current_pan = status.Position.PanTilt.x
 #         # current_tilt = status.Position.PanTilt.y
 #         # current_zoom = status.Position.Zoom.x
 
 #         return tools.JsonResp({"status": "Success", "message": "ok", "data": {"x": current_pan, "y":current_tilt, "z": current_zoom}}, 200)
-    
+
 #     except Exception as e:
 #         print("An error occurred: ", e)
 #         traceback.print_exc()
 #         return tools.JsonResp({"status": "error", "message": e}, 400)
+
 
 @stream_blueprint.route("/get_current_ptz_values", methods=["POST"])
 def get_current_ptz_values():
@@ -405,7 +429,7 @@ def get_current_ptz_values():
         stream_id = data.get("stream_id")
 
         if not stream_id:
-             return tools.JsonResp(
+            return tools.JsonResp(
                 {
                     "status": "error",
                     "message": "Missing 'streamId' in request data.",
@@ -416,13 +440,18 @@ def get_current_ptz_values():
         # --- Check if stream exists in the streams dictionary ---
         stream = streams.get(stream_id)
         if stream is None:
-            log_event(logger, "warning", f"Attempted to get PTZ for non-existent or inactive stream_id: {stream_id}", event_type="warning")
+            log_event(
+                logger,
+                "warning",
+                f"Attempted to get PTZ for non-existent or inactive stream_id: {stream_id}",
+                event_type="warning",
+            )
             return tools.JsonResp(
                 {
                     "status": "error",
                     "message": f"Stream with ID '{stream_id}' not found or is not active.",
                 },
-                404, # Not Found is a suitable status code here
+                404,  # Not Found is a suitable status code here
             )
         # --- End Check ---
 
@@ -430,38 +459,75 @@ def get_current_ptz_values():
 
         # --- Check specifically if the camera controller exists for this stream ---
         if camera_controller is None:
-            log_event(logger, "warning", f"Camera controller is missing for active stream_id: {stream_id}", event_type="warning")
+            log_event(
+                logger,
+                "warning",
+                f"Camera controller is missing for active stream_id: {stream_id}",
+                event_type="warning",
+            )
             return tools.JsonResp(
                 {
                     "status": "error",
                     "message": f"Camera controller not available for stream '{stream_id}'. PTZ control might not be enabled.",
                 },
-                400, # Bad Request or perhaps 501 Not Implemented / 503 Service Unavailable
+                400,  # Bad Request or perhaps 501 Not Implemented / 503 Service Unavailable
             )
         # --- End Check ---
 
-        current_pan, current_tilt, current_zoom = camera_controller.get_current_position()
+        current_pan, current_tilt, current_zoom = (
+            camera_controller.get_current_position()
+        )
 
-        return tools.JsonResp({"status": "Success", "message": "ok", "data": {"x": current_pan, "y":current_tilt, "z": current_zoom}}, 200)
+        return tools.JsonResp(
+            {
+                "status": "Success",
+                "message": "ok",
+                "data": {"x": current_pan, "y": current_tilt, "z": current_zoom},
+            },
+            200,
+        )
 
     except json.JSONDecodeError:
-        log_event(logger, "error", "Failed to decode JSON data in /get_current_ptz_values request.", event_type="error")
-        return tools.JsonResp({"status": "error", "message": "Invalid JSON data format."}, 400)
+        log_event(
+            logger,
+            "error",
+            "Failed to decode JSON data in /get_current_ptz_values request.",
+            event_type="error",
+        )
+        return tools.JsonResp(
+            {"status": "error", "message": "Invalid JSON data format."}, 400
+        )
     except Exception as e:
         # Use app.logger for logging within Flask is standard practice
-        log_event(logger, "error", f"An error occurred in /get_current_ptz_values for stream_id '{stream_id if 'stream_id' in locals() else 'unknown'}': {e}", event_type="error")
-        log_event(logger, "error", traceback.format_exc(), event_type="error") # Log the full traceback
+        log_event(
+            logger,
+            "error",
+            f"An error occurred in /get_current_ptz_values for stream_id '{stream_id if 'stream_id' in locals() else 'unknown'}': {e}",
+            event_type="error",
+        )
+        log_event(
+            logger, "error", traceback.format_exc(), event_type="error"
+        )  # Log the full traceback
         # --- Convert exception to string for JSON response ---
         error_message = str(e)
-        return tools.JsonResp({"status": "error", "message": f"An unexpected error occurred: {error_message}"}, 500) # 
-    
+        return tools.JsonResp(
+            {
+                "status": "error",
+                "message": f"An unexpected error occurred: {error_message}",
+            },
+            500,
+        )  #
+
+
 @stream_blueprint.route("/save_patrol_area", methods=["POST"])
 def save_patrol_area():
     return Stream().save_patrol_area()
 
+
 @stream_blueprint.route("/get_patrol_area", methods=["POST"])
 def get_patrol_area():
     return Stream().get_patrol_area()
+
 
 @stream_blueprint.route("", methods=["POST"])
 def create_stream():
@@ -491,7 +557,9 @@ def alert():
     room = stream_id
     data = {"type": "intrusion"}
 
-    emit_dynamic_event(base_event_type=EventType.ALERT, identifier=stream_id, data=data, room=room )
+    emit_dynamic_event(
+        base_event_type=EventType.ALERT, identifier=stream_id, data=data, room=room
+    )
 
     return tools.JsonResp({"data": "ok"}, 200)
 
