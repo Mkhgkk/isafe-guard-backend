@@ -9,7 +9,7 @@ from config import DEFAULT_PRECISION, BASE_DIR
 
 logger = get_logger(__name__)
 
-USE_NPU = os.getenv("USE_NPU", "false").lower() == "false"
+USE_NPU = os.getenv("USE_NPU", "false").lower() == "true"
 
 MODELS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../models"))
 NAMESPACE = "/default"
