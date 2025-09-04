@@ -131,7 +131,7 @@ class StreamManager:
     
     def _initialize_components(self):
         """Initialize core detection and tracking components."""
-        self.detector = Detector(self.model_name)
+        self.detector = Detector(self.model_name, self.stream_id)
         self.safe_area_tracker = SafeAreaTracker()
         self.event_processor = EventProcessor(self.stream_id, self.model_name)
         self.stats = StreamStats()
