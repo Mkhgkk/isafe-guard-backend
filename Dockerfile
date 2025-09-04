@@ -84,6 +84,7 @@ ENV PATH="/root/.local/bin:$PATH"
 
 RUN set -e \
     && poetry config virtualenvs.create false \
+    && poetry lock \
     && poetry install --no-root \
     && poetry run pip uninstall -y opencv-python opencv-python-headless 
 RUN ls $PYENV_ROOT/versions
