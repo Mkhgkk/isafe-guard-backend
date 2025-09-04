@@ -44,6 +44,7 @@ class Detector:
     def __init__(
         self,
         model_name: str,
+        stream_id: str = "default",
         use_sahi: bool = False,
         slice_height: int = 640,
         slice_width: int = 640,
@@ -52,6 +53,7 @@ class Detector:
         confidence_threshold: float = 0.25,
     ) -> None:
         self.model_name = model_name
+        self.stream_id = stream_id
         self.use_sahi = use_sahi and SAHI_AVAILABLE
         self.slice_height = slice_height
         self.slice_width = slice_width
@@ -78,7 +80,11 @@ class Detector:
         :raises ValueError: If the model name is not recognized.
         """
         model_paths = {
-            "PPE": os.path.join(MODELS_PATH, f"ppe/{DEFAULT_PRECISION}/model.engine"),
+            "PPE": os.path.join(
+                MODELS_PATH,
+                f"heavy_equipment/v2/1280L/{DEFAULT_PRECISION}/model.engine",
+                # MODELS_PATH, f"ppe/{DEFAULT_PRECISION}/model.engine"
+            ),
             "PPEAerial": os.path.join(
                 MODELS_PATH, f"ppe_aerial/{DEFAULT_PRECISION}/model.engine"
             ),
@@ -89,7 +95,11 @@ class Detector:
                 MODELS_PATH, f"mobile_scaffolding/{DEFAULT_PRECISION}/model.engine"
             ),
             "Scaffolding": os.path.join(
-                MODELS_PATH, f"scaffolding/{DEFAULT_PRECISION}/model.engine"
+                # MODELS_PATH, f"scaffolding/{DEFAULT_PRECISION}/model.engine"
+                # MODELS_PATH,
+                # f"heavy_equipment/v2/1280L/{DEFAULT_PRECISION}/model.engine",
+                MODELS_PATH,
+                f"scaffolding/v1/1280L/{DEFAULT_PRECISION}/model.engine",
             ),
             "CuttingWelding": os.path.join(
                 MODELS_PATH, f"cutting_welding/{DEFAULT_PRECISION}/model.engine"
@@ -98,10 +108,13 @@ class Detector:
                 MODELS_PATH, f"fire_smoke/{DEFAULT_PRECISION}/model.engine"
             ),
             "HeavyEquipment": os.path.join(
-                MODELS_PATH, f"heavy_equipment/{DEFAULT_PRECISION}/model.engine"
+                MODELS_PATH,
+                f"heavy_equipment/v2/1280L/{DEFAULT_PRECISION}/model.engine",
             ),
             "Proximity": os.path.join(
-                MODELS_PATH, f"heavy_equipment/{DEFAULT_PRECISION}/model.engine"
+                # MODELS_PATH, f"heavy_equipment/{DEFAULT_PRECISION}/model.engine"
+                MODELS_PATH,
+                f"scaffolding/v1/1280L/{DEFAULT_PRECISION}/model.engine",
             ),
             # "Proximity": os.path.join(MODELS_PATH, f"proximity/{DEFAULT_PRECISION}/model.engine"),
             "Approtium": os.path.join(
@@ -130,7 +143,11 @@ class Detector:
         :raises ValueError: If the model name is not recognized.
         """
         model_paths = {
-            "PPE": os.path.join(MODELS_PATH, f"ppe/{DEFAULT_PRECISION}/model.engine"),
+            "PPE": os.path.join(
+                # MODELS_PATH, f"ppe/{DEFAULT_PRECISION}/model.engine"
+                MODELS_PATH,
+                f"heavy_equipment/v2/1280L/{DEFAULT_PRECISION}/model.engine",
+            ),
             "PPEAerial": os.path.join(
                 MODELS_PATH, f"ppe_aerial/{DEFAULT_PRECISION}/model.engine"
             ),
@@ -190,7 +207,8 @@ class Detector:
     def _detect_standard(
         self, frame: np.ndarray
     ) -> Tuple["np.ndarray", str, List[str], Optional[List[Tuple[int, int, int, int]]]]:
-        results: List[Results] = self.model(frame)
+        results: List[Results] = self.model(frame, imgsz=1280)
+        # results: List[Results] = self.model(frame)
         final_status: str = "Safe"
         reasons: List[str] = []
         bboxes: Optional[List[Tuple[int, int, int, int]]] = None
@@ -208,7 +226,7 @@ class Detector:
         elif self.model_name == "CuttingWelding":
             result = detect_cutting_welding(frame, results)
         elif self.model_name == "HeavyEquipment":
-            result = detect_heavy_equipment(frame, results)
+            result = detect_heavy_equipment(frame, results, self.stream_id)
         elif self.model_name == "Proximity":
             result = detect_proximity(frame, results)
         elif self.model_name == "Approtium":
@@ -322,7 +340,7 @@ class Detector:
         elif self.model_name == "CuttingWelding":
             result = detect_cutting_welding(frame, mock_results)
         elif self.model_name == "HeavyEquipment":
-            result = detect_heavy_equipment(frame, mock_results)
+            result = detect_heavy_equipment(frame, mock_results, self.stream_id)
         elif self.model_name == "Proximity":
             result = detect_proximity(frame, mock_results)
         elif self.model_name == "Approtium":

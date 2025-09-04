@@ -49,16 +49,16 @@ def configure_detection_models(precision=DEFAULT_PRECISION):
         return
 
     models = [
-        "ppe",
-        "ppe_aerial",
-        "cutting_welding",
-        "fire_smoke",
-        "ladder",
-        "mobile_scaffolding",
-        "scaffolding",
-        "heavy_equipment",
-        "proximity",
-        "approtium",
+        "ppe/v1/640L",
+        "ppe_aerial/v1/640L",
+        "cutting_welding/v1/640L",
+        "fire_smoke/v1/640L",
+        "ladder/v1/640L",
+        "mobile_scaffolding/v1/640L",
+        "scaffolding/v1/1280L",
+        "heavy_equipment/v2/1280L",
+        "proximity/v1/640L",
+        "approtium/v1/1280L",
     ]
 
     for model in models:
@@ -91,7 +91,8 @@ def configure_detection_models(precision=DEFAULT_PRECISION):
             exported_engine_path = model_instance.export(
                 format="engine",
                 half=True if precision == "fp16" else False,
-                imgsz=640,
+                # imgsz=640,
+                imgsz=1280,
                 dynamic=True,
                 # nms=True,
                 # conf=0.6,

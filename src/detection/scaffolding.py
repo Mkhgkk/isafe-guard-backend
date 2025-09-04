@@ -29,6 +29,7 @@ def detect_scaffolding(
                 box2 = [int(x0), int(y0), int(x1), int(y1)]
                 box3 = [int(x0), int(y0), int(x1), int(y1)]
                 if int(clas) == 3:
+                    # if int(clas) == 16:
                     cv2.rectangle(image, box, (0, 150, 0), 2)
                     draw_text_with_background(
                         image,
@@ -38,6 +39,7 @@ def detect_scaffolding(
                     )
                     hook.append(box3)
                 elif int(clas) == 2:
+                    # elif int(clas) == 11:
                     cv2.rectangle(image, box, (0, 255, 0), 2)
                     draw_text_with_background(
                         image,
@@ -64,6 +66,7 @@ def detect_scaffolding(
                         (box[0], box[1] - 10),
                         (0, 255, 0),
                     )
+                # elif int(clas) == 10:
                 elif int(clas) == 1:
                     person.append(box2)
 
@@ -80,10 +83,8 @@ def detect_scaffolding(
                 if hatBox[1] >= perBox[1] - 20:
                     hatDetected = True
 
-            
             class_helmet_count += 1 if hatDetected else 0
 
-            
             if not hatDetected:
                 final_status = "UnSafe"
                 reasons.append("missing_helment")
@@ -102,7 +103,7 @@ def detect_scaffolding(
                 (perBox[0], perBox[1] - 10),
                 (0, 180, 0),
             )
-        else: 
+        else:
             cv2.rectangle(
                 image,
                 (perBox[0], perBox[1]),
