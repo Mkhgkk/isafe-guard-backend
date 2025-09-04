@@ -111,6 +111,13 @@ RUN dnf -y install gstreamer1-plugins-bad-freeworld
 RUN gst-inspect-1.0 rtmpsink
 RUN dnf -y install ffmpeg
 
+COPY wheels/maccel-0.29.0-cp39-cp39-linux_x86_64.whl ./
+RUN pyenv global 3.9.19 && \
+    pip install maccel-0.29.0-cp39-cp39-linux_x86_64.whl
+
+# RUN pip uninstall -y torch && \
+#     pip install torch torchvision
+
 COPY . /app
 
 EXPOSE 5000
