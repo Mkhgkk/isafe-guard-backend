@@ -81,17 +81,28 @@ VEHICLE_CLASSES = [
 # Initialize tracker and homography matrix
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-# Initialize the tracker
-tracker = BotSort(
-    reid_weights=Path("osnet_x0_25_msmt17.pt"),  # Path to ReID model
-    device=device,
-    half=False,
-    with_reid=False,
-    track_buffer=150,
-    cmc_method="sof",
-    frame_rate=20,
-    new_track_thresh=0.3,
-)
+# Global tracker instances per stream
+_trackers = {}
+
+def get_tracker(stream_id: str) -> BotSort:
+    """Get or create a tracker instance for the given stream."""
+    if stream_id not in _trackers:
+        _trackers[stream_id] = BotSort(
+            reid_weights=Path("osnet_x0_25_msmt17.pt"),  # Path to ReID model
+            device=device,
+            half=False,
+            with_reid=False,
+            track_buffer=150,
+            cmc_method="sof",
+            frame_rate=20,
+            new_track_thresh=0.3,
+        )
+    return _trackers[stream_id]
+
+def cleanup_tracker(stream_id: str) -> None:
+    """Clean up tracker instance for the given stream."""
+    if stream_id in _trackers:
+        del _trackers[stream_id]
 
 # Default homography transformation points
 clicked_pts = [(500, 300), (700, 300), (750, 500), (560, 600)]
@@ -150,7 +161,7 @@ def draw_detection_box_and_label(
 
 
 def detect_heavy_equipment(
-    image: np.ndarray, results: List[Results]
+    image: np.ndarray, results: List[Results], stream_id: str = "default"
 ) -> Tuple[str, List[str], List[Tuple[int, int, int, int]]]:
     """Detect heavy equipment and workers with proximity and helmet compliance checks.
     
@@ -195,7 +206,8 @@ def detect_heavy_equipment(
     # Convert detections to numpy array (N X (x, y, x, y, conf, cls))
     dets = np.array(dets)
 
-    # Update the tracker
+    # Get tracker for this stream and update it
+    tracker = get_tracker(stream_id)
     tracker.update(dets, image)  # --> M X (x, y, x, y, id, conf, cls, ind)
 
     for trk in tracker.active_tracks:
