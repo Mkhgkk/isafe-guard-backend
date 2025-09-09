@@ -82,12 +82,10 @@ def detect_scaffolding(
             if int(perBox[0]) <= (int(hatBox[0]) + int(hatBox[2])) / 2 < int(perBox[2]):
                 if hatBox[1] >= perBox[1] - 20:
                     hatDetected = True
+                    break  # Exit loop once helmet is found for this person
 
-            class_helmet_count += 1 if hatDetected else 0
-
-            if not hatDetected:
-                final_status = "UnSafe"
-                reasons.append("missing_helment")
+        if hatDetected:
+            class_helmet_count += 1
 
         if hatDetected:
             cv2.rectangle(
