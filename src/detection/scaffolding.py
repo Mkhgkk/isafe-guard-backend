@@ -118,6 +118,8 @@ def detect_scaffolding(
 
     missing_helmet = max(0, class_worker_count - class_helmet_count)
     vertical_person = False
+    vertical_groups = []  # Store groups of workers in same vertical area
+
     for i, perBox1 in enumerate(person):
         for j, perBox2 in enumerate(person):
             if i != j:
@@ -129,10 +131,48 @@ def detect_scaffolding(
                         perBox1[2] + (perBox1[2] - perBox1[0]) / 2
                     ) > perBox2[0]:
                         vertical_person = True
+                        # Find or create group for these workers
+                        group_found = False
+                        for group in vertical_groups:
+                            if i in group or j in group:
+                                group.add(i)
+                                group.add(j)
+                                group_found = True
+                                break
+                        if not group_found:
+                            vertical_groups.append({i, j})
 
     if vertical_person:
         # reasons.append("작업자 상하 동시 작업 진행 중")
         reasons.append("same_vertical_area")
+
+        # Draw red boxes around groups of workers in same vertical area
+        for group in vertical_groups:
+            if len(group) > 1:  # Only draw if there are actually multiple workers
+                # Calculate bounding box for the group
+                group_boxes = [person[i] for i in group]
+                min_x = min(box[0] for box in group_boxes)
+                min_y = min(box[1] for box in group_boxes)
+                max_x = max(box[2] for box in group_boxes)
+                max_y = max(box[3] for box in group_boxes)
+
+                # Add some padding around the group
+                padding = 20
+                min_x = max(0, min_x - padding)
+                min_y = max(0, min_y - padding)
+                max_x = min(img_width, max_x + padding)
+                max_y = min(img_height, max_y + padding)
+
+                # Draw thick red rectangle around the group
+                cv2.rectangle(image, (min_x, min_y), (max_x, max_y), (0, 0, 255), 4)
+
+                # Add warning label
+                draw_text_with_background(
+                    image,
+                    "VERTICAL AREA VIOLATION",
+                    (min_x, min_y - 10),
+                    (0, 0, 255),
+                )
 
     # color_status = (0, 0, 255) if final_status != "Safe" else (0, 128, 0)
     color_hooks = (0, 120, 0) if missing_hooks == 0 else (0, 0, 255)
