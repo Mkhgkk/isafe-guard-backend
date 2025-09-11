@@ -5,7 +5,7 @@ from boxmot import BotSort
 import miniball
 from pathlib import Path
 import torch
-from typing import List, Tuple
+from typing import List, Tuple, Dict
 from detection import draw_text_with_background
 from ultralytics.engine.results import Results
 from config import FRAME_HEIGHT, FRAME_WIDTH
@@ -39,13 +39,13 @@ CLASS_NAMES = {
     13: "scaffolding",
     14: "lifted_load",
     15: "crane_hook",
-    16: "hook"
+    16: "hook",
 }
 
 # Class name lists for proximity detection
 CLS_NAMES = [
     "Backhoe loader",
-    "Cement truck", 
+    "Cement truck",
     "Compactor",
     "Dozer",
     "Dump truck",
@@ -60,10 +60,10 @@ CLS_NAMES = [
     "Scaffolds",
     "Lifted load",
     "Crane hook",
-    "Hook"
+    "Hook",
 ]
 
-WORKER_CLASSES = ['worker']
+WORKER_CLASSES = ["worker"]
 
 VEHICLE_CLASSES = [
     "backhoe_loader",
@@ -75,7 +75,7 @@ VEHICLE_CLASSES = [
     "grader",
     "mobile_crane",
     "tower_crane",
-    "wheel_loader"
+    "wheel_loader",
 ]
 
 # Initialize tracker and homography matrix
@@ -83,6 +83,20 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Global tracker instances per stream
 _trackers = {}
+
+# Helmet tracking system - stores helmet detection history for each worker
+# Format: {stream_id: {worker_id: {'helmet_detections': [True/False], 'timestamps': [float]}}}
+_helmet_tracking: Dict[str, Dict[int, Dict[str, List]]] = {}
+
+# Helmet tracking constants
+HELMET_TRACKING_WINDOW = 90  # Number of recent frames to consider
+HELMET_CONFIDENCE_THRESHOLD = (
+    0.7  # Ratio of frames with helmet needed to be considered "safe"
+)
+MAX_MISSING_FRAMES = (
+    5  # Allow up to 5 consecutive frames without detection before considering violation
+)
+
 
 def get_tracker(stream_id: str) -> BotSort:
     """Get or create a tracker instance for the given stream."""
@@ -99,10 +113,76 @@ def get_tracker(stream_id: str) -> BotSort:
         )
     return _trackers[stream_id]
 
+
 def cleanup_tracker(stream_id: str) -> None:
     """Clean up tracker instance for the given stream."""
     if stream_id in _trackers:
         del _trackers[stream_id]
+    if stream_id in _helmet_tracking:
+        del _helmet_tracking[stream_id]
+
+
+def update_helmet_tracking(stream_id: str, worker_id: int, has_helmet: bool) -> None:
+    """Update helmet detection history for a worker."""
+    current_time = time.time()
+
+    if stream_id not in _helmet_tracking:
+        _helmet_tracking[stream_id] = {}
+
+    if worker_id not in _helmet_tracking[stream_id]:
+        _helmet_tracking[stream_id][worker_id] = {
+            "helmet_detections": [],
+            "timestamps": [],
+        }
+
+    worker_history = _helmet_tracking[stream_id][worker_id]
+
+    # Add current detection
+    worker_history["helmet_detections"].append(has_helmet)
+    worker_history["timestamps"].append(current_time)
+
+    # Keep only recent detections within the tracking window
+    if len(worker_history["helmet_detections"]) > HELMET_TRACKING_WINDOW:
+        worker_history["helmet_detections"].pop(0)
+        worker_history["timestamps"].pop(0)
+
+
+def is_helmet_violation(stream_id: str, worker_id: int) -> bool:
+    """Check if worker has a consistent helmet violation based on tracking history."""
+    if (
+        stream_id not in _helmet_tracking
+        or worker_id not in _helmet_tracking[stream_id]
+    ):
+        return False
+
+    worker_history = _helmet_tracking[stream_id][worker_id]
+    detections = worker_history["helmet_detections"]
+
+    if len(detections) < MAX_MISSING_FRAMES:
+        return False  # Not enough data yet
+
+    # Calculate recent helmet detection rate
+    recent_detections = (
+        detections[-HELMET_TRACKING_WINDOW:]
+        if len(detections) >= HELMET_TRACKING_WINDOW
+        else detections
+    )
+    helmet_rate = sum(recent_detections) / len(recent_detections)
+
+    # Check for consecutive missing helmet detections
+    consecutive_missing = 0
+    for detection in reversed(recent_detections):
+        if not detection:
+            consecutive_missing += 1
+        else:
+            break
+
+    # Return violation if helmet rate is below threshold AND there are consecutive missing detections
+    return (
+        helmet_rate < HELMET_CONFIDENCE_THRESHOLD
+        and consecutive_missing >= MAX_MISSING_FRAMES
+    )
+
 
 # Default homography transformation points
 clicked_pts = [(500, 300), (700, 300), (750, 500), (560, 600)]
@@ -139,10 +219,10 @@ def get_vehicle_ground_edges(box):
 
 
 def draw_detection_box_and_label(
-    image: np.ndarray, 
-    coords: List[int], 
-    label: str, 
-    color: Tuple[int, int, int] = DETECTION_COLOR
+    image: np.ndarray,
+    coords: List[int],
+    label: str,
+    color: Tuple[int, int, int] = DETECTION_COLOR,
 ) -> None:
     """Draw detection box and label on image."""
     cv2.rectangle(
@@ -164,30 +244,30 @@ def detect_heavy_equipment(
     image: np.ndarray, results: List[Results], stream_id: str = "default"
 ) -> Tuple[str, List[str], List[Tuple[int, int, int, int]]]:
     """Detect heavy equipment and workers with proximity and helmet compliance checks.
-    
+
     Args:
         image: Input image array
         results: YOLO detection results
-        
+
     Returns:
         Tuple containing:
         - final_status: "Safe" or "UnSafe"
         - reasons: List of safety violations
         - bboxes: List of person bounding boxes
     """
-    
+
     final_status = "Safe"
     reasons: List[str] = []
     person_boxes: List[Tuple[int, int, int, int]] = []
-    
+
     # Process all results, not just the first one
     all_detections = []
     for result in results:
         all_detections.extend(result.boxes.data.tolist())
-    
+
     if not all_detections:
         return final_status, reasons, person_boxes
-        
+
     worker_positions = []
     vehicle_positions = []
     scaffolding_positions = []
@@ -225,7 +305,7 @@ def detect_heavy_equipment(
                 image,
                 f"{cls_name}_id:{int(trk.id)}",
                 (box[0], box[1] - 10),
-                (0, 255, 0)
+                (0, 255, 0),
             )
             bottom_center = get_bottom_center(box)
             world_center = transform_to_world(bottom_center)
@@ -249,22 +329,13 @@ def detect_heavy_equipment(
             scaffolding_box.append(box)
             cv2.rectangle(image, (box[0], box[1]), (box[2], box[3]), (128, 128, 0), 2)
             draw_text_with_background(
-                image,
-                "Scaffolding",
-                (box[0], box[1] - 10),
-                (128, 128, 0)
+                image, "Scaffolding", (box[0], box[1] - 10), (128, 128, 0)
             )
         elif cls_name == "hook":
             hook_box.append(box)
             cv2.rectangle(image, (box[0], box[1]), (box[2], box[3]), (0, 150, 0), 2)
-            draw_text_with_background(
-                image,
-                "Hook",
-                (box[0], box[1] - 10),
-                (0, 200, 0)
-            )
+            draw_text_with_background(image, "Hook", (box[0], box[1] - 10), (0, 200, 0))
 
-    
     for w_box in worker_box:
         box = [int(x) for x in w_box.history_observations[-1]]
         center = get_worker_center(box)
@@ -289,24 +360,38 @@ def detect_heavy_equipment(
             for hatBox in hat_box
         )
 
+        # Update helmet tracking for this worker
+        update_helmet_tracking(stream_id, w_box.id, has_helmet)
+
+        # Check if this worker has a consistent helmet violation
+        has_helmet_violation = is_helmet_violation(stream_id, w_box.id)
+
         add_id = f"_id:{w_box.id}"
         if is_signaler:
             label = "Signaler" + add_id
             color = (255, 255, 0)
         elif is_driver:
-            if has_helmet:
+            if has_helmet_violation:
+                label = "Driver without helmet" + add_id
+                color = (0, 0, 255)
+            elif has_helmet:
                 label = "Driver with helmet" + add_id
                 color = (0, 180, 255)
             else:
-                label = "Driver without helmet" + add_id
-                color = (0, 0, 255)
+                # Temporary no helmet detection - show as uncertain/warning
+                label = "Driver (helmet checking...)" + add_id
+                color = (0, 165, 255)  # Orange color for uncertain status
         else:
-            if has_helmet:
+            if has_helmet_violation:
+                label = "Worker without helmet" + add_id
+                color = (0, 0, 255)
+            elif has_helmet:
                 label = "Worker with helmet" + add_id
                 color = (0, 180, 0)
             else:
-                label = "Worker without helmet" + add_id
-                color = (0, 0, 255)
+                # Temporary no helmet detection - show as uncertain/warning
+                label = "Worker (helmet checking...)" + add_id
+                color = (0, 165, 255)  # Orange color for uncertain status
 
         # Face blurring for privacy (top 40%)
         if any(label.startswith(role) for role in ["Worker", "Driver", "Signaler"]):
@@ -325,41 +410,48 @@ def detect_heavy_equipment(
         cv2.rectangle(
             image, (int(box[0]), int(box[1])), (int(box[2]), int(box[3])), color, 2
         )
-        draw_text_with_background(
-            image, 
-            label, 
-            (int(box[0]), int(box[1]) - 10), 
-            color
-        )
+        draw_text_with_background(image, label, (int(box[0]), int(box[1]) - 10), color)
 
-        if "Worker with helmet" in label or "Worker without helmet" in label:
+        if any(
+            keyword in label
+            for keyword in [
+                "Worker with helmet",
+                "Worker without helmet",
+                "Worker (helmet checking...",
+            ]
+        ):
             bottom_center = get_bottom_center(box)
             world_center = transform_to_world(bottom_center)
             worker_positions.append((world_center, box))
-            
+
             # Add to person_boxes for return value
             person_boxes.append((int(box[0]), int(box[1]), int(box[2]), int(box[3])))
-            
-            # Add safety violations to reasons
-            if "without helmet" in label:
+
+            # Add safety violations to reasons based on helmet tracking
+            if has_helmet_violation:
                 if "missing_helmet" not in reasons:
                     reasons.append("missing_helmet")
+                final_status = "UnSafe"
 
     # Scaffolding safety checks (when scaffolding is detected)
     if scaffolding_box:
         # Check for vertical area violations (workers in same vertical space within scaffolding)
         vertical_groups = []
-        
+
         # First, identify workers that are within scaffolding bounds
         workers_in_scaffolding = []
         for i, (_, w_box) in enumerate(worker_positions):
             for scaff_box in scaffolding_box:
                 # Check if worker box is fully within scaffolding box
-                if (w_box[0] >= scaff_box[0] and w_box[1] >= scaff_box[1] and 
-                    w_box[2] <= scaff_box[2] and w_box[3] <= scaff_box[3]):
+                if (
+                    w_box[0] >= scaff_box[0]
+                    and w_box[1] >= scaff_box[1]
+                    and w_box[2] <= scaff_box[2]
+                    and w_box[3] <= scaff_box[3]
+                ):
                     workers_in_scaffolding.append(i)
                     break
-        
+
         # Only check vertical area violations for workers within scaffolding
         for i in workers_in_scaffolding:
             for j in workers_in_scaffolding:
@@ -367,9 +459,13 @@ def detect_heavy_equipment(
                     w_box1 = worker_positions[i][1]
                     w_box2 = worker_positions[j][1]
                     # Check if workers are in same vertical area
-                    if ((w_box1[1] + w_box1[3]) / 2) > w_box2[3] or ((w_box2[1] + w_box2[3]) / 2) > w_box1[3]:
+                    if ((w_box1[1] + w_box1[3]) / 2) > w_box2[3] or (
+                        (w_box2[1] + w_box2[3]) / 2
+                    ) > w_box1[3]:
                         # Check horizontal overlap with expanded range
-                        if (w_box1[0] - (w_box1[2] - w_box1[0]) / 2) < w_box2[2] and (w_box1[2] + (w_box1[2] - w_box1[0]) / 2) > w_box2[0]:
+                        if (w_box1[0] - (w_box1[2] - w_box1[0]) / 2) < w_box2[2] and (
+                            w_box1[2] + (w_box1[2] - w_box1[0]) / 2
+                        ) > w_box2[0]:
                             # Find or create group for these workers
                             group_found = False
                             for group in vertical_groups:
@@ -380,12 +476,12 @@ def detect_heavy_equipment(
                                     break
                             if not group_found:
                                 vertical_groups.append({i, j})
-        
+
         if vertical_groups:
             final_status = "UnSafe"
             if "same_vertical_area" not in reasons:
                 reasons.append("same_vertical_area")
-            
+
             # Draw warning boxes around groups
             for group in vertical_groups:
                 if len(group) > 1:
@@ -394,26 +490,26 @@ def detect_heavy_equipment(
                     min_y = min(box[1] for box in group_boxes)
                     max_x = max(box[2] for box in group_boxes)
                     max_y = max(box[3] for box in group_boxes)
-                    
+
                     padding = 20
                     min_x = max(0, min_x - padding)
                     min_y = max(0, min_y - padding)
                     max_x = min(FRAME_WIDTH, max_x + padding)
                     max_y = min(FRAME_HEIGHT, max_y + padding)
-                    
+
                     cv2.rectangle(image, (min_x, min_y), (max_x, max_y), (0, 0, 255), 4)
                     draw_text_with_background(
                         image,
                         "VERTICAL AREA VIOLATION",
                         (min_x, min_y - 10),
-                        (0, 0, 255)
+                        (0, 0, 255),
                     )
-        
+
         # Check for missing hooks (safety harness connections) only for workers in scaffolding
         workers_in_scaffolding_count = len(workers_in_scaffolding)
         hook_count = len(hook_box)
         missing_hooks = max(0, workers_in_scaffolding_count - hook_count)
-        
+
         if missing_hooks > 0:
             final_status = "UnSafe"
             if "missing_hook" not in reasons:
@@ -457,7 +553,7 @@ def detect_heavy_equipment(
                         image,
                         f"ALERT: {dist:.2f}m",
                         (int(w_box[0]), int(w_box[1]) - 30),
-                        (0, 0, 255)
+                        (0, 0, 255),
                     )
                     # Add proximity violation to reasons
                     if "proximity_violation" not in reasons:
@@ -471,10 +567,10 @@ def detect_heavy_equipment(
                     image,
                     f"{dist:.2f}m",
                     ((int(pt1[0]) + pt2[0]) // 2, (pt1[1] + pt2[1]) // 2),
-                    color
+                    color,
                 )
 
     # Ensure reasons are unique
     reasons = list(set(reasons))
-    
+
     return final_status, reasons, person_boxes
