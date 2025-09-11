@@ -97,6 +97,11 @@ MAX_MISSING_FRAMES = (
     5  # Allow up to 5 consecutive frames without detection before considering violation
 )
 
+# Minimum person box size for reliable helmet detection
+MIN_PERSON_BOX_WIDTH = 30   # Minimum width in pixels
+MIN_PERSON_BOX_HEIGHT = 60  # Minimum height in pixels
+MIN_PERSON_BOX_AREA = MIN_PERSON_BOX_WIDTH * MIN_PERSON_BOX_HEIGHT
+
 
 def get_tracker(stream_id: str) -> BotSort:
     """Get or create a tracker instance for the given stream."""
@@ -146,6 +151,16 @@ def update_helmet_tracking(stream_id: str, worker_id: int, has_helmet: bool) -> 
         worker_history["helmet_detections"].pop(0)
         worker_history["timestamps"].pop(0)
 
+
+def is_person_box_large_enough(box: List[int]) -> bool:
+    """Check if person bounding box is large enough for reliable helmet detection."""
+    width = box[2] - box[0]
+    height = box[3] - box[1]
+    area = width * height
+    
+    return (width >= MIN_PERSON_BOX_WIDTH and 
+            height >= MIN_PERSON_BOX_HEIGHT and 
+            area >= MIN_PERSON_BOX_AREA)
 
 def is_helmet_violation(stream_id: str, worker_id: int) -> bool:
     """Check if worker has a consistent helmet violation based on tracking history."""
@@ -355,23 +370,34 @@ def detect_heavy_equipment(
             for g_box in Grab_crane_box
         )
 
-        has_helmet = any(
-            box[0] <= (hatBox[0] + hatBox[2]) / 2 < box[2] and hatBox[1] >= box[1] - 20
-            for hatBox in hat_box
-        )
+        # Check if person box is large enough for reliable helmet detection
+        box_large_enough = is_person_box_large_enough(box)
+        
+        if box_large_enough:
+            has_helmet = any(
+                box[0] <= (hatBox[0] + hatBox[2]) / 2 < box[2] and hatBox[1] >= box[1] - 20
+                for hatBox in hat_box
+            )
 
-        # Update helmet tracking for this worker
-        update_helmet_tracking(stream_id, w_box.id, has_helmet)
-
-        # Check if this worker has a consistent helmet violation
-        has_helmet_violation = is_helmet_violation(stream_id, w_box.id)
+            # Update helmet tracking for this worker
+            update_helmet_tracking(stream_id, w_box.id, has_helmet)
+            
+            # Check if this worker has a consistent helmet violation
+            has_helmet_violation = is_helmet_violation(stream_id, w_box.id)
+        else:
+            # Box too small for reliable helmet detection - skip helmet checking
+            has_helmet = None  # Unknown helmet status
+            has_helmet_violation = False  # Don't flag violations for small boxes
 
         add_id = f"_id:{w_box.id}"
         if is_signaler:
             label = "Signaler" + add_id
             color = (255, 255, 0)
         elif is_driver:
-            if has_helmet_violation:
+            if not box_large_enough:
+                label = "Driver (too distant)" + add_id
+                color = (128, 128, 128)  # Gray color for too small/distant
+            elif has_helmet_violation:
                 label = "Driver without helmet" + add_id
                 color = (0, 0, 255)
             elif has_helmet:
@@ -382,7 +408,10 @@ def detect_heavy_equipment(
                 label = "Driver (helmet checking...)" + add_id
                 color = (0, 165, 255)  # Orange color for uncertain status
         else:
-            if has_helmet_violation:
+            if not box_large_enough:
+                label = "Worker (too distant)" + add_id
+                color = (128, 128, 128)  # Gray color for too small/distant
+            elif has_helmet_violation:
                 label = "Worker without helmet" + add_id
                 color = (0, 0, 255)
             elif has_helmet:
@@ -416,8 +445,9 @@ def detect_heavy_equipment(
             keyword in label
             for keyword in [
                 "Worker with helmet",
-                "Worker without helmet",
+                "Worker without helmet", 
                 "Worker (helmet checking...",
+                "Worker (too distant)",
             ]
         ):
             bottom_center = get_bottom_center(box)
