@@ -190,8 +190,10 @@ def detect_heavy_equipment(
         
     worker_positions = []
     vehicle_positions = []
+    scaffolding_positions = []
     Grab_crane_box, cran_arm_box, forklift_box = [], [], []
-    worker_box, hat_box, signaler_box = [], [], []
+    worker_box, hat_box, signaler_box, scaffolding_box = [], [], [], []
+    hook_box = []
 
     dets = []
 
@@ -243,6 +245,24 @@ def detect_heavy_equipment(
         elif cls_name == "red_hard_hat":
             signaler_box.append(box)
             cv2.rectangle(image, (box[0], box[1]), (box[2], box[3]), (255, 255, 0), 2)
+        elif cls_name == "scaffolding":
+            scaffolding_box.append(box)
+            cv2.rectangle(image, (box[0], box[1]), (box[2], box[3]), (128, 128, 0), 2)
+            draw_text_with_background(
+                image,
+                "Scaffolding",
+                (box[0], box[1] - 10),
+                (128, 128, 0)
+            )
+        elif cls_name == "hook":
+            hook_box.append(box)
+            cv2.rectangle(image, (box[0], box[1]), (box[2], box[3]), (0, 150, 0), 2)
+            draw_text_with_background(
+                image,
+                "Hook",
+                (box[0], box[1] - 10),
+                (0, 200, 0)
+            )
 
     
     for w_box in worker_box:
@@ -325,59 +345,134 @@ def detect_heavy_equipment(
                 if "missing_helmet" not in reasons:
                     reasons.append("missing_helmet")
 
+    # Scaffolding safety checks (when scaffolding is detected)
+    if scaffolding_box:
+        # Check for vertical area violations (workers in same vertical space within scaffolding)
+        vertical_groups = []
         
-    # Proximity check
-    for w_pt, w_box in worker_positions:
-        for _, v_box in vehicle_positions:
-            # check history:
-            if len(v_box.history_observations) < 10:
-                continue
+        # First, identify workers that are within scaffolding bounds
+        workers_in_scaffolding = []
+        for i, (_, w_box) in enumerate(worker_positions):
+            for scaff_box in scaffolding_box:
+                # Check if worker box is fully within scaffolding box
+                if (w_box[0] >= scaff_box[0] and w_box[1] >= scaff_box[1] and 
+                    w_box[2] <= scaff_box[2] and w_box[3] <= scaff_box[3]):
+                    workers_in_scaffolding.append(i)
+                    break
+        
+        # Only check vertical area violations for workers within scaffolding
+        for i in workers_in_scaffolding:
+            for j in workers_in_scaffolding:
+                if i != j:
+                    w_box1 = worker_positions[i][1]
+                    w_box2 = worker_positions[j][1]
+                    # Check if workers are in same vertical area
+                    if ((w_box1[1] + w_box1[3]) / 2) > w_box2[3] or ((w_box2[1] + w_box2[3]) / 2) > w_box1[3]:
+                        # Check horizontal overlap with expanded range
+                        if (w_box1[0] - (w_box1[2] - w_box1[0]) / 2) < w_box2[2] and (w_box1[2] + (w_box1[2] - w_box1[0]) / 2) > w_box2[0]:
+                            # Find or create group for these workers
+                            group_found = False
+                            for group in vertical_groups:
+                                if i in group or j in group:
+                                    group.add(i)
+                                    group.add(j)
+                                    group_found = True
+                                    break
+                            if not group_found:
+                                vertical_groups.append({i, j})
+        
+        if vertical_groups:
+            final_status = "UnSafe"
+            if "same_vertical_area" not in reasons:
+                reasons.append("same_vertical_area")
+            
+            # Draw warning boxes around groups
+            for group in vertical_groups:
+                if len(group) > 1:
+                    group_boxes = [worker_positions[i][1] for i in group]
+                    min_x = min(box[0] for box in group_boxes)
+                    min_y = min(box[1] for box in group_boxes)
+                    max_x = max(box[2] for box in group_boxes)
+                    max_y = max(box[3] for box in group_boxes)
+                    
+                    padding = 20
+                    min_x = max(0, min_x - padding)
+                    min_y = max(0, min_y - padding)
+                    max_x = min(FRAME_WIDTH, max_x + padding)
+                    max_y = min(FRAME_HEIGHT, max_y + padding)
+                    
+                    cv2.rectangle(image, (min_x, min_y), (max_x, max_y), (0, 0, 255), 4)
+                    draw_text_with_background(
+                        image,
+                        "VERTICAL AREA VIOLATION",
+                        (min_x, min_y - 10),
+                        (0, 0, 255)
+                    )
+        
+        # Check for missing hooks (safety harness connections) only for workers in scaffolding
+        workers_in_scaffolding_count = len(workers_in_scaffolding)
+        hook_count = len(hook_box)
+        missing_hooks = max(0, workers_in_scaffolding_count - hook_count)
+        
+        if missing_hooks > 0:
+            final_status = "UnSafe"
+            if "missing_hook" not in reasons:
+                reasons.append("missing_hook")
 
-            centroids = np.array(
-                [
-                    [int((x1 + x2) / 2), int((y1 + y2) / 2)]
-                    for (x1, y1, x2, y2) in v_box.history_observations
-                ]
-            )
-            # Remove duplicates (recommended)
-            centroids = np.unique(centroids, axis=0)
-            # Compute the minimum enclosing ball
-            center, radius_squared = miniball.get_bounding_ball(centroids)
-            radius = radius_squared**0.5
+    # Vehicle proximity check (only when heavy vehicles are detected)
+    vehicles_detected = len(vehicle_positions) > 0
+    if vehicles_detected:
+        for w_pt, w_box in worker_positions:
+            for _, v_box in vehicle_positions:
+                # check history:
+                if len(v_box.history_observations) < 10:
+                    continue
 
-            if radius < VEHICLE_MOVING_THRESH:
-                continue
-            v_box1 = [int(x) for x in v_box.history_observations[-1]]
-            vehicle_candidates = get_vehicle_ground_edges(v_box1)
-            vehicle_world_pts = [transform_to_world(p) for p in vehicle_candidates]
-            closest_v_pt = min(
-                vehicle_world_pts, key=lambda p: np.linalg.norm(p - w_pt)
-            )
+                centroids = np.array(
+                    [
+                        [int((x1 + x2) / 2), int((y1 + y2) / 2)]
+                        for (x1, y1, x2, y2) in v_box.history_observations
+                    ]
+                )
+                # Remove duplicates (recommended)
+                centroids = np.unique(centroids, axis=0)
+                # Compute the minimum enclosing ball
+                center, radius_squared = miniball.get_bounding_ball(centroids)
+                radius = radius_squared**0.5
 
-            dist = np.linalg.norm(w_pt - closest_v_pt)
-            color = (0, 0, 255) if dist < DANGER_DIST_METERS else (0, 255, 0)
+                if radius < VEHICLE_MOVING_THRESH:
+                    continue
+                v_box1 = [int(x) for x in v_box.history_observations[-1]]
+                vehicle_candidates = get_vehicle_ground_edges(v_box1)
+                vehicle_world_pts = [transform_to_world(p) for p in vehicle_candidates]
+                closest_v_pt = min(
+                    vehicle_world_pts, key=lambda p: float(np.linalg.norm(p - w_pt))
+                )
 
-            if dist < DANGER_DIST_METERS:
+                dist = np.linalg.norm(w_pt - closest_v_pt)
+                color = (0, 0, 255) if dist < DANGER_DIST_METERS else (0, 255, 0)
+
+                if dist < DANGER_DIST_METERS:
+                    draw_text_with_background(
+                        image,
+                        f"ALERT: {dist:.2f}m",
+                        (int(w_box[0]), int(w_box[1]) - 30),
+                        (0, 0, 255)
+                    )
+                    # Add proximity violation to reasons
+                    if "proximity_violation" not in reasons:
+                        reasons.append("proximity_violation")
+                    final_status = "UnSafe"
+
+                pt1 = (int((w_box[0] + w_box[2]) // 2), int(w_box[3]))
+                pt2 = (int((v_box1[0] + v_box1[2]) // 2), int(v_box1[3]))
+                cv2.line(image, pt1, pt2, color, 2)
                 draw_text_with_background(
                     image,
-                    f"ALERT: {dist:.2f}m",
-                    (int(w_box[0]), int(w_box[1]) - 30),
-                    (0, 0, 255)
+                    f"{dist:.2f}m",
+                    ((int(pt1[0]) + pt2[0]) // 2, (pt1[1] + pt2[1]) // 2),
+                    color
                 )
-                # Add proximity violation to reasons
-                if "proximity_violation" not in reasons:
-                    reasons.append("proximity_violation")
-                final_status = "UnSafe"
-
-            pt1 = (int((w_box[0] + w_box[2]) // 2), int(w_box[3]))
-            pt2 = (int((v_box1[0] + v_box1[2]) // 2), int(v_box1[3]))
-            cv2.line(image, pt1, pt2, color, 2)
-            draw_text_with_background(
-                image,
-                f"{dist:.2f}m",
-                ((int(pt1[0]) + pt2[0]) // 2, (pt1[1] + pt2[1]) // 2),
-                color
-            )
 
     # Ensure reasons are unique
     reasons = list(set(reasons))
