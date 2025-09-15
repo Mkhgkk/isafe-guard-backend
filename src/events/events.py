@@ -15,11 +15,14 @@ NAMESPACE = "/default"
 
 class EventType(Enum):
     """Define all possible event types that can be emitted."""
+
     SYSTEM_STATUS = "system_status"
     ZOOM_LEVEL = "zoom-level"
     PTZ_AUTOTRACK = "ptz-autotrack"
+
+    STREAM_EVENT_STATUS = "stream_event_status"
     # PTZ_AUTOTRACK_STATUS = "ptz_autotrack_status"
-    
+
     # Dynamic event types
     ALERT = "alert"
     CUSTOM = "custom"
@@ -28,13 +31,14 @@ class EventType(Enum):
 @dataclass
 class SocketEvent:
     """Represents a SocketIO event to be emitted."""
+
     event_type: EventType
     data: Dict[str, Any]
     room: Optional[str] = None
     namespace: str = NAMESPACE
     broadcast: bool = False
     custom_event_name: Optional[str] = None
-    
+
     @property
     def full_event_name(self) -> str:
         """Get the complete event name, including any dynamic parts."""
@@ -45,16 +49,16 @@ class SocketEvent:
 
 class EventBus:
     """Central event bus for managing SocketIO events."""
-    
+
     def __init__(self):
         self._subscribers: Dict[EventType, List[Callable[[SocketEvent], None]]] = {}
-    
+
     def subscribe(self, event_type: EventType, callback: Callable[[SocketEvent], None]):
         """Subscribe to an event type."""
         if event_type not in self._subscribers:
             self._subscribers[event_type] = []
         self._subscribers[event_type].append(callback)
-    
+
     def publish(self, event: SocketEvent):
         """Publish an event to all subscribers."""
         if event.event_type in self._subscribers:
@@ -62,23 +66,35 @@ class EventBus:
                 try:
                     callback(event)
                 except Exception as e:
-                    log_event(logger, "error", f"Error in event callback: {e}", event_type="error")
-    
-    def unsubscribe(self, event_type: EventType, callback: Callable[[SocketEvent], None]):
+                    log_event(
+                        logger,
+                        "error",
+                        f"Error in event callback: {e}",
+                        event_type="error",
+                    )
+
+    def unsubscribe(
+        self, event_type: EventType, callback: Callable[[SocketEvent], None]
+    ):
         """Unsubscribe from an event type."""
         if event_type in self._subscribers:
             try:
                 self._subscribers[event_type].remove(callback)
             except ValueError:
-                log_event(logger, "warning", f"Callback not found for event type {event_type}", event_type="warning")
-    
+                log_event(
+                    logger,
+                    "warning",
+                    f"Callback not found for event type {event_type}",
+                    event_type="warning",
+                )
+
     def clear_subscribers(self, event_type: Optional[EventType] = None):
         """Clear subscribers for a specific event type or all event types."""
         if event_type:
             self._subscribers[event_type] = []
         else:
             self._subscribers.clear()
-    
+
     def get_subscriber_count(self, event_type: EventType) -> int:
         """Get the number of subscribers for an event type."""
         return len(self._subscribers.get(event_type, []))

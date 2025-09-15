@@ -15,6 +15,7 @@ from main import tools
 from database import MongoDatabase, get_database
 from config import STATIC_DIR
 from utils.notifications import send_email_notification
+from events import emit_event, EventType
 
 logger = get_logger(__name__)
 
@@ -36,6 +37,56 @@ event_schema = EventSchema()
 class Event:
     def __init__(self):
         self.collection = get_database()["events"]
+
+    def _notify_stream_event_status(self, stream_ids):
+        """Notify frontend about event status changes for streams via WebSocket"""
+        try:
+            # Get unresolved event counts for affected streams
+            pipeline = [
+                {
+                    "$match": {
+                        "stream_id": {"$in": stream_ids},
+                        "is_resolved": {"$ne": True},
+                    }
+                },
+                {"$group": {"_id": "$stream_id", "unresolved_count": {"$sum": 1}}},
+            ]
+            event_counts = list(self.collection.aggregate(pipeline))
+            count_dict = {
+                item["_id"]: item["unresolved_count"] for item in event_counts
+            }
+
+            # Emit status for each affected stream
+            for stream_id in stream_ids:
+                unresolved_count = count_dict.get(stream_id, 0)
+                data = {
+                    "stream_id": stream_id,
+                    "unresolved_events": unresolved_count,
+                    "has_unresolved": unresolved_count > 0,
+                }
+
+                emit_event(
+                    event_type=EventType.STREAM_EVENT_STATUS,
+                    data=data,
+                    # custom_event_name="stream_event_status",
+                    room="monitoring",  # Main monitoring page room
+                    broadcast=True,
+                )
+
+            log_event(
+                logger,
+                "info",
+                f"Notified stream event status for streams: {stream_ids}",
+                event_type="info",
+            )
+
+        except Exception as e:
+            log_event(
+                logger,
+                "error",
+                f"Error notifying stream event status: {e}",
+                event_type="error",
+            )
 
     @staticmethod
     def save(
@@ -181,9 +232,23 @@ class Event:
     def bulk_resolve_events(self, event_ids):
         try:
             object_ids = [ObjectId(event_id) for event_id in event_ids]
+
+            # Get stream_ids for the events being resolved
+            affected_events = list(
+                self.collection.find({"_id": {"$in": object_ids}}, {"stream_id": 1})
+            )
+            affected_stream_ids = list(
+                set(event["stream_id"] for event in affected_events)
+            )
+
+            # Update the events
             result = self.collection.update_many(
                 {"_id": {"$in": object_ids}}, {"$set": {"is_resolved": True}}
             )
+
+            # Notify about stream event status changes
+            if result.modified_count > 0 and affected_stream_ids:
+                self._notify_stream_event_status(affected_stream_ids)
 
             return tools.JsonResp(
                 {
@@ -204,11 +269,15 @@ class Event:
         try:
             object_ids = [ObjectId(event_id) for event_id in event_ids]
 
-            # First check if all events are resolved
-            unresolved_events = self.collection.find(
-                {"_id": {"$in": object_ids}, "is_resolved": {"$ne": True}}
+            # Get stream_ids for the events being deleted (before deletion)
+            affected_events = list(
+                self.collection.find({"_id": {"$in": object_ids}}, {"stream_id": 1})
+            )
+            affected_stream_ids = list(
+                set(event["stream_id"] for event in affected_events)
             )
 
+            # First check if all events are resolved
             unresolved_count = self.collection.count_documents(
                 {"_id": {"$in": object_ids}, "is_resolved": {"$ne": True}}
             )
@@ -226,6 +295,10 @@ class Event:
             result = self.collection.delete_many(
                 {"_id": {"$in": object_ids}, "is_resolved": True}
             )
+
+            # Notify about stream event status changes (counts will be updated)
+            if result.deleted_count > 0 and affected_stream_ids:
+                self._notify_stream_event_status(affected_stream_ids)
 
             return tools.JsonResp(
                 {

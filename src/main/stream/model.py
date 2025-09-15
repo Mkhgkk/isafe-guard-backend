@@ -338,11 +338,32 @@ class Stream:
         if stream_id:
             stream = app.db.streams.find_one({"stream_id": stream_id})
             if stream:
+                # Add unresolved event count for single stream
+                unresolved_count = app.db.events.count_documents({
+                    "stream_id": stream_id,
+                    "is_resolved": {"$ne": True}
+                })
+                stream["unresolved_events"] = unresolved_count
+                stream["has_unresolved"] = unresolved_count > 0
                 resp = tools.JsonResp(stream, 200)
 
         else:
             streams = list(app.db.streams.find())
             if streams:
+                # Get unresolved event counts for all streams
+                pipeline = [
+                    {"$match": {"is_resolved": {"$ne": True}}},
+                    {"$group": {"_id": "$stream_id", "unresolved_count": {"$sum": 1}}}
+                ]
+                event_counts = list(app.db.events.aggregate(pipeline))
+                count_dict = {item["_id"]: item["unresolved_count"] for item in event_counts}
+
+                # Add event counts to each stream
+                for stream in streams:
+                    unresolved_count = count_dict.get(stream["stream_id"], 0)
+                    stream["unresolved_events"] = unresolved_count
+                    stream["has_unresolved"] = unresolved_count > 0
+
                 resp = tools.JsonResp(streams, 200)
 
         return resp
