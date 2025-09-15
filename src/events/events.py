@@ -25,6 +25,7 @@ class EventType(Enum):
 
     # Dynamic event types
     ALERT = "alert"
+    EVENT = "event"
     CUSTOM = "custom"
 
 

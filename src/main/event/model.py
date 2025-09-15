@@ -15,7 +15,7 @@ from main import tools
 from database import MongoDatabase, get_database
 from config import STATIC_DIR
 from utils.notifications import send_email_notification
-from events import emit_event, EventType
+from events import emit_event, EventType, emit_dynamic_event
 
 logger = get_logger(__name__)
 
@@ -166,9 +166,19 @@ class Event:
             print("CREATED_ID: ", data["_id"])
             print("INSERTED_ID: ", inserted_id)
 
-            # Notify about new event for the stream (increases unresolved count)
+            # Send new event data to frontend and notify stream status
             stream_id = data.get("stream_id")
             if stream_id:
+
+                emit_dynamic_event(
+                    base_event_type=EventType.EVENT,
+                    identifier=stream_id,
+                    data=data,
+                    room=data.get("stream_id"),
+                    broadcast=False,
+                )
+
+                # Update stream event status count
                 self._notify_stream_event_status([stream_id])
 
             return data
