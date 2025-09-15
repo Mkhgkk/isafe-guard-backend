@@ -166,6 +166,11 @@ class Event:
             print("CREATED_ID: ", data["_id"])
             print("INSERTED_ID: ", inserted_id)
 
+            # Notify about new event for the stream (increases unresolved count)
+            stream_id = data.get("stream_id")
+            if stream_id:
+                self._notify_stream_event_status([stream_id])
+
             return data
 
         except Exception as e:
