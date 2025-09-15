@@ -153,3 +153,58 @@ class Event:
             return tools.JsonResp(
                 {"message": "Failed to fetch events from db.", "error": "db_error"}, 500
             )
+
+    def bulk_resolve_events(self, event_ids):
+        try:
+            object_ids = [ObjectId(event_id) for event_id in event_ids]
+            result = self.collection.update_many(
+                {"_id": {"$in": object_ids}},
+                {"$set": {"is_resolved": True}}
+            )
+
+            return tools.JsonResp({
+                "message": "Events resolved successfully.",
+                "modified_count": result.modified_count
+            }, 200)
+        except Exception as e:
+            log_event(logger, "error", f"Error resolving events: {e}", event_type="error")
+            return tools.JsonResp(
+                {"message": "Failed to resolve events.", "error": str(e)}, 500
+            )
+
+    def bulk_delete_events(self, event_ids):
+        try:
+            object_ids = [ObjectId(event_id) for event_id in event_ids]
+
+            # First check if all events are resolved
+            unresolved_events = self.collection.find({
+                "_id": {"$in": object_ids},
+                "is_resolved": {"$ne": True}
+            })
+
+            unresolved_count = self.collection.count_documents({
+                "_id": {"$in": object_ids},
+                "is_resolved": {"$ne": True}
+            })
+
+            if unresolved_count > 0:
+                return tools.JsonResp({
+                    "message": "Cannot delete unresolved events. Only resolved events can be deleted.",
+                    "unresolved_count": unresolved_count
+                }, 400)
+
+            # Delete only resolved events
+            result = self.collection.delete_many({
+                "_id": {"$in": object_ids},
+                "is_resolved": True
+            })
+
+            return tools.JsonResp({
+                "message": "Events deleted successfully.",
+                "deleted_count": result.deleted_count
+            }, 200)
+        except Exception as e:
+            log_event(logger, "error", f"Error deleting events: {e}", event_type="error")
+            return tools.JsonResp(
+                {"message": "Failed to delete events.", "error": str(e)}, 500
+            )

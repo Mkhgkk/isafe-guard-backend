@@ -38,3 +38,31 @@ def get_events():
         limit=limit,
         page=page,
     )
+
+
+@event_blueprint.route("/bulk_resolve", methods=["POST"])
+def bulk_resolve():
+    try:
+        data = json.loads(request.data)
+        event_ids = data.get("event_ids", [])
+
+        if not event_ids:
+            return tools.JsonResp({"message": "event_ids list is required"}, 400)
+
+        return Event().bulk_resolve_events(event_ids)
+    except Exception as e:
+        return tools.JsonResp({"message": str(e)}, 400)
+
+
+@event_blueprint.route("/bulk_delete", methods=["POST"])
+def bulk_delete():
+    try:
+        data = json.loads(request.data)
+        event_ids = data.get("event_ids", [])
+
+        if not event_ids:
+            return tools.JsonResp({"message": "event_ids list is required"}, 400)
+
+        return Event().bulk_delete_events(event_ids)
+    except Exception as e:
+        return tools.JsonResp({"message": str(e)}, 400)
