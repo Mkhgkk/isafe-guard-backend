@@ -28,6 +28,7 @@ def get_events():
     stream_id = request.args.get("stream_id")
     start_timestamp = request.args.get("start_timestamp")
     end_timestamp = request.args.get("end_timestamp")
+    is_resolved = request.args.get("is_resolved")
     limit = int(request.args.get("limit", 20))
     page = int(request.args.get("page", 1))
 
@@ -35,6 +36,7 @@ def get_events():
         stream_id=stream_id,
         start_timestamp=start_timestamp,
         end_timestamp=end_timestamp,
+        is_resolved=is_resolved,
         limit=limit,
         page=page,
     )

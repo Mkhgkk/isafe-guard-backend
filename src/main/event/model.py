@@ -70,7 +70,9 @@ class Event:
         ret = cv2.imwrite(image_path, resized_frame)
 
         if not ret:
-            log_event(logger, "error", "Failed to save thumbnail image.", event_type="error")
+            log_event(
+                logger, "error", "Failed to save thumbnail image.", event_type="error"
+            )
             return
 
         try:
@@ -85,10 +87,20 @@ class Event:
             }
 
             response = Event().create_event(data)
-            log_event(logger, "info", f"Event saved successfully: {response}", event_type="info")
+            log_event(
+                logger,
+                "info",
+                f"Event saved successfully: {response}",
+                event_type="info",
+            )
             # send_email_notification(reasons, response["_id"], stream_id)
         except Exception as e:
-            log_event(logger, "error", f"Error saving event to database: {e}", event_type="error")
+            log_event(
+                logger,
+                "error",
+                f"Error saving event to database: {e}",
+                event_type="error",
+            )
 
     def create_event(self, data):
         # errors = event_schema.validate(data)
@@ -121,7 +133,13 @@ class Event:
         return resp
 
     def get_events(
-        self, stream_id, start_timestamp=None, end_timestamp=None, limit=None, page=None
+        self,
+        stream_id,
+        start_timestamp=None,
+        end_timestamp=None,
+        is_resolved=None,
+        limit=None,
+        page=None,
     ):
         query = {}
 
@@ -135,6 +153,12 @@ class Event:
             if end_timestamp:
                 timestamp_filter["$lte"] = int(end_timestamp)
             query["timestamp"] = timestamp_filter
+
+        if is_resolved is not None:
+            if is_resolved.lower() == "true":
+                query["is_resolved"] = True
+            elif is_resolved.lower() == "false":
+                query["is_resolved"] = {"$ne": True}
 
         skip = (page) * limit
 
@@ -158,16 +182,20 @@ class Event:
         try:
             object_ids = [ObjectId(event_id) for event_id in event_ids]
             result = self.collection.update_many(
-                {"_id": {"$in": object_ids}},
-                {"$set": {"is_resolved": True}}
+                {"_id": {"$in": object_ids}}, {"$set": {"is_resolved": True}}
             )
 
-            return tools.JsonResp({
-                "message": "Events resolved successfully.",
-                "modified_count": result.modified_count
-            }, 200)
+            return tools.JsonResp(
+                {
+                    "message": "Events resolved successfully.",
+                    "modified_count": result.modified_count,
+                },
+                200,
+            )
         except Exception as e:
-            log_event(logger, "error", f"Error resolving events: {e}", event_type="error")
+            log_event(
+                logger, "error", f"Error resolving events: {e}", event_type="error"
+            )
             return tools.JsonResp(
                 {"message": "Failed to resolve events.", "error": str(e)}, 500
             )
@@ -177,34 +205,39 @@ class Event:
             object_ids = [ObjectId(event_id) for event_id in event_ids]
 
             # First check if all events are resolved
-            unresolved_events = self.collection.find({
-                "_id": {"$in": object_ids},
-                "is_resolved": {"$ne": True}
-            })
+            unresolved_events = self.collection.find(
+                {"_id": {"$in": object_ids}, "is_resolved": {"$ne": True}}
+            )
 
-            unresolved_count = self.collection.count_documents({
-                "_id": {"$in": object_ids},
-                "is_resolved": {"$ne": True}
-            })
+            unresolved_count = self.collection.count_documents(
+                {"_id": {"$in": object_ids}, "is_resolved": {"$ne": True}}
+            )
 
             if unresolved_count > 0:
-                return tools.JsonResp({
-                    "message": "Cannot delete unresolved events. Only resolved events can be deleted.",
-                    "unresolved_count": unresolved_count
-                }, 400)
+                return tools.JsonResp(
+                    {
+                        "message": "Cannot delete unresolved events. Only resolved events can be deleted.",
+                        "unresolved_count": unresolved_count,
+                    },
+                    400,
+                )
 
             # Delete only resolved events
-            result = self.collection.delete_many({
-                "_id": {"$in": object_ids},
-                "is_resolved": True
-            })
+            result = self.collection.delete_many(
+                {"_id": {"$in": object_ids}, "is_resolved": True}
+            )
 
-            return tools.JsonResp({
-                "message": "Events deleted successfully.",
-                "deleted_count": result.deleted_count
-            }, 200)
+            return tools.JsonResp(
+                {
+                    "message": "Events deleted successfully.",
+                    "deleted_count": result.deleted_count,
+                },
+                200,
+            )
         except Exception as e:
-            log_event(logger, "error", f"Error deleting events: {e}", event_type="error")
+            log_event(
+                logger, "error", f"Error deleting events: {e}", event_type="error"
+            )
             return tools.JsonResp(
                 {"message": "Failed to delete events.", "error": str(e)}, 500
             )
