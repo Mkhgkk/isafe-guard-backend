@@ -564,8 +564,8 @@ def alert():
     return tools.JsonResp({"data": "ok"}, 200)
 
 
-@stream_blueprint.route("/bulk_restart_streams", methods=["POST"])
-def bulk_restart_streams():
+@stream_blueprint.route("/bulk_start_streams", methods=["POST"])
+def bulk_start_streams():
     try:
         data = json.loads(request.data)
         stream_ids = data.get("stream_ids", [])
@@ -573,7 +573,7 @@ def bulk_restart_streams():
         if not stream_ids:
             return tools.JsonResp({"message": "stream_ids list is required"}, 400)
 
-        return Stream().bulk_restart_streams(stream_ids)
+        return Stream().bulk_start_streams(stream_ids)
     except Exception as e:
         return tools.JsonResp({"message": str(e)}, 400)
 

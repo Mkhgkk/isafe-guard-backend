@@ -1000,8 +1000,8 @@ class Stream:
             log_event(logger, "error", f"Error toggling saving video: {e}", event_type="error")
             return self._create_error_response("Failed to toggle saving video", "toggle_saving_video_failed")
 
-    def bulk_restart_streams(self, stream_ids):
-        """Restart multiple streams by their IDs."""
+    def bulk_start_streams(self, stream_ids):
+        """Start multiple streams by their IDs."""
         try:
             results = []
             failed_streams = []
@@ -1014,38 +1014,35 @@ class Stream:
                         failed_streams.append({"stream_id": stream_id, "error": "Stream not found"})
                         continue
 
-                    # Stop the stream first
-                    Stream.stop_stream(stream_id)
-
                     # Start the stream
                     Stream.start_stream(**stream_doc)
-                    results.append({"stream_id": stream_id, "status": "restarted"})
+                    results.append({"stream_id": stream_id, "status": "started"})
 
                 except Exception as e:
                     failed_streams.append({"stream_id": stream_id, "error": str(e)})
 
             response_data = {
-                "restarted_streams": results,
+                "started_streams": results,
                 "failed_streams": failed_streams,
                 "total_requested": len(stream_ids),
-                "successful_restarts": len(results)
+                "successful_starts": len(results)
             }
 
             if failed_streams:
                 return tools.JsonResp({
-                    "message": f"Bulk restart completed with {len(failed_streams)} failures",
+                    "message": f"Bulk start completed with {len(failed_streams)} failures",
                     "data": response_data
                 }, 207)  # Multi-status
             else:
                 return tools.JsonResp({
-                    "message": "All streams restarted successfully",
+                    "message": "All streams started successfully",
                     "data": response_data
                 }, 200)
 
         except Exception as e:
-            log_event(logger, "error", f"Error in bulk restart streams: {e}", event_type="error")
+            log_event(logger, "error", f"Error in bulk start streams: {e}", event_type="error")
             return tools.JsonResp({
-                "message": "Failed to restart streams",
+                "message": "Failed to start streams",
                 "error": str(e)
             }, 500)
 
