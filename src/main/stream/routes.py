@@ -564,6 +564,34 @@ def alert():
     return tools.JsonResp({"data": "ok"}, 200)
 
 
+@stream_blueprint.route("/bulk_restart_streams", methods=["POST"])
+def bulk_restart_streams():
+    try:
+        data = json.loads(request.data)
+        stream_ids = data.get("stream_ids", [])
+
+        if not stream_ids:
+            return tools.JsonResp({"message": "stream_ids list is required"}, 400)
+
+        return Stream().bulk_restart_streams(stream_ids)
+    except Exception as e:
+        return tools.JsonResp({"message": str(e)}, 400)
+
+
+@stream_blueprint.route("/bulk_stop_streams", methods=["POST"])
+def bulk_stop_streams():
+    try:
+        data = json.loads(request.data)
+        stream_ids = data.get("stream_ids", [])
+
+        if not stream_ids:
+            return tools.JsonResp({"message": "stream_ids list is required"}, 400)
+
+        return Stream().bulk_stop_streams(stream_ids)
+    except Exception as e:
+        return tools.JsonResp({"message": str(e)}, 400)
+
+
 @stream_blueprint.route("/get_current_frame", methods=["POST"])
 def get_current_frame():
     """
