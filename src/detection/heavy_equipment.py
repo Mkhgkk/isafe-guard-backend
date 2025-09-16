@@ -98,7 +98,7 @@ MAX_MISSING_FRAMES = (
 )
 
 # Minimum person box size for reliable helmet detection
-MIN_PERSON_BOX_WIDTH = 30   # Minimum width in pixels
+MIN_PERSON_BOX_WIDTH = 30  # Minimum width in pixels
 MIN_PERSON_BOX_HEIGHT = 60  # Minimum height in pixels
 MIN_PERSON_BOX_AREA = MIN_PERSON_BOX_WIDTH * MIN_PERSON_BOX_HEIGHT
 
@@ -157,10 +157,13 @@ def is_person_box_large_enough(box: List[int]) -> bool:
     width = box[2] - box[0]
     height = box[3] - box[1]
     area = width * height
-    
-    return (width >= MIN_PERSON_BOX_WIDTH and 
-            height >= MIN_PERSON_BOX_HEIGHT and 
-            area >= MIN_PERSON_BOX_AREA)
+
+    return (
+        width >= MIN_PERSON_BOX_WIDTH
+        and height >= MIN_PERSON_BOX_HEIGHT
+        and area >= MIN_PERSON_BOX_AREA
+    )
+
 
 def is_helmet_violation(stream_id: str, worker_id: int) -> bool:
     """Check if worker has a consistent helmet violation based on tracking history."""
@@ -372,16 +375,17 @@ def detect_heavy_equipment(
 
         # Check if person box is large enough for reliable helmet detection
         box_large_enough = is_person_box_large_enough(box)
-        
+
         if box_large_enough:
             has_helmet = any(
-                box[0] <= (hatBox[0] + hatBox[2]) / 2 < box[2] and hatBox[1] >= box[1] - 20
+                box[0] <= (hatBox[0] + hatBox[2]) / 2 < box[2]
+                and hatBox[1] >= box[1] - 20
                 for hatBox in hat_box
             )
 
             # Update helmet tracking for this worker
             update_helmet_tracking(stream_id, w_box.id, has_helmet)
-            
+
             # Check if this worker has a consistent helmet violation
             has_helmet_violation = is_helmet_violation(stream_id, w_box.id)
         else:
@@ -398,29 +402,47 @@ def detect_heavy_equipment(
                 label = "Driver (too distant)" + add_id
                 color = (128, 128, 128)  # Gray color for too small/distant
             elif has_helmet_violation:
-                label = "Driver without helmet" + add_id
-                color = (0, 0, 255)
+                # Double-check if driver is actually too distant before flagging helmet violation
+                if not box_large_enough:
+                    label = "Driver (too distant for helmet detection)" + add_id
+                    color = (128, 128, 128)  # Gray color for too small/distant
+                else:
+                    label = "Driver without helmet" + add_id
+                    color = (0, 0, 255)
             elif has_helmet:
                 label = "Driver with helmet" + add_id
                 color = (0, 180, 255)
             else:
-                # Temporary no helmet detection - show as uncertain/warning
-                label = "Driver (helmet checking...)" + add_id
-                color = (0, 165, 255)  # Orange color for uncertain status
+                # Temporary no helmet detection - check if it's due to distance
+                if not box_large_enough:
+                    label = "Driver (too distant for helmet detection)" + add_id
+                    color = (128, 128, 128)  # Gray color for too small/distant
+                else:
+                    label = "Driver (helmet checking...)" + add_id
+                    color = (0, 165, 255)  # Orange color for uncertain status
         else:
             if not box_large_enough:
                 label = "Worker (too distant)" + add_id
                 color = (128, 128, 128)  # Gray color for too small/distant
             elif has_helmet_violation:
-                label = "Worker without helmet" + add_id
-                color = (0, 0, 255)
+                # Double-check if worker is actually too distant before flagging helmet violation
+                if not box_large_enough:
+                    label = "Worker (too distant for helmet detection)" + add_id
+                    color = (128, 128, 128)  # Gray color for too small/distant
+                else:
+                    label = "Worker without helmet" + add_id
+                    color = (0, 0, 255)
             elif has_helmet:
                 label = "Worker with helmet" + add_id
                 color = (0, 180, 0)
             else:
-                # Temporary no helmet detection - show as uncertain/warning
-                label = "Worker (helmet checking...)" + add_id
-                color = (0, 165, 255)  # Orange color for uncertain status
+                # Temporary no helmet detection - check if it's due to distance
+                if not box_large_enough:
+                    label = "Worker (too distant for helmet detection)" + add_id
+                    color = (128, 128, 128)  # Gray color for too small/distant
+                else:
+                    label = "Worker (helmet checking...)" + add_id
+                    color = (0, 165, 255)  # Orange color for uncertain status
 
         # Face blurring for privacy (top 40%)
         if any(label.startswith(role) for role in ["Worker", "Driver", "Signaler"]):
@@ -445,7 +467,7 @@ def detect_heavy_equipment(
             keyword in label
             for keyword in [
                 "Worker with helmet",
-                "Worker without helmet", 
+                "Worker without helmet",
                 "Worker (helmet checking...",
                 "Worker (too distant)",
             ]
@@ -458,7 +480,8 @@ def detect_heavy_equipment(
             person_boxes.append((int(box[0]), int(box[1]), int(box[2]), int(box[3])))
 
             # Add safety violations to reasons based on helmet tracking
-            if has_helmet_violation:
+            # Only flag helmet violations if worker is close enough for reliable detection
+            if has_helmet_violation and box_large_enough:
                 if "missing_helmet" not in reasons:
                     reasons.append("missing_helmet")
                 final_status = "UnSafe"
