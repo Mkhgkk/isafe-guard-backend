@@ -259,13 +259,19 @@ def draw_detection_box_and_label(
 
 
 def detect_heavy_equipment(
-    image: np.ndarray, results: List[Results], stream_id: str = "default"
+    image: np.ndarray,
+    results: List[Results],
+    stream_id: str = "default",
+    draw_violations_only: bool = False,
 ) -> Tuple[str, List[str], List[Tuple[int, int, int, int]]]:
     """Detect heavy equipment and workers with proximity and helmet compliance checks.
 
     Args:
         image: Input image array
         results: YOLO detection results
+        stream_id: Stream identifier for tracking
+        draw_violations_only: If True, only draw boxes for violations and unsafe conditions.
+                              If False, draw all detection boxes (default behavior).
 
     Returns:
         Tuple containing:
@@ -318,13 +324,15 @@ def detect_heavy_equipment(
         cls_name = CLASS_NAMES.get(int(trk.cls), f"unknown_{int(trk.cls)}")
         box = [int(x) for x in trk.history_observations[-1]]
         if cls_name in VEHICLE_CLASSES:
-            cv2.rectangle(image, (box[0], box[1]), (box[2], box[3]), (0, 255, 0), 2)
-            draw_text_with_background(
-                image,
-                f"{cls_name}_id:{int(trk.id)}",
-                (box[0], box[1] - 10),
-                (0, 255, 0),
-            )
+            # Only draw vehicle boxes if not in violations-only mode
+            if not draw_violations_only:
+                cv2.rectangle(image, (box[0], box[1]), (box[2], box[3]), (0, 255, 0), 2)
+                draw_text_with_background(
+                    image,
+                    f"{cls_name}_id:{int(trk.id)}",
+                    (box[0], box[1] - 10),
+                    (0, 255, 0),
+                )
             bottom_center = get_bottom_center(box)
             world_center = transform_to_world(bottom_center)
             vehicle_positions.append((world_center, trk))
@@ -339,20 +347,34 @@ def detect_heavy_equipment(
             worker_box.append(trk)
         elif cls_name == "hard_hat":
             hat_box.append(box)
-            cv2.rectangle(image, (box[0], box[1]), (box[2], box[3]), (0, 255, 0), 2)
+            # Only draw helmet boxes if not in violations-only mode
+            if not draw_violations_only:
+                cv2.rectangle(image, (box[0], box[1]), (box[2], box[3]), (0, 255, 0), 2)
         elif cls_name == "red_hard_hat":
             signaler_box.append(box)
-            cv2.rectangle(image, (box[0], box[1]), (box[2], box[3]), (255, 255, 0), 2)
+            # Only draw signaler helmet boxes if not in violations-only mode
+            if not draw_violations_only:
+                cv2.rectangle(
+                    image, (box[0], box[1]), (box[2], box[3]), (255, 255, 0), 2
+                )
         elif cls_name == "scaffolding":
             scaffolding_box.append(box)
-            cv2.rectangle(image, (box[0], box[1]), (box[2], box[3]), (128, 128, 0), 2)
-            draw_text_with_background(
-                image, "Scaffolding", (box[0], box[1] - 10), (128, 128, 0)
-            )
+            # Only draw scaffolding boxes if not in violations-only mode
+            if not draw_violations_only:
+                cv2.rectangle(
+                    image, (box[0], box[1]), (box[2], box[3]), (128, 128, 0), 2
+                )
+                draw_text_with_background(
+                    image, "Scaffolding", (box[0], box[1] - 10), (128, 128, 0)
+                )
         elif cls_name == "hook":
             hook_box.append(box)
-            cv2.rectangle(image, (box[0], box[1]), (box[2], box[3]), (0, 150, 0), 2)
-            draw_text_with_background(image, "Hook", (box[0], box[1] - 10), (0, 200, 0))
+            # Only draw hook boxes if not in violations-only mode
+            if not draw_violations_only:
+                cv2.rectangle(image, (box[0], box[1]), (box[2], box[3]), (0, 150, 0), 2)
+                draw_text_with_background(
+                    image, "Hook", (box[0], box[1] - 10), (0, 200, 0)
+                )
 
     for w_box in worker_box:
         box = [int(x) for x in w_box.history_observations[-1]]
@@ -444,24 +466,35 @@ def detect_heavy_equipment(
                     label = "Worker (helmet checking...)" + add_id
                     color = (0, 165, 255)  # Orange color for uncertain status
 
-        # Face blurring for privacy (top 40%)
-        if any(label.startswith(role) for role in ["Worker", "Driver", "Signaler"]):
-            x1, y1, x2, y2 = box
-            blur_height = int(0.4 * (y2 - y1))
-            y1_blur = y1
-            y2_blur = y1 + blur_height
-
-            if y2_blur > y1_blur and x2 > x1:
-                face_region = image[y1_blur:y2_blur, x1:x2]
-                if face_region.size > 0:
-                    blurred = cv2.blur(face_region, (7, 7))
-                    image[y1_blur:y2_blur, x1:x2] = blurred
-
-        # Draw label and box
-        cv2.rectangle(
-            image, (int(box[0]), int(box[1])), (int(box[2]), int(box[3])), color, 2
+        # Determine if this worker should be drawn based on violation status
+        has_violation = (
+            "without helmet" in label
+            or "too distant" in label
+            or "helmet checking..." in label
         )
-        draw_text_with_background(image, label, (int(box[0]), int(box[1]) - 10), color)
+        should_draw = not draw_violations_only or has_violation
+
+        if should_draw:
+            # Face blurring for privacy (top 40%)
+            if any(label.startswith(role) for role in ["Worker", "Driver", "Signaler"]):
+                x1, y1, x2, y2 = box
+                blur_height = int(0.4 * (y2 - y1))
+                y1_blur = y1
+                y2_blur = y1 + blur_height
+
+                if y2_blur > y1_blur and x2 > x1:
+                    face_region = image[y1_blur:y2_blur, x1:x2]
+                    if face_region.size > 0:
+                        blurred = cv2.blur(face_region, (7, 7))
+                        image[y1_blur:y2_blur, x1:x2] = blurred
+
+            # Draw label and box
+            cv2.rectangle(
+                image, (int(box[0]), int(box[1])), (int(box[2]), int(box[3])), color, 2
+            )
+            draw_text_with_background(
+                image, label, (int(box[0]), int(box[1]) - 10), color
+            )
 
         if any(
             keyword in label
@@ -601,7 +634,9 @@ def detect_heavy_equipment(
                 dist = np.linalg.norm(w_pt - closest_v_pt)
                 color = (0, 0, 255) if dist < DANGER_DIST_METERS else (0, 255, 0)
 
-                if dist < DANGER_DIST_METERS:
+                is_violation = dist < DANGER_DIST_METERS
+
+                if is_violation:
                     draw_text_with_background(
                         image,
                         f"ALERT: {dist:.2f}m",
@@ -613,15 +648,18 @@ def detect_heavy_equipment(
                         reasons.append("proximity_violation")
                     final_status = "UnSafe"
 
-                pt1 = (int((w_box[0] + w_box[2]) // 2), int(w_box[3]))
-                pt2 = (int((v_box1[0] + v_box1[2]) // 2), int(v_box1[3]))
-                cv2.line(image, pt1, pt2, color, 2)
-                draw_text_with_background(
-                    image,
-                    f"{dist:.2f}m",
-                    ((int(pt1[0]) + pt2[0]) // 2, (pt1[1] + pt2[1]) // 2),
-                    color,
-                )
+                # Draw proximity lines and distance labels
+                # Always draw violations, conditionally draw safe distances
+                if not draw_violations_only or is_violation:
+                    pt1 = (int((w_box[0] + w_box[2]) // 2), int(w_box[3]))
+                    pt2 = (int((v_box1[0] + v_box1[2]) // 2), int(v_box1[3]))
+                    cv2.line(image, pt1, pt2, color, 2)
+                    draw_text_with_background(
+                        image,
+                        f"{dist:.2f}m",
+                        ((int(pt1[0]) + pt2[0]) // 2, (pt1[1] + pt2[1]) // 2),
+                        color,
+                    )
 
     # Ensure reasons are unique
     reasons = list(set(reasons))
