@@ -263,6 +263,7 @@ def detect_heavy_equipment(
     results: List[Results],
     stream_id: str = "default",
     draw_violations_only: bool = False,
+    enable_face_blurring: bool = False,
 ) -> Tuple[str, List[str], List[Tuple[int, int, int, int]]]:
     """Detect heavy equipment and workers with proximity and helmet compliance checks.
 
@@ -272,6 +273,7 @@ def detect_heavy_equipment(
         stream_id: Stream identifier for tracking
         draw_violations_only: If True, only draw boxes for violations and unsafe conditions.
                               If False, draw all detection boxes (default behavior).
+        enable_face_blurring: If True, blur faces for privacy (default: True).
 
     Returns:
         Tuple containing:
@@ -476,7 +478,9 @@ def detect_heavy_equipment(
 
         if should_draw:
             # Face blurring for privacy (top 40%)
-            if any(label.startswith(role) for role in ["Worker", "Driver", "Signaler"]):
+            if enable_face_blurring and any(
+                label.startswith(role) for role in ["Worker", "Driver", "Signaler"]
+            ):
                 x1, y1, x2, y2 = box
                 blur_height = int(0.4 * (y2 - y1))
                 y1_blur = y1
