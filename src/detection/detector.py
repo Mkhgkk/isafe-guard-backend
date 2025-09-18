@@ -549,3 +549,26 @@ class Detector:
         mock_result.names = class_names
 
         return [mock_result]
+
+    def cleanup(self):
+        """Clean up GPU memory and resources."""
+        try:
+            if hasattr(self, "model") and self.model is not None:
+                del self.model
+                self.model = None
+
+            # Clear CUDA cache
+            try:
+                import torch
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+            except ImportError:
+                pass
+
+            # Clean up tracking for heavy equipment
+            if self.model_name == "HeavyEquipment":
+                from detection.heavy_equipment import cleanup_tracker
+                cleanup_tracker(self.stream_id)
+
+        except Exception as e:
+            log_event(logger, "error", f"Error during detector cleanup: {e}", event_type="error")

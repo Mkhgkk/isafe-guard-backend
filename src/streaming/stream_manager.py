@@ -174,12 +174,17 @@ class StreamManager:
         """Stop the stream processing."""
         self.running = False
         self.stop_event.set()
-        
+
         # Stop all components
         self.pipeline.stop()
         self.health_monitor.stop_monitoring()
         self.output_manager.cleanup()
-        
+
+        # Clean up detector to free GPU memory
+        if hasattr(self, 'detector') and self.detector:
+            self.detector.cleanup()
+            self.detector = None
+
         # Wait for threads to finish
         for thread in self.threads:
             if thread.is_alive():
