@@ -73,7 +73,7 @@ class StreamSchema(Schema):
     patrol_area = fields.Nested(PatrolAreaSchema, missing=None, allow_none=True)
     safe_area = fields.Nested(SafeAreaSchema, missing=None, allow_none=True)
     intrusion_detection = fields.Boolean(load_default=False)
-    saving_video = fields.Boolean(load_default=False)
+    saving_video = fields.Boolean(load_default=True)
 
     # class Meta:
     #     unknown = INCLUDE
@@ -722,9 +722,9 @@ class Stream:
         if intrusion_detection is None:
             intrusion_detection = False
         
-        # Default saving video to False if not specified
+        # Default saving video to True if not specified
         if saving_video is None:
-            saving_video = False
+            saving_video = True
 
         if stream_id in streams:
             log_event(logger, "info", f"Stream {stream_id} is already running!", event_type="info")
@@ -987,7 +987,7 @@ class Stream:
             current_stream = self._get_stream_from_db(stream_id)
             
             # Toggle saving video state
-            current_saving_video = current_stream.get("saving_video", False)
+            current_saving_video = current_stream.get("saving_video", True)
             new_saving_video_value = not current_saving_video
             
             # Update in database

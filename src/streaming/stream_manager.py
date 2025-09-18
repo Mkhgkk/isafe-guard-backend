@@ -21,8 +21,8 @@ from .health import StreamHealthMonitor
 class StreamManager:
     """Main class for managing RTSP stream processing."""
     
-    def __init__(self, rtsp_link: str, model_name: str, stream_id: str, 
-                 ptz_autotrack: bool = False, intrusion_detection: bool = False, saving_video: bool = False):
+    def __init__(self, rtsp_link: str, model_name: str, stream_id: str,
+                 ptz_autotrack: bool = False, intrusion_detection: bool = False, saving_video: bool = True):
         self.stream_id = stream_id
         self.rtsp_link = rtsp_link
         self.model_name = model_name
