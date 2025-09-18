@@ -33,19 +33,16 @@ class StreamHealthMonitor:
                 self.pipeline.stop()
     
     def handle_reconnection(self, frame_callback) -> bool:
-        """Handle pipeline reconnection with exponential backoff."""
+        """Handle pipeline reconnection with fixed 5-second retry interval."""
         if self.pipeline.pipeline:
             return True
-        
+
         if self.pipeline.create_and_start(frame_callback):
             self.reconnect_attempt = 0
             return True
-        
+
         self.reconnect_attempt += 1
-        wait_time = min(
-            RECONNECT_WAIT_TIME_IN_SECS * min(self.reconnect_attempt, 5), 
-            MAX_RECONNECT_WAIT
-        )
+        wait_time = RECONNECT_WAIT_TIME_IN_SECS
         log_event(logger, "warning",
             f"Reconnection attempt {self.reconnect_attempt} failed. "
             f"Retrying in {wait_time}s",
