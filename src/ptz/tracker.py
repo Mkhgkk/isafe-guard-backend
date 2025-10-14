@@ -354,12 +354,22 @@ class PTZAutoTracker(ONVIFCameraBase, PatrolMixin):
         bboxes: Optional[List[Tuple[float, float, float, float]]] = None,
     ) -> None:
         """Tracking behavior during patrol mode - simplified transition logic."""
+        # Check if patrol is resting at home - no tracking during rest period
+        if getattr(self, "is_resting_at_home", False):
+            log_event(
+                logger,
+                "debug",
+                "Patrol is resting at home - tracking paused",
+                event_type="patrol_rest_tracking_blocked",
+            )
+            return
+
         current_time = time.time()
-        
+
         # Handle cooldown period
         if self._handle_cooldown_period(current_time, bboxes):
             return
-        
+
         # Handle object detection and tracking
         if bboxes is not None and len(bboxes) > 0:
             self._handle_object_detection_during_patrol(current_time, frame_width, frame_height, bboxes)
