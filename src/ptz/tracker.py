@@ -1,6 +1,7 @@
 import queue
 import threading
 import time
+from collections import deque
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
@@ -10,6 +11,16 @@ from .patrol_mixin import PatrolMixin
 from utils.logging_config import get_logger, log_event
 
 logger = get_logger(__name__)
+
+
+# Autotracking constants from reference implementation
+AUTOTRACKING_MAX_AREA_RATIO = 0.5
+AUTOTRACKING_MAX_MOVE_METRICS = 500
+AUTOTRACKING_MOTION_MAX_POINTS = 500
+AUTOTRACKING_MOTION_MIN_DISTANCE = 20
+AUTOTRACKING_ZOOM_EDGE_THRESHOLD = 0.05
+AUTOTRACKING_ZOOM_IN_HYSTERESIS = 0.95
+AUTOTRACKING_ZOOM_OUT_HYSTERESIS = 1.05
 
 
 
@@ -63,35 +74,55 @@ class PTZAutoTracker(ONVIFCameraBase, PatrolMixin):
 
         # Object detection timeout
         self.no_object_timeout: float = self.DEFAULT_NO_OBJECT_TIMEOUT
+
+        # Zoom factor for target box calculations
+        self.zoom_factor: float = 1.0
         
     def _init_movement_state(self) -> None:
         """Initialize movement state variables."""
         # Timing
         self.last_move_time: float = time.time()
         self.last_detection_time: float = time.time()
-        
+        self.ptz_start_time: float = 0.0
+        self.ptz_stop_time: float = 0.0
+
         # Default/home position
         self.home_pan: float = 0
         self.home_tilt: float = 0
         self.home_zoom: float = self.min_zoom
-        
+
         # Movement state
         self.is_moving: bool = False
         self.is_at_default_position: bool = False
-        
+        self.motor_stopped: bool = True
+
         # PTZ metrics
         self.ptz_metrics: Dict[str, float] = {
             "zoom_level": self.min_zoom,
         }
-        
+
         self.calibrating: bool = False
-        
+
+        # Tracked object state
+        self.tracked_object: Optional[Dict[str, Any]] = None
+        self.tracked_object_history: deque = deque(maxlen=30)  # ~2 seconds at 15 fps
+        self.tracked_object_metrics: Dict[str, Any] = {
+            "max_target_box": AUTOTRACKING_MAX_AREA_RATIO ** (1 / self.zoom_factor)
+        }
+
+        # Movement metrics for calibration
+        self.move_metrics: List[Dict[str, float]] = []
+        self.intercept: Optional[float] = None
+        self.move_coefficients: List[float] = []
+        self.zoom_time: float = 0.0
+
         # Initialize movement queue
         self._init_movement_queue()
         
     def _init_movement_queue(self) -> None:
         """Initialize movement queue and processing thread."""
-        self.move_queue: queue.Queue[Tuple[float, float, float]] = queue.Queue()
+        self.move_queue: queue.Queue[Tuple[float, float, float, float]] = queue.Queue()
+        self.move_queue_lock: threading.Lock = threading.Lock()
         self.move_thread: threading.Thread = threading.Thread(target=self._process_move_queue)
         self.move_thread.daemon = True
         self.move_thread.start()
@@ -583,28 +614,799 @@ class PTZAutoTracker(ONVIFCameraBase, PatrolMixin):
         """Called when patrol advances to next position - kept for compatibility."""
         pass
 
-    def _enqueue_move(self, pan: float, tilt: float, zoom: float) -> None:
-        """Add movement to queue."""
-        self.move_queue.put((pan, tilt, zoom))
+    def _enqueue_move(self, pan: float, tilt: float, zoom: float, frame_time: Optional[float] = None) -> None:
+        """
+        Add movement to queue with proper locking and value splitting.
+
+        Args:
+            pan: Pan value (-1 to 1)
+            tilt: Tilt value (-1 to 1)
+            zoom: Zoom value (-1 to 1)
+            frame_time: Optional frame time for PTZ movement tracking
+        """
+        def split_value(value: float, suppress_diff: bool = True) -> Tuple[float, float]:
+            """Split large values into clipped and remainder."""
+            clipped = np.clip(value, -1, 1)
+
+            # Don't make small movements
+            if -0.05 < clipped < 0.05 and suppress_diff:
+                diff = 0.0
+            else:
+                diff = value - clipped
+
+            return clipped, diff
+
+        # Check if PTZ is currently moving or queue is locked
+        if frame_time is not None and self.ptz_moving_at_frame_time(frame_time):
+            logger.debug(
+                f"PTZ moving at frame time {frame_time}, skipping move: pan={pan}, tilt={tilt}, zoom={zoom}"
+            )
+            return
+
+        if self.move_queue_lock.locked():
+            logger.debug("Move queue locked, skipping enqueue")
+            return
+
+        # Split up large moves if necessary
+        while pan != 0 or tilt != 0 or zoom != 0:
+            pan, pan_diff = split_value(pan)
+            tilt, tilt_diff = split_value(tilt)
+            zoom, zoom_diff = split_value(zoom, False)
+
+            if pan != 0 or tilt != 0 or zoom != 0:
+                logger.debug(f"Enqueue movement: pan={pan}, tilt={tilt}, zoom={zoom}")
+                move_data = (pan, tilt, zoom, frame_time or time.time())
+                self.move_queue.put(move_data)
+
+            # Continue with remainder
+            pan = pan_diff
+            tilt = tilt_diff
+            zoom = zoom_diff
 
     def _process_move_queue(self) -> None:
-        """Process movement queue in separate thread."""
+        """Process movement queue in separate thread with proper locking."""
         while True:
             try:
-                pan, tilt, zoom = self.move_queue.get(timeout=1)
-                self.continuous_move(pan, tilt, zoom)
-                time.sleep(0.1)
+                pan, tilt, zoom, frame_time = self.move_queue.get(timeout=1)
+
+                with self.move_queue_lock:
+                    # Double check PTZ isn't moving
+                    if self.ptz_moving_at_frame_time(frame_time):
+                        logger.debug(
+                            f"PTZ moving during dequeue (frame_time: {frame_time}), skipping move"
+                        )
+                        self.move_queue.task_done()
+                        continue
+
+                    # Record movement start time
+                    movement_start = time.time()
+                    self.ptz_start_time = movement_start
+                    self.motor_stopped = False
+
+                    # Execute movement
+                    self.continuous_move(pan, tilt, zoom)
+
+                    # Wait briefly for movement to complete
+                    time.sleep(0.1)
+
+                    # Record movement end time
+                    movement_end = time.time()
+                    self.ptz_stop_time = movement_end
+                    self.motor_stopped = True
+
+                    # Save metrics for calibration if intercept exists and we have room
+                    if (
+                        self.intercept is not None
+                        and len(self.move_metrics) < AUTOTRACKING_MAX_MOVE_METRICS
+                        and (pan != 0 or tilt != 0)
+                    ):
+                        logger.debug("Adding new values to move metrics")
+                        self.move_metrics.append({
+                            "pan": pan,
+                            "tilt": tilt,
+                            "start_timestamp": movement_start,
+                            "end_timestamp": movement_end,
+                        })
+
+                        # Calculate new coefficients if we have enough data
+                        self._calculate_move_coefficients()
+
+                    # Log predicted vs actual if we have coefficients
+                    if self.move_coefficients:
+                        predicted_time = self._predict_movement_time(pan, tilt)
+                        actual_time = movement_end - movement_start
+                        logger.debug(
+                            f"Movement time - predicted: {predicted_time:.3f}s, actual: {actual_time:.3f}s"
+                        )
+
                 self.move_queue.task_done()
+
             except queue.Empty:
                 continue
+            except Exception as e:
+                log_event(logger, "error", f"Error processing move queue: {e}", event_type="error")
+                self.move_queue.task_done()
+
+    def _should_zoom_in(
+        self,
+        frame_width: int,
+        frame_height: int,
+        box: Tuple[float, float, float, float],
+        predicted_time: float = 0,
+        debug_zooming: bool = False,
+    ) -> Optional[bool]:
+        """
+        Determine if camera should zoom in or out.
+
+        Returns:
+            True if should zoom in, False if should zoom out, None to do nothing
+        """
+        bb_left, bb_top, bb_right, bb_bottom = box
+
+        # Calculate velocity threshold
+        if self.move_coefficients:
+            predicted_movement_time = self._predict_movement_time(1, 1)
+            camera_fps = 15.0  # Default FPS
+            velocity_threshold_x = frame_width / predicted_movement_time / camera_fps
+            velocity_threshold_y = frame_height / predicted_movement_time / camera_fps
+        else:
+            velocity_threshold_x = frame_width * 0.02
+            velocity_threshold_y = frame_height * 0.02
+
+        # Check frame edges
+        touching_frame_edges = self._touching_frame_edges(frame_width, frame_height, box)
+
+        # Check if object is centered
+        below_distance_threshold = self.tracked_object_metrics.get("below_distance_threshold", False)
+
+        # Check dimension threshold
+        below_dimension_threshold = (bb_right - bb_left) <= frame_width * (
+            self.zoom_factor + 0.1
+        ) and (bb_bottom - bb_top) <= frame_height * (self.zoom_factor + 0.1)
+
+        # Check velocity
+        average_velocity = self.tracked_object_metrics.get("velocity", np.zeros((4,)))
+        below_velocity_threshold = np.all(
+            np.abs(average_velocity) < np.tile([velocity_threshold_x, velocity_threshold_y], 2)
+        ) or np.all(average_velocity == 0)
+
+        # Calculate target area
+        if not predicted_time:
+            calculated_target_box = self.tracked_object_metrics.get("target_box", 0)
+        else:
+            if "area_coefficients" in self.tracked_object_metrics:
+                area_prediction = self._predict_area_after_time(predicted_time)
+                calculated_target_box = (
+                    self.tracked_object_metrics.get("target_box", 0)
+                    + area_prediction / (frame_width * frame_height)
+                )
+            else:
+                calculated_target_box = self.tracked_object_metrics.get("target_box", 0)
+
+        max_target_box = self.tracked_object_metrics.get("max_target_box", AUTOTRACKING_MAX_AREA_RATIO)
+        below_area_threshold = calculated_target_box < max_target_box
+
+        # Hysteresis
+        zoom_out_hysteresis = calculated_target_box > max_target_box * AUTOTRACKING_ZOOM_OUT_HYSTERESIS
+        zoom_in_hysteresis = calculated_target_box < max_target_box * AUTOTRACKING_ZOOM_IN_HYSTERESIS
+
+        # Zoom limits
+        at_max_zoom = self.ptz_metrics["zoom_level"] >= self.max_zoom
+        at_min_zoom = self.ptz_metrics["zoom_level"] <= self.min_zoom
+
+        if debug_zooming:
+            logger.debug(f"Zoom test: touching edges: {touching_frame_edges}")
+            logger.debug(f"Zoom test: below distance threshold: {below_distance_threshold}")
+            logger.debug(
+                f"Zoom test: below area threshold: {below_area_threshold} (target: {calculated_target_box:.4f}, max: {max_target_box:.4f})"
+            )
+            logger.debug(f"Zoom test: below dimension threshold: {below_dimension_threshold}")
+            logger.debug(f"Zoom test: below velocity threshold: {below_velocity_threshold}")
+            logger.debug(f"Zoom test: at max zoom: {at_max_zoom}, at min zoom: {at_min_zoom}")
+            logger.debug(f"Zoom test: zoom in hysteresis: {zoom_in_hysteresis}")
+            logger.debug(f"Zoom test: zoom out hysteresis: {zoom_out_hysteresis}")
+
+        # Zoom in conditions
+        if (
+            zoom_in_hysteresis
+            and touching_frame_edges == 0
+            and below_velocity_threshold
+            and below_dimension_threshold
+            and below_area_threshold
+            and not at_max_zoom
+        ):
+            return True
+
+        # Zoom out conditions
+        if (
+            (
+                zoom_out_hysteresis
+                and not at_max_zoom
+                and (not below_area_threshold or not below_dimension_threshold)
+            )
+            or (zoom_out_hysteresis and not below_area_threshold and at_max_zoom)
+            or (
+                touching_frame_edges == 1
+                and (below_distance_threshold or not below_dimension_threshold)
+            )
+            or touching_frame_edges > 1
+            or not below_velocity_threshold
+        ) and not at_min_zoom:
+            return False
+
+        return None
+
+    def _predict_area_after_time(self, time_delta: float) -> float:
+        """Predict object area after given time using area coefficients."""
+        if (
+            "area_coefficients" not in self.tracked_object_metrics
+            or self.tracked_object_metrics["area_coefficients"] is None
+        ):
+            return 0.0
+
+        if not self.tracked_object_history:
+            return 0.0
+
+        last_frame_time = self.tracked_object_history[-1].get("frame_time", 0)
+        predicted_time = last_frame_time + time_delta
+
+        return float(np.dot(self.tracked_object_metrics["area_coefficients"], [predicted_time]))
+
+    def _get_zoom_amount(
+        self,
+        frame_width: int,
+        frame_height: int,
+        obj_box: Tuple[float, float, float, float],
+        predicted_box: Tuple[float, float, float, float],
+        predicted_movement_time: float,
+        debug_zoom: bool = True,
+    ) -> float:
+        """
+        Calculate zoom amount based on object size and position.
+
+        Returns:
+            Zoom value (negative for zoom out, positive for zoom in)
+        """
+        zoom = 0.0
+
+        # Don't zoom on initial move
+        if "target_box" not in self.tracked_object_metrics:
+            target_box = max(
+                obj_box[2] - obj_box[0], obj_box[3] - obj_box[1]
+            ) ** 2 / (frame_width * frame_height)
+
+            zoom = target_box ** self.zoom_factor
+            if zoom > self.tracked_object_metrics["max_target_box"]:
+                zoom = -(1 - zoom)
+
+            logger.debug(
+                f"Initial zoom calculation - target: {target_box:.4f}, max: {self.tracked_object_metrics['max_target_box']:.4f}, zoom: {zoom:.4f}"
+            )
+            return zoom
+
+        # Determine zoom direction
+        result = self._should_zoom_in(
+            frame_width, frame_height, predicted_box, predicted_movement_time, debug_zoom
+        )
+
+        if result is None:
+            return 0.0
+
+        # Calculate zoom amount
+        if predicted_movement_time:
+            calculated_target_box = self.tracked_object_metrics[
+                "target_box"
+            ] + self._predict_area_after_time(predicted_movement_time) / (frame_width * frame_height)
+            logger.debug(
+                f"Zooming prediction: predicted time: {predicted_movement_time:.3f}s, "
+                f"original: {self.tracked_object_metrics['target_box']:.4f}, "
+                f"calculated: {calculated_target_box:.4f}"
+            )
+        else:
+            calculated_target_box = self.tracked_object_metrics["target_box"]
+
+        # Calculate zoom value
+        ratio = self.tracked_object_metrics["max_target_box"] / calculated_target_box
+        zoom = (ratio - 1) / (ratio + 1)
+
+        if not result:
+            # Zoom out
+            zoom = -(1 - zoom) if zoom > 0 else -(zoom * 2 + 1)
+        else:
+            # Zoom in
+            zoom = 1 - zoom if zoom > 0 else (zoom * 2 + 1)
+
+        logger.debug(
+            f"Zooming: {result} (in/out), ratio: {ratio:.4f}, zoom amount: {zoom:.4f}"
+        )
+
+        return zoom
 
     def _calibrate_camera(self) -> None:
         """Calibrate camera (placeholder for future implementation)."""
         self.calibrating = True
-        # TODO: move to preset monitoring position
+        # TODO: Implement full calibration routine similar to reference
+        # - Move camera through calibration positions
+        # - Measure movement times
+        # - Calculate zoom ranges
+        # - Compute regression coefficients
         self.calibrating = False
 
     def _predict_movement_time(self, pan: float, tilt: float) -> float:
-        """Predict movement time (placeholder for future implementation)."""
-        return abs(pan) + abs(tilt)
+        """Predict movement time based on calibration data."""
+        if self.intercept is None or not self.move_coefficients:
+            # Fallback to simple estimate
+            return abs(pan) + abs(tilt)
+
+        combined_movement = abs(pan) + abs(tilt)
+        input_data = np.array([self.intercept, combined_movement])
+        return float(np.dot(self.move_coefficients, input_data))
+
+    def ptz_moving_at_frame_time(self, frame_time: float) -> bool:
+        """Determine if PTZ was in motion at the given frame time."""
+        return (self.ptz_start_time != 0.0 and frame_time > self.ptz_start_time) and (
+            self.ptz_stop_time == 0.0 or (self.ptz_start_time <= frame_time <= self.ptz_stop_time)
+        )
+
+    def _touching_frame_edges(
+        self, frame_width: int, frame_height: int, box: Tuple[float, float, float, float]
+    ) -> int:
+        """Return count of frame edges the bounding box is touching."""
+        bb_left, bb_top, bb_right, bb_bottom = box
+        edge_threshold = AUTOTRACKING_ZOOM_EDGE_THRESHOLD
+
+        return int(
+            (bb_left < edge_threshold * frame_width)
+            + (bb_right > (1 - edge_threshold) * frame_width)
+            + (bb_top < edge_threshold * frame_height)
+            + (bb_bottom > (1 - edge_threshold) * frame_height)
+        )
+
+    def _get_valid_velocity(
+        self, velocities: np.ndarray, frame_width: int, frame_height: int, camera_fps: float = 15.0
+    ) -> Tuple[bool, np.ndarray]:
+        """
+        Validate velocity estimates and return validity status with velocities.
+
+        Returns:
+            Tuple of (is_valid, velocities) where velocities is zero array if invalid
+        """
+        logger.debug(f"Velocity check: {tuple(np.round(velocities).flatten().astype(int))}")
+
+        # If we are close enough to zero, return right away
+        if np.all(np.round(velocities) == 0):
+            return True, np.zeros((4,))
+
+        # Thresholds
+        x_mags_thresh = frame_width / camera_fps / 2
+        y_mags_thresh = frame_height / camera_fps / 2
+        dir_thresh = 0.93
+        delta_thresh = 20
+        var_thresh = 10
+
+        # Check magnitude
+        x_mags = np.abs(velocities[:, 0])
+        y_mags = np.abs(velocities[:, 1])
+        invalid_x_mags = np.any(x_mags > x_mags_thresh)
+        invalid_y_mags = np.any(y_mags > y_mags_thresh)
+
+        # Check delta
+        delta = np.abs(velocities[0] - velocities[1])
+        invalid_delta = np.any(delta > delta_thresh)
+
+        # Check variance
+        stdev_list = np.std(velocities, axis=0)
+        high_variances = np.any(stdev_list > var_thresh)
+
+        # Check direction difference
+        velocities = np.round(velocities)
+        invalid_dirs = False
+        if not np.any(np.linalg.norm(velocities, axis=1)):
+            cosine_sim = np.dot(velocities[0], velocities[1]) / (
+                np.linalg.norm(velocities[0]) * np.linalg.norm(velocities[1])
+            )
+            dir_thresh = 0.6 if np.all(delta < delta_thresh / 2) else dir_thresh
+            invalid_dirs = cosine_sim < dir_thresh
+
+        # Combine
+        invalid = (
+            invalid_x_mags
+            or invalid_y_mags
+            or invalid_dirs
+            or invalid_delta
+            or high_variances
+        )
+
+        if invalid:
+            logger.debug(
+                f"Invalid velocity: {tuple(np.round(velocities, 2).flatten().astype(int))}: Invalid because: "
+                + ", ".join(
+                    [
+                        var_name
+                        for var_name, is_invalid in [
+                            ("invalid_x_mags", invalid_x_mags),
+                            ("invalid_y_mags", invalid_y_mags),
+                            ("invalid_dirs", invalid_dirs),
+                            ("invalid_delta", invalid_delta),
+                            ("high_variances", high_variances),
+                        ]
+                        if is_invalid
+                    ]
+                )
+            )
+            return False, np.zeros((4,))
+        else:
+            logger.debug("Valid velocity")
+            return True, velocities.flatten()
+
+    def _get_distance_threshold(
+        self, frame_width: int, frame_height: int, obj_box: Tuple[float, float, float, float], has_valid_velocity: bool
+    ) -> float:
+        """
+        Calculate distance threshold for determining if object is centered enough.
+
+        Returns threshold as percentage of frame dimension, scaled by object size.
+        """
+        obj_width = obj_box[2] - obj_box[0]
+        obj_height = obj_box[3] - obj_box[1]
+
+        max_obj = max(obj_width, obj_height)
+        max_frame = frame_width if max_obj == obj_width else frame_height
+
+        # Larger objects should lower the threshold, smaller objects should raise it
+        scaling_factor = 1 - np.log(max_obj / max_frame)
+
+        percentage = (
+            0.08 if self.move_coefficients and has_valid_velocity else 0.03
+        )
+        distance_threshold = percentage * max_frame * scaling_factor
+
+        logger.debug(f"Distance threshold: {distance_threshold}")
+        return distance_threshold
+
+    def _calculate_move_coefficients(self, calibration: bool = False) -> bool:
+        """Calculate and update movement prediction coefficients from metrics."""
+        # Calculate new coefficients when we have 50 more new values or during calibration
+        if not calibration and (
+            len(self.move_metrics) % 50 != 0
+            or len(self.move_metrics) == 0
+            or len(self.move_metrics) > AUTOTRACKING_MAX_MOVE_METRICS
+        ):
+            return False
+
+        X = np.array([abs(d["pan"]) + abs(d["tilt"]) for d in self.move_metrics])
+        y = np.array([d["end_timestamp"] - d["start_timestamp"] for d in self.move_metrics])
+
+        # Simple linear regression with intercept
+        X_with_intercept = np.column_stack((np.ones(X.shape[0]), X))
+        coefficients = np.linalg.lstsq(X_with_intercept, y, rcond=None)[0]
+
+        intercept, slope = coefficients
+
+        # Define reasonable bounds for PTZ movement times
+        MIN_MOVEMENT_TIME = 0.1  # Minimum time for any movement (100ms)
+        MAX_MOVEMENT_TIME = 10.0  # Maximum time for any movement
+        MAX_SLOPE = 2.0  # Maximum seconds per unit of movement
+
+        coefficients_valid = (
+            MIN_MOVEMENT_TIME <= intercept <= MAX_MOVEMENT_TIME and 0 < slope <= MAX_SLOPE
+        )
+
+        if not coefficients_valid:
+            logger.warning("Autotracking calibration failed - coefficients out of bounds")
+            return False
+
+        # If coefficients are valid, proceed with updates
+        self.move_coefficients = coefficients.tolist()
+
+        # Only assign a new intercept if we're calibrating
+        if calibration:
+            self.intercept = y[0]
+
+        logger.debug(
+            f"New regression parameters - intercept: {self.intercept}, coefficients: {self.move_coefficients}"
+        )
+
+        return True
+
+    def _remove_outliers(self, data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Remove statistical outliers from area data using IQR method."""
+        if len(data) <= 3:
+            return data
+
+        areas = [item["area"] for item in data]
+
+        Q1 = np.percentile(areas, 25)
+        Q3 = np.percentile(areas, 75)
+        IQR = Q3 - Q1
+        lower_bound = Q1 - 1.5 * IQR
+        upper_bound = Q3 + 1.5 * IQR
+
+        filtered_data = [item for item in data if lower_bound <= item["area"] <= upper_bound]
+
+        # Log removed values
+        removed_values = [item for item in data if item not in filtered_data]
+        if removed_values:
+            logger.debug(f"Removed area outliers: {removed_values}")
+
+        return filtered_data
+
+    def is_autotracking(self) -> bool:
+        """Check if currently tracking an object."""
+        return self.tracked_object is not None
+
+    def end_tracked_object(self, obj_id: str) -> None:
+        """
+        End tracking for a specific object.
+
+        Args:
+            obj_id: ID of the object to stop tracking
+        """
+        if self.tracked_object and self.tracked_object.get("id") == obj_id:
+            logger.debug(f"End object tracking: {obj_id}")
+            self.tracked_object = None
+            self.tracked_object_metrics = {
+                "max_target_box": AUTOTRACKING_MAX_AREA_RATIO ** (1 / self.zoom_factor)
+            }
+
+    def start_tracking_object(
+        self,
+        obj_id: str,
+        obj_label: str,
+        box: Tuple[float, float, float, float],
+        frame_time: float,
+        frame_width: int,
+        frame_height: int,
+    ) -> None:
+        """
+        Start tracking a new object.
+
+        Args:
+            obj_id: Unique identifier for the object
+            obj_label: Label/class of the object
+            box: Bounding box (x1, y1, x2, y2)
+            frame_time: Timestamp of the frame
+            frame_width: Width of the frame
+            frame_height: Height of the frame
+        """
+        if self.tracked_object is not None:
+            logger.warning(f"Already tracking object {self.tracked_object.get('id')}, ignoring new object {obj_id}")
+            return
+
+        logger.info(f"Starting to track new object: {obj_id} ({obj_label})")
+
+        # Calculate centroid
+        centroid_x = (box[0] + box[2]) / 2
+        centroid_y = (box[1] + box[3]) / 2
+
+        # Create object data
+        self.tracked_object = {
+            "id": obj_id,
+            "label": obj_label,
+            "box": box,
+            "centroid": (centroid_x, centroid_y),
+            "frame_time": frame_time,
+            "is_initial_frame": True,
+        }
+
+        # Clear history and add initial frame
+        self.tracked_object_history.clear()
+        self.tracked_object_history.append(self.tracked_object.copy())
+
+        # Calculate initial metrics
+        self._calculate_tracked_object_metrics(self.tracked_object, frame_width, frame_height)
+
+        # Calculate initial movement
+        pan, tilt, _ = self.calculate_movement(frame_width, frame_height, [box])
+
+        # Get zoom amount
+        zoom = self._get_zoom_amount(
+            frame_width, frame_height, box, box, 0, debug_zoom=False
+        )
+
+        # Enqueue movement
+        self._enqueue_move(pan, tilt, zoom, frame_time)
+
+        log_event(logger, "info", f"Started tracking object {obj_id} at {box}", event_type="tracking_start")
+
+    def update_tracked_object(
+        self,
+        obj_id: str,
+        box: Tuple[float, float, float, float],
+        frame_time: float,
+        frame_width: int,
+        frame_height: int,
+        velocity: Optional[np.ndarray] = None,
+    ) -> None:
+        """
+        Update tracking for an existing object.
+
+        Args:
+            obj_id: ID of the tracked object
+            box: Updated bounding box
+            frame_time: Current frame timestamp
+            frame_width: Width of the frame
+            frame_height: Height of the frame
+            velocity: Optional velocity estimate
+        """
+        if self.tracked_object is None or self.tracked_object.get("id") != obj_id:
+            logger.warning(f"Cannot update - not tracking object {obj_id}")
+            return
+
+        # Don't process duplicate frames
+        if self.tracked_object_history and self.tracked_object_history[-1].get("frame_time") == frame_time:
+            return
+
+        # Calculate centroid
+        centroid_x = (box[0] + box[2]) / 2
+        centroid_y = (box[1] + box[3]) / 2
+
+        # Update object data
+        obj_data = {
+            "id": obj_id,
+            "label": self.tracked_object.get("label", "unknown"),
+            "box": box,
+            "centroid": (centroid_x, centroid_y),
+            "frame_time": frame_time,
+        }
+
+        if velocity is not None:
+            obj_data["velocity"] = velocity
+
+        # Add to history
+        self.tracked_object_history.append(obj_data.copy())
+        self.tracked_object = obj_data
+
+        # Update metrics
+        self._calculate_tracked_object_metrics(obj_data, frame_width, frame_height)
+
+        # Check if PTZ is currently moving
+        if self.ptz_moving_at_frame_time(frame_time):
+            logger.debug(f"PTZ moving at frame time {frame_time}, skipping movement calculation")
+            return
+
+        # Check if object is centered enough
+        if self.tracked_object_metrics.get("below_distance_threshold", False):
+            logger.debug(f"Object {obj_id} is centered, no pan/tilt needed")
+            # Still try zooming if needed
+            zoom = self._get_zoom_amount(
+                frame_width, frame_height, box, box, 0, debug_zoom=False
+            )
+            if zoom != 0:
+                self._enqueue_move(0, 0, zoom, frame_time)
+        else:
+            logger.debug(f"Object {obj_id} needs repositioning")
+
+            # Calculate movement with prediction if we have velocity and coefficients
+            pan, tilt, _ = self.calculate_movement(frame_width, frame_height, [box])
+
+            predicted_box = box
+            predicted_time = 0.0
+
+            if self.move_coefficients and "velocity" in obj_data:
+                # Predict movement time
+                predicted_time = self._predict_movement_time(pan, tilt)
+
+                # Calculate predicted box position
+                if "velocity" in self.tracked_object_metrics and np.any(
+                    self.tracked_object_metrics["velocity"]
+                ):
+                    camera_fps = 15.0
+                    current_box = np.array(box)
+                    velocity_array = self.tracked_object_metrics["velocity"]
+                    predicted_box_array = current_box + camera_fps * predicted_time * velocity_array
+                    predicted_box = tuple(np.round(predicted_box_array).astype(int))
+
+                    # Recalculate pan/tilt with predicted position
+                    predicted_centroid_x = (predicted_box[0] + predicted_box[2]) / 2
+                    predicted_centroid_y = (predicted_box[1] + predicted_box[3]) / 2
+
+                    pan = ((predicted_centroid_x / frame_width) - 0.5) * 2
+                    tilt = (0.5 - (predicted_centroid_y / frame_height)) * 2
+
+                    logger.debug(f"Original box: {box}, Predicted box: {predicted_box}")
+
+            # Get zoom amount
+            zoom = self._get_zoom_amount(
+                frame_width, frame_height, box, predicted_box, predicted_time, debug_zoom=False
+            )
+
+            # Enqueue movement
+            self._enqueue_move(pan, tilt, zoom, frame_time)
+
+    def _calculate_tracked_object_metrics(
+        self, obj_data: Dict[str, Any], frame_width: int, frame_height: int, camera_fps: float = 15.0
+    ) -> None:
+        """Calculate and update metrics for the currently tracked object."""
+        frame_area = frame_width * frame_height
+
+        # Filter history to recent time window
+        current_time = obj_data["frame_time"]
+        time_window = 1.5  # seconds
+        history = [
+            entry
+            for entry in self.tracked_object_history
+            if not entry.get("is_initial_frame", False)
+            and current_time - entry["frame_time"] <= time_window
+        ]
+
+        if not history:
+            history = [self.tracked_object_history[-1]] if self.tracked_object_history else []
+
+        # Calculate areas as squares of largest dimension
+        areas = [
+            {
+                "frame_time": entry["frame_time"],
+                "box": entry["box"],
+                "area": max(entry["box"][2] - entry["box"][0], entry["box"][3] - entry["box"][1])
+                ** 2,
+            }
+            for entry in history
+        ]
+
+        filtered_areas = self._remove_outliers(areas) if len(areas) > 3 else areas
+
+        # Filter entries not touching frame edge
+        filtered_areas_not_touching_edge = [
+            entry
+            for entry in filtered_areas
+            if self._touching_frame_edges(frame_width, frame_height, entry["box"]) == 0
+        ]
+
+        # Calculate regression for area change predictions
+        if filtered_areas_not_touching_edge:
+            X = np.array([item["frame_time"] for item in filtered_areas_not_touching_edge])
+            y = np.array([item["area"] for item in filtered_areas_not_touching_edge])
+
+            self.tracked_object_metrics["area_coefficients"] = np.linalg.lstsq(
+                X.reshape(-1, 1), y, rcond=None
+            )[0]
+        else:
+            self.tracked_object_metrics["area_coefficients"] = np.array([0])
+
+        # Calculate weighted average area
+        weights = np.arange(1, len(filtered_areas) + 1)
+        weighted_area = np.average([item["area"] for item in filtered_areas], weights=weights)
+
+        self.tracked_object_metrics["target_box"] = (
+            weighted_area / frame_area
+        ) ** self.zoom_factor
+
+        if "original_target_box" not in self.tracked_object_metrics:
+            self.tracked_object_metrics["original_target_box"] = self.tracked_object_metrics[
+                "target_box"
+            ]
+
+        # Calculate velocity if available
+        if "velocity" in obj_data:
+            (
+                self.tracked_object_metrics["valid_velocity"],
+                self.tracked_object_metrics["velocity"],
+            ) = self._get_valid_velocity(
+                obj_data["velocity"], frame_width, frame_height, camera_fps
+            )
+        else:
+            self.tracked_object_metrics["valid_velocity"] = False
+            self.tracked_object_metrics["velocity"] = np.zeros((4,))
+
+        # Calculate distance threshold
+        self.tracked_object_metrics["distance"] = self._get_distance_threshold(
+            frame_width, frame_height, obj_data["box"], self.tracked_object_metrics["valid_velocity"]
+        )
+
+        # Check if object is centered
+        centroid_x, centroid_y = obj_data.get("centroid", (
+            (obj_data["box"][0] + obj_data["box"][2]) / 2,
+            (obj_data["box"][1] + obj_data["box"][3]) / 2,
+        ))
+        centroid_distance = np.linalg.norm([
+            centroid_x - frame_width / 2,
+            centroid_y - frame_height / 2,
+        ])
+
+        logger.debug(f"Centroid distance: {centroid_distance}")
+
+        self.tracked_object_metrics["below_distance_threshold"] = (
+            centroid_distance < self.tracked_object_metrics["distance"]
+        )
 
