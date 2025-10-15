@@ -151,6 +151,70 @@ def change_autotrack():
         return tools.JsonResp({"status": "error", "message": "wrong data format!"}, 400)
 
 
+@stream_blueprint.route("/toggle_patrol", methods=["POST"])
+def toggle_patrol():
+    """Toggle patrol_enabled status in database."""
+    try:
+        data = json.loads(request.data)
+        stream_id = data.get("stream_id")
+
+        if not stream_id:
+            return tools.JsonResp(
+                {"status": "error", "message": "Missing 'stream_id' in request data."},
+                400,
+            )
+
+        from datetime import datetime, timezone
+        from flask import current_app as app
+
+        # Get current status from database
+        stream_doc = app.db.streams.find_one({"stream_id": stream_id})
+        if not stream_doc:
+            return tools.JsonResp(
+                {"status": "error", "message": "Stream not found"}, 404
+            )
+
+        # Toggle patrol_enabled
+        current_status = stream_doc.get("patrol_enabled", False)
+        new_status = not current_status
+
+        # Update database
+        app.db.streams.update_one(
+            {"stream_id": stream_id},
+            {
+                "$set": {
+                    "patrol_enabled": new_status,
+                    "updated_at": datetime.now(timezone.utc),
+                }
+            },
+        )
+
+        # If toggling off, stop patrol if stream is active and patrol is running
+        if not new_status:
+            video_streaming = streams.get(stream_id)
+            if video_streaming and video_streaming.ptz_auto_tracker:
+                if video_streaming.ptz_auto_tracker.is_patrol_active():
+                    video_streaming.ptz_auto_tracker.stop_patrol()
+                    video_streaming.ptz_auto_tracker.reset_camera_position()
+
+        return tools.JsonResp(
+            {
+                "status": "Success",
+                "message": f"Patrol {'enabled' if new_status else 'disabled'} successfully",
+                "data": {"patrol_enabled": new_status},
+            },
+            200,
+        )
+
+    except Exception as e:
+        logger.error(f"Error in toggle_patrol: {e}")
+        traceback.print_exc()
+        return tools.JsonResp(
+            {"status": "error", "message": str(e)},
+            500,
+        )
+
+
 # @stream_blueprint.route("/create_schedule", methods=["POST"])
 @stream_blueprint.route("/update_stream", methods=["POST"])
 def update_stream():
