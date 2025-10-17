@@ -97,39 +97,23 @@ def change_autotrack():
                 video_streaming.ptz_auto_tracker.update_default_position(
                     pan, tilt, zoom
                 )
+
+                # Check if patrol_enabled is true in database, if true start patrol
+                from flask import current_app as app
+
+                stream_doc = app.db.streams.find_one({"stream_id": stream_id})
+                if stream_doc and stream_doc.get("patrol_enabled", False):
+                    video_streaming.ptz_auto_tracker.set_patrol_parameters(
+                        focus_max_zoom=1.0
+                    )
+                    video_streaming.ptz_auto_tracker.set_patrol_parameters(
+                        x_positions=10, y_positions=4, dwell_time=1.5
+                    )
+                    video_streaming.ptz_auto_tracker.start_patrol("horizontal")
         else:
-            # stop stop tracking
+            # Stop tracking
             if video_streaming.ptz_auto_tracker:
                 video_streaming.ptz_auto_tracker.reset_camera_position()
-
-        # # Start patrol
-        # if video_streaming.ptz_autotrack:
-        #     if video_streaming.camera_controller and video_streaming.ptz_auto_tracker:
-        #         # obtain current ptz coordinates
-        #         camera_controller = video_streaming.camera_controller
-        #         pan, tilt, zoom = camera_controller.get_current_position()
-
-        #         # set these coordinates and default position
-        #         video_streaming.ptz_auto_tracker.update_default_position(pan, tilt, zoom)
-
-        #         # video_streaming.ptz_auto_tracker.set_patrol_parameters(x_step=0.02, y_step=0.05, dwell_time=3.0)
-        #         # video_streaming.ptz_auto_tracker.start_patrol(direction="vertical")
-
-        #         # TODO:
-        #         # sort yMin and yMax to work with both cameras
-
-        #         # video_streaming.ptz_auto_tracker.set_patrol_area({'zoom_level': 0.066, 'xMin': -0.43849999999999967, 'xMax': 0.6418333333333334, 'yMin': 1, 'yMax': 0.01904761904761898})
-        #         # video_streaming.ptz_auto_tracker.set_patrol_area({'zoom_level': 0.11, 'xMin': -0.485888898, 'xMax': 0.462777704, 'yMin': -1, 'yMax': 0.377272725})
-        #         # video_streaming.ptz_auto_tracker.set_patrol_area({'zoom_level': 0.11, 'xMin': -0.485888898, 'xMax': 0.462777704, 'yMin': 0.377272725, 'yMax': -1}) # working patrol area for unv camera
-        #         video_streaming.ptz_auto_tracker.set_patrol_parameters(focus_max_zoom=1.0)
-
-        #         # video_streaming.ptz_auto_tracker.configure_patrol_grid(3, 2)
-        #         video_streaming.ptz_auto_tracker.set_patrol_parameters(x_positions=10, y_positions=4, dwell_time=1.5)
-        #         video_streaming.ptz_auto_tracker.start_patrol("horizontal")
-
-        # else:
-        #     video_streaming.ptz_auto_tracker.stop_patrol()
-        #     video_streaming.ptz_auto_tracker.reset_camera_position()
 
         # emit change autotrack change
         room = f"ptz-{stream_id}"
