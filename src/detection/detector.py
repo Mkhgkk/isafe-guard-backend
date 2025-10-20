@@ -24,6 +24,7 @@ from detection.cutting_welding import detect_cutting_welding
 from detection.fire_smoke import detect_fire_smoke
 from detection.heavy_equipment import detect_heavy_equipment
 from detection.proximity import detect_proximity
+from detection.nexilis_proximity import detect_nexilis_proximity
 from detection.approtium import detect_approtium
 from ultralytics.engine.results import Results
 
@@ -39,18 +40,19 @@ npu_engine = None
 if USE_NPU:
 
     config = InferenceConfig(
-                    model_path=os.path.join(MODELS_PATH, f"yolov8s_best_globalCore_v1.mxq"),
-                    img_size=(640, 640),
-                    # num_classes=17,
-                    conf_threshold=0.5,
-                    iou_threshold=0.5,
-                    use_global8_core=True,  # Use all 8 NPU cores
-                    device_id=0  # Use first NPU device
-                )
+        model_path=os.path.join(MODELS_PATH, f"yolov8s_best_globalCore_v1.mxq"),
+        img_size=(640, 640),
+        # num_classes=17,
+        conf_threshold=0.5,
+        iou_threshold=0.5,
+        use_global8_core=True,  # Use all 8 NPU cores
+        device_id=0,  # Use first NPU device
+    )
 
     engine = NPUInferenceEngine(config)
     engine.initialize()
     npu_engine = engine
+
 
 class Detector:
     def __init__(
@@ -58,7 +60,6 @@ class Detector:
         model_name: str,
         stream_id: str = "default",
         use_sahi: bool = False,
-
         slice_height: int = 640,
         slice_width: int = 640,
         overlap_height_ratio: float = 0.3,
@@ -76,7 +77,6 @@ class Detector:
 
         self.npu_engine = None
 
-
         if USE_NPU:
             log_event(
                 logger,
@@ -84,7 +84,7 @@ class Detector:
                 "NPU is enabled. Using NPU for inference.",
                 event_type="info",
             )
-        else:    
+        else:
             if self.use_sahi:
                 if not SAHI_AVAILABLE:
                     log_event(
@@ -140,6 +140,10 @@ class Detector:
                 f"scaffolding/v1/1280L/{DEFAULT_PRECISION}/model.engine",
             ),
             # "Proximity": os.path.join(MODELS_PATH, f"proximity/{DEFAULT_PRECISION}/model.engine"),
+            "NexilisProximity": os.path.join(
+                MODELS_PATH,
+                f"nexilis_proximity/v2/1280L/{DEFAULT_PRECISION}/model.engine",
+            ),
             "Approtium": os.path.join(
                 MODELS_PATH, f"approtium/{DEFAULT_PRECISION}/model.engine"
             ),
@@ -195,6 +199,9 @@ class Detector:
             "Proximity": os.path.join(
                 MODELS_PATH, f"heavy_equipment/{DEFAULT_PRECISION}/model.engine"
             ),
+            "NexilisProximity": os.path.join(
+                MODELS_PATH, f"nexilis_proximity/{DEFAULT_PRECISION}/model.engine"
+            ),
             "Approtium": os.path.join(
                 MODELS_PATH, f"approtium/{DEFAULT_PRECISION}/model.engine"
             ),
@@ -222,7 +229,7 @@ class Detector:
     def detect(
         self, frame: np.ndarray
     ) -> Tuple["np.ndarray", str, List[str], Optional[List[Tuple[int, int, int, int]]]]:
-        
+
         if USE_NPU:
             detections = npu_engine.detect(frame)
             # log_event(logger, "info", f"NPU detections: {detections}", event_type="npu_detections")
@@ -260,6 +267,8 @@ class Detector:
             result = detect_heavy_equipment(frame, results, self.stream_id)
         elif self.model_name == "Proximity":
             result = detect_proximity(frame, results)
+        elif self.model_name == "NexilisProximity":
+            result = detect_nexilis_proximity(frame, results)
         elif self.model_name == "Approtium":
             result = detect_approtium(frame, results)
         else:
@@ -419,6 +428,8 @@ class Detector:
             result = detect_heavy_equipment(frame, mock_results)
         elif self.model_name == "Proximity":
             result = detect_proximity(frame, mock_results)
+        elif self.model_name == "NexilisProximity":
+            result = detect_nexilis_proximity(frame, mock_results)
         elif self.model_name == "Approtium":
             result = detect_approtium(frame, mock_results)
         else:
@@ -472,6 +483,8 @@ class Detector:
             result = detect_heavy_equipment(frame, mock_results, self.stream_id)
         elif self.model_name == "Proximity":
             result = detect_proximity(frame, mock_results)
+        elif self.model_name == "NexilisProximity":
+            result = detect_nexilis_proximity(frame, mock_results)
         elif self.model_name == "Approtium":
             result = detect_approtium(frame, mock_results)
         else:
@@ -560,6 +573,7 @@ class Detector:
             # Clear CUDA cache
             try:
                 import torch
+
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
             except ImportError:
@@ -568,7 +582,13 @@ class Detector:
             # Clean up tracking for heavy equipment
             if self.model_name == "HeavyEquipment":
                 from detection.heavy_equipment import cleanup_tracker
+
                 cleanup_tracker(self.stream_id)
 
         except Exception as e:
-            log_event(logger, "error", f"Error during detector cleanup: {e}", event_type="error")
+            log_event(
+                logger,
+                "error",
+                f"Error during detector cleanup: {e}",
+                event_type="error",
+            )

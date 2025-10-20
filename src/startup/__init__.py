@@ -59,6 +59,7 @@ def configure_detection_models(precision=DEFAULT_PRECISION):
         "heavy_equipment/v2/1280L",
         "proximity/v1/640L",
         "approtium/v1/1280L",
+        "nexilis_proximity/v2/1280L",
     ]
 
     for model in models:
