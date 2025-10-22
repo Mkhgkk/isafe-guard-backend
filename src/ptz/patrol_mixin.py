@@ -17,7 +17,7 @@ class PatrolMixin:
     """
 
     # Patrol configuration constants
-    DEFAULT_PATROL_DWELL_TIME = 2.0
+    DEFAULT_PATROL_DWELL_TIME = 10.0
     DEFAULT_OBJECT_FOCUS_DURATION = 10.0
     DEFAULT_TRACKING_COOLDOWN_DURATION = 5.0
     DEFAULT_FOCUS_MAX_ZOOM = 1.0
@@ -65,8 +65,12 @@ class PatrolMixin:
         self.patrol_stop_event = threading.Event()
         self.patrol_direction = "horizontal"
         self.zoom_during_patrol = self.patrol_area.get("zoom_level", 0.3)
-        self.home_rest_duration = self.DEFAULT_HOME_REST_DURATION  # Rest time at home (1 minute default)
-        self.is_resting_at_home = False  # Flag to indicate when patrol is in rest period
+        self.home_rest_duration = (
+            self.DEFAULT_HOME_REST_DURATION
+        )  # Rest time at home (1 minute default)
+        self.is_resting_at_home = (
+            False  # Flag to indicate when patrol is in rest period
+        )
 
     def _init_patrol_tracking(self) -> None:
         """Initialize patrol tracking behavior variables."""
@@ -365,7 +369,8 @@ class PatrolMixin:
 
     def _horizontal_patrol(self, zoom_level: float) -> None:
         """Horizontal progression patrol (snake pattern) with object focus capability.
-        Completes one cycle, returns to home position, rests for 1 minute, then repeats."""
+        Completes one cycle, returns to home position, rests for 1 minute, then repeats.
+        """
         while not self.patrol_stop_event.is_set():
             self.current_patrol_left_to_right = True
 
@@ -426,7 +431,8 @@ class PatrolMixin:
 
     def _vertical_patrol(self, zoom_level: float) -> None:
         """Vertical progression patrol (column pattern) with object focus capability.
-        Completes one cycle, returns to home position, rests for 1 minute, then repeats."""
+        Completes one cycle, returns to home position, rests for 1 minute, then repeats.
+        """
         while not self.patrol_stop_event.is_set():
             self.current_patrol_top_to_bottom = True
 
@@ -621,9 +627,7 @@ class PatrolMixin:
             )  # Set custom focus zoom limit
 
         if home_rest_duration is not None:
-            self.home_rest_duration = max(
-                0.0, home_rest_duration
-            )  # Minimum 0 seconds
+            self.home_rest_duration = max(0.0, home_rest_duration)  # Minimum 0 seconds
 
     def get_patrol_status(self) -> Dict[str, Any]:
         """Get comprehensive patrol status information."""
@@ -668,3 +672,88 @@ class PatrolMixin:
         # Recalculate steps based on new area
         if hasattr(self, "patrol_x_positions"):
             self.configure_patrol_grid(self.patrol_x_positions, self.patrol_y_positions)
+
+    def set_custom_patrol_pattern(self, coordinates: list) -> None:
+        """Set a custom patrol pattern with specific waypoints.
+
+        Args:
+            coordinates: List of dicts with x, y, z values representing waypoints
+        """
+        if not coordinates or len(coordinates) < 2:
+            log_event(
+                logger,
+                "warning",
+                "Custom patrol pattern requires at least 2 waypoints",
+                event_type="warning",
+            )
+            return
+
+        self.custom_patrol_pattern = coordinates
+        log_event(
+            logger,
+            "info",
+            f"Custom patrol pattern set with {len(coordinates)} waypoints",
+            event_type="custom_patrol_pattern_set",
+        )
+
+    def preview_custom_patrol_pattern(self, coordinates: list) -> None:
+        """Preview a custom patrol pattern by executing it once.
+
+        Args:
+            coordinates: List of dicts with x, y, z values representing waypoints
+        """
+        if not coordinates or len(coordinates) < 2:
+            log_event(
+                logger,
+                "warning",
+                "Preview requires at least 2 waypoints",
+                event_type="warning",
+            )
+            return
+
+        log_event(
+            logger,
+            "info",
+            f"Starting preview of custom patrol pattern with {len(coordinates)} waypoints",
+            event_type="custom_patrol_preview_start",
+        )
+
+        # Execute the pattern once in a separate thread
+        def _preview_pattern():
+            try:
+                for idx, waypoint in enumerate(coordinates):
+                    x = waypoint.get("x", 0.0)
+                    y = waypoint.get("y", 0.0)
+                    z = waypoint.get("z", 0.0)
+
+                    log_event(
+                        logger,
+                        "debug",
+                        f"Moving to waypoint {idx + 1}/{len(coordinates)}: ({x:.6f}, {y:.6f}, zoom: {z:.6f})",
+                        event_type="custom_patrol_waypoint",
+                    )
+
+                    if hasattr(self, "absolute_move"):
+                        self.absolute_move(x, y, z)
+
+                    # Wait at each waypoint
+                    dwell_time = getattr(self, "patrol_dwell_time", 2.0)
+                    time.sleep(dwell_time)
+
+                log_event(
+                    logger,
+                    "info",
+                    "Custom patrol pattern preview complete",
+                    event_type="custom_patrol_preview_complete",
+                )
+            except Exception as e:
+                log_event(
+                    logger,
+                    "error",
+                    f"Error during custom patrol preview: {e}",
+                    event_type="error",
+                )
+
+        preview_thread = threading.Thread(target=_preview_pattern)
+        preview_thread.daemon = True
+        preview_thread.start()

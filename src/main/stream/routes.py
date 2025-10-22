@@ -577,6 +577,24 @@ def get_patrol_area():
     return Stream().get_patrol_area()
 
 
+@stream_blueprint.route("/save_patrol_pattern", methods=["POST"])
+def save_patrol_pattern():
+    """Save custom patrol pattern with waypoints."""
+    return Stream().save_patrol_pattern()
+
+
+@stream_blueprint.route("/preview_patrol_pattern", methods=["POST"])
+def preview_patrol_pattern():
+    """Preview custom patrol pattern by executing it once."""
+    return Stream().preview_patrol_pattern()
+
+
+@stream_blueprint.route("/get_patrol_pattern", methods=["POST"])
+def get_patrol_pattern():
+    """Get saved patrol pattern from database."""
+    return Stream().get_patrol_pattern()
+
+
 @stream_blueprint.route("", methods=["POST"])
 def create_stream():
     return Stream().create_stream()
