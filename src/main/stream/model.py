@@ -33,6 +33,24 @@ class PatrolAreaSchema(Schema):
     zoom_level = fields.Float(required=True, validate=validate.Range(min=0.0, max=1.0))
 
 
+class PatrolCoordinateSchema(Schema):
+    """Schema for a single patrol coordinate."""
+
+    x = fields.Float(required=True)
+    y = fields.Float(required=True)
+    z = fields.Float(required=True, validate=validate.Range(min=0.0, max=1.0))
+
+
+class PatrolPatternSchema(Schema):
+    """Schema for patrol pattern with multiple coordinates."""
+
+    coordinates = fields.List(
+        fields.Nested(PatrolCoordinateSchema),
+        required=True,
+        validate=validate.Length(min=2),  # At least 2 points for a pattern
+    )
+
+
 class SafeAreaSchema(Schema):
     """Schema for safe/hazard area configuration."""
 
@@ -652,6 +670,277 @@ class Stream:
                 {
                     "status": "error",
                     "message": f"Failed to retrieve patrol area: {str(e)}",
+                },
+                500,
+            )
+
+    def save_patrol_pattern(self):
+        """Save patrol pattern to database and update active stream."""
+        try:
+            data = self._parse_request_data()
+            stream_id = data.get("stream_id")
+            patrol_pattern = data.get("patrol_pattern")
+
+            # Validate required fields
+            if not stream_id:
+                return tools.JsonResp(
+                    {"status": "error", "message": "Missing stream_id in request data"},
+                    400,
+                )
+
+            if not patrol_pattern:
+                return tools.JsonResp(
+                    {
+                        "status": "error",
+                        "message": "Missing patrol_pattern in request data",
+                    },
+                    400,
+                )
+
+            # Validate patrol pattern structure
+            patrol_pattern_schema = PatrolPatternSchema()
+
+            try:
+                validated_patrol_pattern = patrol_pattern_schema.load(patrol_pattern)
+            except ValidationError as e:
+                return tools.JsonResp(
+                    {
+                        "status": "error",
+                        "message": "Invalid patrol pattern data",
+                        "errors": e.messages,
+                    },
+                    400,
+                )
+
+            # Check if stream exists in database
+            self._get_stream_from_db(stream_id)
+
+            # Update patrol pattern in database
+            result = app.db.streams.update_one(
+                {"stream_id": stream_id},
+                {"$set": {"patrol_pattern": validated_patrol_pattern}},
+            )
+
+            if result.modified_count == 0:
+                log_event(
+                    logger,
+                    "warning",
+                    f"No document was modified for stream_id: {stream_id}",
+                    event_type="warning",
+                )
+
+            # Update in-memory stream if it's active
+            video_streaming = streams.get(stream_id)
+            if video_streaming and video_streaming.ptz_auto_tracker:
+                # Set the custom patrol pattern
+                video_streaming.ptz_auto_tracker.set_custom_patrol_pattern(
+                    validated_patrol_pattern["coordinates"]
+                )
+                log_event(
+                    logger,
+                    "info",
+                    f"Updated patrol pattern for active stream: {stream_id}",
+                    event_type="info",
+                )
+
+            log_event(
+                logger,
+                "info",
+                f"Patrol pattern saved successfully for stream: {stream_id}",
+                event_type="info",
+            )
+
+            return tools.JsonResp(
+                {
+                    "status": "success",
+                    "message": "Patrol pattern saved successfully",
+                    "data": {
+                        "stream_id": stream_id,
+                        "patrol_pattern": validated_patrol_pattern,
+                    },
+                },
+                200,
+            )
+
+        except ValueError as e:
+            return tools.JsonResp(
+                {"status": "error", "message": str(e)},
+                404 if "not found" in str(e) else 400,
+            )
+        except Exception as e:
+            log_event(
+                logger, "error", f"Error saving patrol pattern: {e}", event_type="error"
+            )
+            return tools.JsonResp(
+                {
+                    "status": "error",
+                    "message": f"Failed to save patrol pattern: {str(e)}",
+                },
+                500,
+            )
+
+    def preview_patrol_pattern(self):
+        """Preview a patrol pattern by executing it once on the camera."""
+        try:
+            data = self._parse_request_data()
+            stream_id = data.get("stream_id")
+            patrol_pattern = data.get("patrol_pattern")
+
+            # Validate required fields
+            if not stream_id:
+                return tools.JsonResp(
+                    {"status": "error", "message": "Missing stream_id in request data"},
+                    400,
+                )
+
+            if not patrol_pattern:
+                return tools.JsonResp(
+                    {
+                        "status": "error",
+                        "message": "Missing patrol_pattern in request data",
+                    },
+                    400,
+                )
+
+            # Validate patrol pattern structure
+            patrol_pattern_schema = PatrolPatternSchema()
+
+            try:
+                validated_patrol_pattern = patrol_pattern_schema.load(patrol_pattern)
+            except ValidationError as e:
+                return tools.JsonResp(
+                    {
+                        "status": "error",
+                        "message": "Invalid patrol pattern data",
+                        "errors": e.messages,
+                    },
+                    400,
+                )
+
+            # Get active stream
+            video_streaming = streams.get(stream_id)
+            if not video_streaming:
+                return tools.JsonResp(
+                    {
+                        "status": "error",
+                        "message": "Stream is not active. Please start the stream first.",
+                    },
+                    400,
+                )
+
+            if not video_streaming.ptz_auto_tracker:
+                return tools.JsonResp(
+                    {
+                        "status": "error",
+                        "message": "This stream does not support PTZ control.",
+                    },
+                    400,
+                )
+
+            # Preview the patrol pattern (execute once)
+            coordinates = validated_patrol_pattern["coordinates"]
+            video_streaming.ptz_auto_tracker.preview_custom_patrol_pattern(coordinates)
+
+            log_event(
+                logger,
+                "info",
+                f"Previewing patrol pattern for stream: {stream_id} with {len(coordinates)} points",
+                event_type="info",
+            )
+
+            return tools.JsonResp(
+                {
+                    "status": "success",
+                    "message": f"Patrol pattern preview started with {len(coordinates)} waypoints",
+                    "data": {
+                        "stream_id": stream_id,
+                        "waypoint_count": len(coordinates),
+                    },
+                },
+                200,
+            )
+
+        except ValueError as e:
+            return tools.JsonResp(
+                {"status": "error", "message": str(e)},
+                404 if "not found" in str(e) else 400,
+            )
+        except Exception as e:
+            log_event(
+                logger,
+                "error",
+                f"Error previewing patrol pattern: {e}",
+                event_type="error",
+            )
+            return tools.JsonResp(
+                {
+                    "status": "error",
+                    "message": f"Failed to preview patrol pattern: {str(e)}",
+                },
+                500,
+            )
+
+    def get_patrol_pattern(self):
+        """Get saved patrol pattern from database."""
+        try:
+            data = self._parse_request_data()
+            stream_id = data.get("stream_id")
+
+            # Validate required fields
+            if not stream_id:
+                return tools.JsonResp(
+                    {"status": "error", "message": "Missing stream_id in request data"},
+                    400,
+                )
+
+            # Get stream from database
+            stream = self._get_stream_from_db(stream_id)
+
+            # Get patrol pattern from stream data
+            patrol_pattern = stream.get("patrol_pattern")
+
+            if patrol_pattern is None:
+                return tools.JsonResp(
+                    {
+                        "status": "success",
+                        "message": "No patrol pattern configured for this stream",
+                        "data": {"stream_id": stream_id, "patrol_pattern": None},
+                    },
+                    200,
+                )
+
+            log_event(
+                logger,
+                "info",
+                f"Retrieved patrol pattern for stream: {stream_id}",
+                event_type="info",
+            )
+
+            return tools.JsonResp(
+                {
+                    "status": "success",
+                    "message": "Patrol pattern retrieved successfully",
+                    "data": {"stream_id": stream_id, "patrol_pattern": patrol_pattern},
+                },
+                200,
+            )
+
+        except ValueError as e:
+            return tools.JsonResp(
+                {"status": "error", "message": str(e)},
+                404 if "not found" in str(e) else 400,
+            )
+        except Exception as e:
+            log_event(
+                logger,
+                "error",
+                f"Error retrieving patrol pattern: {e}",
+                event_type="error",
+            )
+            return tools.JsonResp(
+                {
+                    "status": "error",
+                    "message": f"Failed to retrieve patrol pattern: {str(e)}",
                 },
                 500,
             )
