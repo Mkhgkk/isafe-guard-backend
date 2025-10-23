@@ -245,8 +245,14 @@ class Detector:
     def _detect_standard(
         self, frame: np.ndarray
     ) -> Tuple["np.ndarray", str, List[str], Optional[List[Tuple[int, int, int, int]]]]:
-        results: List[Results] = self.model(frame, imgsz=1280)
-        # results: List[Results] = self.model(frame)
+        # Use YOLO's native tracking for HeavyEquipment model for better performance
+        if self.model_name == "HeavyEquipment":
+            results: List[Results] = self.model.track(
+                frame, imgsz=640, persist=True, tracker="bytetrack.yaml"
+            )
+        else:
+            results: List[Results] = self.model(frame, imgsz=640)
+
         final_status: str = "Safe"
         reasons: List[str] = []
         bboxes: Optional[List[Tuple[int, int, int, int]]] = None

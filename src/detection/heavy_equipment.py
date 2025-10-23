@@ -1,11 +1,9 @@
 import cv2
 import numpy as np
 import time
-from boxmot import BotSort
-import miniball
 from pathlib import Path
-import torch
 from typing import List, Tuple, Dict
+from collections import deque
 from detection import draw_text_with_background
 from ultralytics.engine.results import Results
 from config import FRAME_HEIGHT, FRAME_WIDTH
@@ -78,11 +76,9 @@ VEHICLE_CLASSES = [
     "wheel_loader",
 ]
 
-# Initialize tracker and homography matrix
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-# Global tracker instances per stream
-_trackers = {}
+# Global tracking history per stream (for movement detection)
+# Format: {stream_id: {track_id: deque([bbox1, bbox2, ...])}}
+_track_history: Dict[str, Dict[int, deque]] = {}
 
 # Helmet tracking system - stores helmet detection history for each worker
 # Format: {stream_id: {worker_id: {'helmet_detections': [True/False], 'timestamps': [float]}}}
@@ -103,28 +99,62 @@ MIN_PERSON_BOX_HEIGHT = 60  # Minimum height in pixels
 MIN_PERSON_BOX_AREA = MIN_PERSON_BOX_WIDTH * MIN_PERSON_BOX_HEIGHT
 
 
-def get_tracker(stream_id: str) -> BotSort:
-    """Get or create a tracker instance for the given stream."""
-    if stream_id not in _trackers:
-        _trackers[stream_id] = BotSort(
-            reid_weights=Path("osnet_x0_25_msmt17.pt"),  # Path to ReID model
-            device=device,
-            half=False,
-            with_reid=False,
-            track_buffer=150,
-            cmc_method="sof",
-            frame_rate=20,
-            new_track_thresh=0.3,
-        )
-    return _trackers[stream_id]
+def update_track_history(stream_id: str, track_id: int, bbox: List[int]) -> None:
+    """Update tracking history for a tracked object."""
+    if stream_id not in _track_history:
+        _track_history[stream_id] = {}
+
+    if track_id not in _track_history[stream_id]:
+        _track_history[stream_id][track_id] = deque(maxlen=30)  # Keep last 30 frames
+
+    _track_history[stream_id][track_id].append(bbox)
+
+
+def get_track_history(stream_id: str, track_id: int) -> deque:
+    """Get tracking history for a specific track."""
+    if stream_id in _track_history and track_id in _track_history[stream_id]:
+        return _track_history[stream_id][track_id]
+    return deque()
 
 
 def cleanup_tracker(stream_id: str) -> None:
-    """Clean up tracker instance for the given stream."""
-    if stream_id in _trackers:
-        del _trackers[stream_id]
+    """Clean up tracking data for the given stream."""
+    if stream_id in _track_history:
+        del _track_history[stream_id]
     if stream_id in _helmet_tracking:
         del _helmet_tracking[stream_id]
+
+
+def is_vehicle_moving(history: deque, threshold: float = VEHICLE_MOVING_THRESH) -> bool:
+    """Fast vehicle movement detection using displacement calculation.
+
+    Args:
+        history: Deque of bounding boxes [x1, y1, x2, y2]
+        threshold: Movement threshold in pixels
+
+    Returns:
+        True if vehicle is moving, False otherwise
+    """
+    if len(history) < 10:
+        return False
+
+    first_box = history[0]
+    last_box = history[-1]
+
+    # Calculate center points
+    first_center = np.array([
+        float(first_box[0] + first_box[2]) / 2,
+        float(first_box[1] + first_box[3]) / 2
+    ])
+    last_center = np.array([
+        float(last_box[0] + last_box[2]) / 2,
+        float(last_box[1] + last_box[3]) / 2
+    ])
+
+    # Calculate displacement
+    displacement = np.linalg.norm(last_center - first_center)
+
+    return displacement > threshold
 
 
 def update_helmet_tracking(stream_id: str, worker_id: int, has_helmet: bool) -> None:
@@ -286,14 +316,6 @@ def detect_heavy_equipment(
     reasons: List[str] = []
     person_boxes: List[Tuple[int, int, int, int]] = []
 
-    # Process all results, not just the first one
-    all_detections = []
-    for result in results:
-        all_detections.extend(result.boxes.data.tolist())
-
-    if not all_detections:
-        return final_status, reasons, person_boxes
-
     worker_positions = []
     vehicle_positions = []
     scaffolding_positions = []
@@ -301,85 +323,106 @@ def detect_heavy_equipment(
     worker_box, hat_box, signaler_box, scaffolding_box = [], [], [], []
     hook_box = []
 
-    dets = []
-
-    for detection in all_detections:
-        x1, y1, x2, y2, conf, cls = detection
-        cls_name = CLASS_NAMES.get(int(cls), f"unknown_{int(cls)}")
-        box = [int(x1), int(y1), int(x2), int(y2)]
-
-        # Tracking
-        dets.append([*box, conf, cls])
-
-    # Convert detections to numpy array (N X (x, y, x, y, conf, cls))
-    dets = np.array(dets)
-
-    # Get tracker for this stream and update it
-    tracker = get_tracker(stream_id)
-    tracker.update(dets, image)  # --> M X (x, y, x, y, id, conf, cls, ind)
-
-    for trk in tracker.active_tracks:
-        if not trk.history_observations:
+    # Process YOLO tracking results (track IDs are already assigned by YOLO)
+    for result in results:
+        if result.boxes is None or len(result.boxes) == 0:
             continue
-        if len(trk.history_observations) < 3:
-            continue
-        cls_name = CLASS_NAMES.get(int(trk.cls), f"unknown_{int(trk.cls)}")
-        box = [int(x) for x in trk.history_observations[-1]]
-        if cls_name in VEHICLE_CLASSES:
-            # Only draw vehicle boxes if not in violations-only mode
-            if not draw_violations_only:
-                cv2.rectangle(image, (box[0], box[1]), (box[2], box[3]), (0, 255, 0), 2)
-                draw_text_with_background(
-                    image,
-                    f"{cls_name}_id:{int(trk.id)}",
-                    (box[0], box[1] - 10),
-                    (0, 255, 0),
-                )
-            bottom_center = get_bottom_center(box)
-            world_center = transform_to_world(bottom_center)
-            vehicle_positions.append((world_center, trk))
-            if cls_name == "Grab Crane":
-                Grab_crane_box.append(box)
-            elif cls_name == "Grab Crane Arm":
-                cran_arm_box.append(box)
-            elif cls_name == "Forklift":
-                forklift_box.append(box)
 
-        elif cls_name == "worker":
-            worker_box.append(trk)
-        elif cls_name == "hard_hat":
-            hat_box.append(box)
-            # Only draw helmet boxes if not in violations-only mode
-            if not draw_violations_only:
-                cv2.rectangle(image, (box[0], box[1]), (box[2], box[3]), (0, 255, 0), 2)
-        elif cls_name == "red_hard_hat":
-            signaler_box.append(box)
-            # Only draw signaler helmet boxes if not in violations-only mode
-            if not draw_violations_only:
-                cv2.rectangle(
-                    image, (box[0], box[1]), (box[2], box[3]), (255, 255, 0), 2
-                )
-        elif cls_name == "scaffolding":
-            scaffolding_box.append(box)
-            # Only draw scaffolding boxes if not in violations-only mode
-            if not draw_violations_only:
-                cv2.rectangle(
-                    image, (box[0], box[1]), (box[2], box[3]), (128, 128, 0), 2
-                )
-                draw_text_with_background(
-                    image, "Scaffolding", (box[0], box[1] - 10), (128, 128, 0)
-                )
-        elif cls_name == "hook":
-            hook_box.append(box)
-            # Only draw hook boxes if not in violations-only mode
-            if not draw_violations_only:
-                cv2.rectangle(image, (box[0], box[1]), (box[2], box[3]), (0, 150, 0), 2)
-                draw_text_with_background(
-                    image, "Hook", (box[0], box[1] - 10), (0, 200, 0)
-                )
+        boxes = result.boxes
+        # Check if tracking IDs are available
+        has_track_ids = boxes.id is not None
 
-    for w_box in worker_box:
-        box = [int(x) for x in w_box.history_observations[-1]]
+        for idx, box_data in enumerate(boxes.data):
+            box_list = box_data.tolist()
+
+            # Handle both detection and tracking formats
+            # Detection format: [x1, y1, x2, y2, conf, cls]
+            # Tracking format: [x1, y1, x2, y2, track_id, conf, cls] or similar
+            if len(box_list) == 6:
+                x1, y1, x2, y2, conf, cls = box_list
+                # Get track ID from boxes.id if available
+                track_id = int(boxes.id[idx].item()) if has_track_ids else -1
+            elif len(box_list) == 7:
+                # Track format with ID in data
+                x1, y1, x2, y2, track_id_data, conf, cls = box_list
+                track_id = int(track_id_data)
+            else:
+                # Fallback for unexpected formats
+                x1, y1, x2, y2 = box_list[:4]
+                conf = box_list[-2] if len(box_list) >= 6 else 0.5
+                cls = box_list[-1] if len(box_list) >= 5 else 0
+                track_id = int(boxes.id[idx].item()) if has_track_ids else -1
+
+            cls_name = CLASS_NAMES.get(int(cls), f"unknown_{int(cls)}")
+            box = [int(x1), int(y1), int(x2), int(y2)]
+
+            # Update tracking history for this object
+            if track_id >= 0:
+                update_track_history(stream_id, track_id, box)
+
+            # Get tracking history for movement detection
+            history = get_track_history(stream_id, track_id) if track_id >= 0 else deque()
+
+            # Skip objects with insufficient tracking history
+            if track_id >= 0 and len(history) < 3:
+                continue
+
+            if cls_name in VEHICLE_CLASSES:
+                # Only draw vehicle boxes if not in violations-only mode
+                if not draw_violations_only:
+                    cv2.rectangle(image, (box[0], box[1]), (box[2], box[3]), (0, 255, 0), 2)
+                    draw_text_with_background(
+                        image,
+                        f"{cls_name}_id:{track_id}",
+                        (box[0], box[1] - 10),
+                        (0, 255, 0),
+                    )
+                bottom_center = get_bottom_center(box)
+                world_center = transform_to_world(bottom_center)
+                # Store vehicle position with track_id and history
+                vehicle_positions.append((world_center, track_id, history))
+                if cls_name == "Grab Crane":
+                    Grab_crane_box.append(box)
+                elif cls_name == "Grab Crane Arm":
+                    cran_arm_box.append(box)
+                elif cls_name == "Forklift":
+                    forklift_box.append(box)
+
+            elif cls_name == "worker":
+                # Store worker with track_id and box
+                worker_box.append((track_id, box))
+            elif cls_name == "hard_hat":
+                hat_box.append(box)
+                # Only draw helmet boxes if not in violations-only mode
+                if not draw_violations_only:
+                    cv2.rectangle(image, (box[0], box[1]), (box[2], box[3]), (0, 255, 0), 2)
+            elif cls_name == "red_hard_hat":
+                signaler_box.append(box)
+                # Only draw signaler helmet boxes if not in violations-only mode
+                if not draw_violations_only:
+                    cv2.rectangle(
+                        image, (box[0], box[1]), (box[2], box[3]), (255, 255, 0), 2
+                    )
+            elif cls_name == "scaffolding":
+                scaffolding_box.append(box)
+                # Only draw scaffolding boxes if not in violations-only mode
+                if not draw_violations_only:
+                    cv2.rectangle(
+                        image, (box[0], box[1]), (box[2], box[3]), (128, 128, 0), 2
+                    )
+                    draw_text_with_background(
+                        image, "Scaffolding", (box[0], box[1] - 10), (128, 128, 0)
+                    )
+            elif cls_name == "hook":
+                hook_box.append(box)
+                # Only draw hook boxes if not in violations-only mode
+                if not draw_violations_only:
+                    cv2.rectangle(image, (box[0], box[1]), (box[2], box[3]), (0, 150, 0), 2)
+                    draw_text_with_background(
+                        image, "Hook", (box[0], box[1] - 10), (0, 200, 0)
+                    )
+
+    for worker_track_id, box in worker_box:
         center = get_worker_center(box)
 
         label = None
@@ -408,16 +451,16 @@ def detect_heavy_equipment(
             )
 
             # Update helmet tracking for this worker
-            update_helmet_tracking(stream_id, w_box.id, has_helmet)
+            update_helmet_tracking(stream_id, worker_track_id, has_helmet)
 
             # Check if this worker has a consistent helmet violation
-            has_helmet_violation = is_helmet_violation(stream_id, w_box.id)
+            has_helmet_violation = is_helmet_violation(stream_id, worker_track_id)
         else:
             # Box too small for reliable helmet detection - skip helmet checking
             has_helmet = None  # Unknown helmet status
             has_helmet_violation = False  # Don't flag violations for small boxes
 
-        add_id = f"_id:{w_box.id}"
+        add_id = f"_id:{worker_track_id}"
         if is_signaler:
             label = "Signaler" + add_id
             color = (255, 255, 0)
@@ -609,26 +652,17 @@ def detect_heavy_equipment(
     vehicles_detected = len(vehicle_positions) > 0
     if vehicles_detected:
         for w_pt, w_box in worker_positions:
-            for _, v_box in vehicle_positions:
-                # check history:
-                if len(v_box.history_observations) < 10:
+            for _, v_track_id, v_history in vehicle_positions:
+                # Check if vehicle has enough tracking history
+                if len(v_history) < 10:
                     continue
 
-                centroids = np.array(
-                    [
-                        [int((x1 + x2) / 2), int((y1 + y2) / 2)]
-                        for (x1, y1, x2, y2) in v_box.history_observations
-                    ]
-                )
-                # Remove duplicates (recommended)
-                centroids = np.unique(centroids, axis=0)
-                # Compute the minimum enclosing ball
-                center, radius_squared = miniball.get_bounding_ball(centroids)
-                radius = radius_squared**0.5
-
-                if radius < VEHICLE_MOVING_THRESH:
+                # Check if vehicle is moving using displacement calculation
+                if not is_vehicle_moving(v_history):
                     continue
-                v_box1 = [int(x) for x in v_box.history_observations[-1]]
+
+                # Get current vehicle box from history
+                v_box1 = list(v_history[-1])
                 vehicle_candidates = get_vehicle_ground_edges(v_box1)
                 vehicle_world_pts = [transform_to_world(p) for p in vehicle_candidates]
                 closest_v_pt = min(
