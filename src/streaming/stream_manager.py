@@ -6,6 +6,7 @@ from typing import List
 
 import numpy as np
 
+from detection import draw_status_info
 from detection.detector import Detector
 from intrusion.tracking import SafeAreaTracker
 from main.shared import safe_area_trackers
@@ -15,7 +16,7 @@ from .constants import MAX_FRAME_QUEUE_SIZE
 from .pipelines.manager import GStreamerPipeline
 from .processing import FrameProcessor, EventProcessor, StreamRecorder, StreamOutputManager
 
-from .types import PipelineConfig, StreamStats
+from .types import PipelineConfig, StreamStats, FrameProcessingResult
 from .health import StreamHealthMonitor
 
 class StreamManager:
@@ -154,6 +155,14 @@ class StreamManager:
         )
         self.recorder = StreamRecorder(self.event_processor, self.stats, self.saving_video)
         self.output_manager = StreamOutputManager(self.stream_id)
+
+        # Frame rate limiting for inference
+        self.last_inference_time = 0
+        self.inference_interval = 1.0  # Process inference once per second
+
+        # Separate FPS tracking for streaming (independent of inference)
+        self.streaming_fps_queue = []
+        self.streaming_fps_max_samples = 30  # Track last 30 frames for FPS calculation
     
     def start_stream(self):
         """Start the stream processing."""
@@ -226,10 +235,52 @@ class StreamManager:
     
     def _process_single_frame(self, frame: np.ndarray):
         """Process a single frame through the complete pipeline."""
+        current_time = time.time()
         fps = self._calculate_fps()
 
-        processing_result = self.frame_processor.process_frame(frame, fps)
-        self._update_stats(processing_result.status, processing_result.reasons)
+        # Check if enough time has passed for inference
+        should_run_inference = (current_time - self.last_inference_time) >= self.inference_interval
+
+        if should_run_inference:
+            # Run full inference processing
+            processing_result = self.frame_processor.process_frame(frame, fps)
+            self._update_stats(processing_result.status, processing_result.reasons)
+            self.last_inference_time = current_time
+
+            # Cache last processing result for display-only frames
+            self.last_processing_result = processing_result
+        else:
+            # Skip inference, just stream the raw frame with cached overlay
+            if hasattr(self, 'last_processing_result'):
+                # Create a copy of the frame and draw cached status info
+                display_frame = frame.copy()
+                draw_status_info(
+                    display_frame,
+                    self.last_processing_result.reasons,
+                    fps,
+                    len(self.last_processing_result.person_bboxes),
+                    self.last_processing_result.status
+                )
+                processing_result = FrameProcessingResult(
+                    processed_frame=display_frame,
+                    status=self.last_processing_result.status,
+                    reasons=self.last_processing_result.reasons,
+                    person_bboxes=self.last_processing_result.person_bboxes,
+                    fps=fps
+                )
+            else:
+                # No cached result yet, create minimal result
+                display_frame = frame.copy()
+                draw_status_info(display_frame, [], fps, 0, "Safe")
+                processing_result = FrameProcessingResult(
+                    processed_frame=display_frame,
+                    status="Safe",
+                    reasons=[],
+                    person_bboxes=[],
+                    fps=fps
+                )
+
+        # Always stream and record frames
         self.output_manager.stream_frame(processing_result.processed_frame)
         self.recorder.handle_recording(processing_result.processed_frame, processing_result)
     
@@ -242,9 +293,23 @@ class StreamManager:
         self.stats.fps_queue.append(time.time())
     
     def _calculate_fps(self) -> float:
-        """Calculate current FPS."""
-        if len(self.stats.fps_queue) <= 1:
+        """Calculate current streaming FPS (not inference FPS)."""
+        current_time = time.time()
+
+        # Add current timestamp to the queue
+        self.streaming_fps_queue.append(current_time)
+
+        # Keep only the last N samples
+        if len(self.streaming_fps_queue) > self.streaming_fps_max_samples:
+            self.streaming_fps_queue.pop(0)
+
+        # Need at least 2 samples to calculate FPS
+        if len(self.streaming_fps_queue) <= 1:
             return 20.0
-        return len(self.stats.fps_queue) / (
-            self.stats.fps_queue[-1] - self.stats.fps_queue[0]
-        )
+
+        # Calculate FPS based on time difference
+        time_span = self.streaming_fps_queue[-1] - self.streaming_fps_queue[0]
+        if time_span > 0:
+            return (len(self.streaming_fps_queue) - 1) / time_span
+
+        return 20.0
