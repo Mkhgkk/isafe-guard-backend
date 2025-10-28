@@ -26,21 +26,28 @@ class StreamRecorder:
         self._check_stop_recording()
         self._reset_counters_if_needed()
     
-    def _check_start_recording(self, frame: np.ndarray, 
+    def _check_start_recording(self, frame: np.ndarray,
                              processing_result: FrameProcessingResult):
         """Check if recording should be started."""
         # Don't start recording if saving_video is disabled
         if not self.saving_video:
             return
-            
+
         if (not self.event_processor.recording_state.is_recording and
             self.stats.total_frames % DEFAULT_FRAME_INTERVAL == 0):
-            
+
             unsafe_ratio = self.stats.unsafe_frames / DEFAULT_FRAME_INTERVAL
-            
-            if self.event_processor.should_start_recording(
-                unsafe_ratio, self.stats.last_event_time
-            ):
+
+            # Only start recording if current frame is unsafe (will be the thumbnail)
+            is_current_frame_unsafe = (
+                processing_result.status != "Safe" and
+                len(processing_result.reasons) > 0
+            )
+
+            if (is_current_frame_unsafe and
+                self.event_processor.should_start_recording(
+                    unsafe_ratio, self.stats.last_event_time
+                )):
                 self.event_processor.start_recording(
                     frame, processing_result.reasons, processing_result.fps
                 )
