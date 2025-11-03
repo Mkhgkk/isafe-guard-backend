@@ -14,6 +14,7 @@ from sahi.models.ultralytics import UltralyticsDetectionModel
 from sahi.predict import get_sliced_prediction
 
 SAHI_AVAILABLE = True
+IMGSZ = 1280
 
 logger = get_logger(__name__)
 from detection.ppe import detect_ppe
@@ -130,10 +131,11 @@ class Detector:
             "Fire": os.path.join(
                 MODELS_PATH, f"fire_smoke/{DEFAULT_PRECISION}/model.engine"
             ),
-            "HeavyEquipment": os.path.join(
-                MODELS_PATH,
-                f"heavy_equipment/v2/1280L/{DEFAULT_PRECISION}/model.engine",
-            ),
+            # "HeavyEquipment": os.path.join(
+            #     MODELS_PATH,
+            #     f"heavy_equipment/v2/1280L/{DEFAULT_PRECISION}/model.engine",
+            # ),
+            "HeavyEquipment": "http://tritonserver:8000/hamyang_1280_fp16",
             "Proximity": os.path.join(
                 # MODELS_PATH, f"heavy_equipment/{DEFAULT_PRECISION}/model.engine"
                 MODELS_PATH,
@@ -162,7 +164,7 @@ class Detector:
         log_event(
             logger, "info", f"Loading model: {self.model_name}", event_type="info"
         )
-        return YOLO(model_path)
+        return YOLO(model_path, task="detect")
 
     def _load_sahi_model(self) -> UltralyticsDetectionModel:
         """
@@ -248,10 +250,13 @@ class Detector:
         # Use YOLO's native tracking for HeavyEquipment model for better performance
         if self.model_name == "HeavyEquipment":
             results: List[Results] = self.model.track(
-                frame, imgsz=640, persist=True, tracker="bytetrack.yaml"
+                frame,
+                imgsz=IMGSZ,
+                persist=True,
+                tracker="bytetrack.yaml",
             )
         else:
-            results: List[Results] = self.model(frame, imgsz=640)
+            results: List[Results] = self.model(frame, imgsz=IMGSZ)
 
         final_status: str = "Safe"
         reasons: List[str] = []
