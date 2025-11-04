@@ -20,25 +20,53 @@ class FrameProcessor:
         self.ptz_auto_tracker = None
         self.intrusion_detection = intrusion_detection
     
-    def process_frame(self, frame: np.ndarray, fps: float) -> FrameProcessingResult:
+    def process_frame(self, frame: np.ndarray, fps: float) -> tuple[FrameProcessingResult, any]:
         """Process a single frame through the complete pipeline."""
         # Run detection
-        processed_frame, final_status, reasons, person_bboxes = self.detector.detect(frame)
-        
+        processed_frame, final_status, reasons, person_bboxes, cached_results = self.detector.detect(frame)
+
         # Handle safe areas
         processed_frame = self._process_safe_areas(processed_frame, frame)
-        
+
         # Check for intrusions
         final_status, reasons = self._check_intrusions(
             frame, person_bboxes or [], final_status, reasons
         )
-        
+
         # Handle PTZ tracking
         self._handle_ptz_tracking(person_bboxes or [])
-        
+
         # Draw status information
         draw_status_info(processed_frame, reasons, fps, len(person_bboxes or []), final_status)
-        
+
+        result = FrameProcessingResult(
+            processed_frame=processed_frame,
+            status=final_status,
+            reasons=[reasons] if isinstance(reasons, str) else reasons,
+            person_bboxes=person_bboxes or [],
+            fps=fps
+        )
+
+        return result, cached_results
+
+    def process_frame_with_cached_results(self, frame: np.ndarray, fps: float, cached_results: any) -> FrameProcessingResult:
+        """Process a frame using cached detection results without running inference."""
+        # Process cached detection results
+        processed_frame, final_status, reasons, person_bboxes = self.detector.process_cached_results(frame, cached_results)
+
+        # Handle safe areas
+        processed_frame = self._process_safe_areas(processed_frame, frame)
+
+        # Check for intrusions (using cached person bboxes)
+        final_status, reasons = self._check_intrusions(
+            frame, person_bboxes or [], final_status, reasons
+        )
+
+        # Note: PTZ tracking is skipped for cached frames to avoid duplicate tracking
+
+        # Draw status information
+        draw_status_info(processed_frame, reasons, fps, len(person_bboxes or []), final_status)
+
         return FrameProcessingResult(
             processed_frame=processed_frame,
             status=final_status,

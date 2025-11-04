@@ -191,6 +191,9 @@ class StreamManager:
         self.streaming_fps_queue = []
         self.streaming_fps_max_samples = 30  # Track last 30 frames for FPS calculation
 
+        # Cache for detection results to reuse on frames without inference
+        self.cached_detection_results = None
+
     def start_stream(self):
         """Start the stream processing."""
         self.running = True
@@ -282,30 +285,19 @@ class StreamManager:
 
         if should_run_inference:
             # Run full inference processing
-            processing_result = self.frame_processor.process_frame(frame, fps)
+            processing_result, cached_results = self.frame_processor.process_frame(frame, fps)
             self._update_stats(processing_result.status, processing_result.reasons)
             self.last_inference_time = current_time
 
-            # Cache last processing result for display-only frames
+            # Cache detection results for reuse on non-inference frames
+            self.cached_detection_results = cached_results
             self.last_processing_result = processing_result
         else:
-            # Skip inference, just stream the raw frame with cached overlay
-            if hasattr(self, "last_processing_result"):
-                # Create a copy of the frame and draw cached status info
-                display_frame = frame.copy()
-                draw_status_info(
-                    display_frame,
-                    self.last_processing_result.reasons,
-                    fps,
-                    len(self.last_processing_result.person_bboxes),
-                    self.last_processing_result.status,
-                )
-                processing_result = FrameProcessingResult(
-                    processed_frame=display_frame,
-                    status=self.last_processing_result.status,
-                    reasons=self.last_processing_result.reasons,
-                    person_bboxes=self.last_processing_result.person_bboxes,
-                    fps=fps,
+            # Skip inference, draw cached detections on current frame
+            if self.cached_detection_results is not None:
+                # Process frame with cached detection results
+                processing_result = self.frame_processor.process_frame_with_cached_results(
+                    frame, fps, self.cached_detection_results
                 )
             else:
                 # No cached result yet, create minimal result

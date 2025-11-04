@@ -230,23 +230,72 @@ class Detector:
 
     def detect(
         self, frame: np.ndarray
-    ) -> Tuple["np.ndarray", str, List[str], Optional[List[Tuple[int, int, int, int]]]]:
+    ) -> Tuple["np.ndarray", str, List[str], Optional[List[Tuple[int, int, int, int]]], any]:
 
         if USE_NPU:
             detections = npu_engine.detect(frame)
             # log_event(logger, "info", f"NPU detections: {detections}", event_type="npu_detections")
             # Convert NPU Detection objects to YOLO-like Results format
             mock_results = self._convert_npu_to_yolo_format(detections)
-            return self._process_detections_with_mock_results(frame, mock_results)
+            processed_frame, status, reasons, bboxes = self._process_detections_with_mock_results(frame, mock_results)
+            return processed_frame, status, reasons, bboxes, mock_results
         else:
             if self.use_sahi:
-                return self._detect_with_sahi(frame)
+                processed_frame, status, reasons, bboxes = self._detect_with_sahi(frame)
+                return processed_frame, status, reasons, bboxes, None  # SAHI doesn't need caching for now
             else:
                 return self._detect_standard(frame)
 
+    def process_cached_results(
+        self, frame: np.ndarray, cached_results: any
+    ) -> Tuple["np.ndarray", str, List[str], Optional[List[Tuple[int, int, int, int]]]]:
+        """Process a frame using cached detection results without running inference."""
+        if cached_results is None:
+            # No cached results, return frame as-is
+            return frame, "Safe", [], None
+
+        final_status: str = "Safe"
+        reasons: List[str] = []
+        bboxes: Optional[List[Tuple[int, int, int, int]]] = None
+
+        if self.model_name in ["PPE", "PPEAerial"]:
+            result = detect_ppe(frame, cached_results)
+        elif self.model_name == "Ladder":
+            result = detect_ladder(frame, cached_results)
+        elif self.model_name == "MobileScaffolding":
+            result = detect_mobile_scaffolding(frame, cached_results)
+        elif self.model_name == "Scaffolding":
+            result = detect_scaffolding(frame, cached_results)
+        elif self.model_name == "Fire":
+            result = detect_fire_smoke(frame, cached_results)
+        elif self.model_name == "CuttingWelding":
+            result = detect_cutting_welding(frame, cached_results)
+        elif self.model_name == "HeavyEquipment":
+            result = detect_heavy_equipment(frame, cached_results, self.stream_id)
+        elif self.model_name == "Proximity":
+            result = detect_proximity(frame, cached_results)
+        elif self.model_name == "NexilisProximity":
+            result = detect_nexilis_proximity(frame, cached_results)
+        elif self.model_name == "Approtium":
+            result = detect_approtium(frame, cached_results)
+        else:
+            log_event(
+                logger,
+                "error",
+                f"Model name '{self.model_name}' is not recognized.",
+                event_type="error",
+            )
+            raise ValueError(f"Unknown model name: {self.model_name}")
+
+        final_status = result[0]
+        reasons = result[1] if len(result) > 1 else []
+        bboxes = result[2] if len(result) > 2 else None
+
+        return frame, final_status, reasons, bboxes
+
     def _detect_standard(
         self, frame: np.ndarray
-    ) -> Tuple["np.ndarray", str, List[str], Optional[List[Tuple[int, int, int, int]]]]:
+    ) -> Tuple["np.ndarray", str, List[str], Optional[List[Tuple[int, int, int, int]]], any]:
         # Use YOLO's native tracking for HeavyEquipment model for better performance
         if self.model_name == "HeavyEquipment":
             results: List[Results] = self.model.track(
@@ -295,7 +344,7 @@ class Detector:
         reasons = result[1] if len(result) > 1 else []
         bboxes = result[2] if len(result) > 2 else None
 
-        return frame, final_status, reasons, bboxes
+        return frame, final_status, reasons, bboxes, results
 
     def _convert_sahi_to_yolo_format(self, sahi_results, frame_shape):
         """
