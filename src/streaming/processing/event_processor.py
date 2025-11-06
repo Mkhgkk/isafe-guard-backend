@@ -9,6 +9,7 @@ from typing import List, Tuple
 import numpy as np
 from bson import ObjectId  # pyright: ignore[reportMissingImports]
 
+from database import get_database
 from main.event.model import Event
 from utils.media_processing import create_video_writer
 from utils.notifications import send_email_notification, send_watch_notification
@@ -58,6 +59,22 @@ class EventProcessor:
         """Start threads for event saving and notifications."""
         event_id = ObjectId()
 
+        # Check feature flags from system configuration
+        db = get_database()
+        system_config = db["system"].find_one({"_id": "system_config"}, {"features": 1})
+
+        enable_watch_notif = (
+            system_config.get("features", {}).get("enable_watch_notif", False)
+            if system_config
+            else False
+        )
+
+        enable_email_notif = (
+            system_config.get("features", {}).get("enable_email_notif", False)
+            if system_config
+            else False
+        )
+
         threads = [
             threading.Thread(
                 target=Event.save,
@@ -71,11 +88,21 @@ class EventProcessor:
                     event_id,
                 ),
             ),
-            threading.Thread(
-                target=send_email_notification, args=(reasons, event_id, self.stream_id)
-            ),
-            threading.Thread(target=send_watch_notification, args=(reasons,)),
         ]
+
+        # Add watch notification thread only if the feature is enabled
+        if enable_watch_notif:
+            threads.append(
+                threading.Thread(target=send_watch_notification, args=(reasons,))
+            )
+        # Add email notification thread only if the feature is enabled
+        if enable_email_notif:
+            threads.append(
+                threading.Thread(
+                    target=send_email_notification,
+                    args=(reasons, event_id, self.stream_id),
+                )
+            )
 
         for thread in threads:
             thread.start()
