@@ -13,12 +13,21 @@ logger = get_logger(__name__)
 
 
 def send_watch_notification(reasons: List[str] = ["Wear helmet"]) -> None:
+    korean_reasons = []
+    for reason in reasons:
+        if reason == "missing_helmet":
+            korean_reasons.append("안전모를 착용해주세요")
+        elif reason == "missing_hook":
+            korean_reasons.append("안전고리를 체결해주세요")
+        elif reason == "same_vertical_area":
+            korean_reasons.append("상하동시 작업 주의해주세요")
+
     data = {
         "phone_id": "4b91e2ca33c3119c",
         "status": "UnSafe",
         # "detail": ["안전모 미착용"],
         # "detail": [reasons] if len(reasons ==1) else reasons,
-        "detail": reasons,
+        "detail": korean_reasons,
         "timestamp": str(time.time_ns()),
     }
     url = WATCH_NOTIFICATION_URL
@@ -26,11 +35,15 @@ def send_watch_notification(reasons: List[str] = ["Wear helmet"]) -> None:
     try:
         response = requests.post(url, json=data)
         if response.status_code in (200, 201):
-            log_event(logger, "info", "Notification sent successfully!", event_type="info")
+            log_event(
+                logger, "info", "Notification sent successfully!", event_type="info"
+            )
         else:
-            log_event(logger, "warning",
+            log_event(
+                logger,
+                "warning",
                 f"Failed to send notification. Status code: {response.status_code}",
-                event_type="notification_failed"
+                event_type="notification_failed",
             )
     except requests.RequestException as e:
         log_event(logger, "error", f"Error occurred: {e}", event_type="error")
