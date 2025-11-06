@@ -185,7 +185,7 @@ class StreamManager:
 
         # Frame rate limiting for inference
         self.last_inference_time = 0
-        self.inference_interval = 1.0  # Process inference once per second
+        self.inference_interval = 1 / 10  # Process inference once per second
 
         # Separate FPS tracking for streaming (independent of inference)
         self.streaming_fps_queue = []
@@ -285,7 +285,9 @@ class StreamManager:
 
         if should_run_inference:
             # Run full inference processing
-            processing_result, cached_results = self.frame_processor.process_frame(frame, fps)
+            processing_result, cached_results = self.frame_processor.process_frame(
+                frame, fps
+            )
             self._update_stats(processing_result.status, processing_result.reasons)
             self.last_inference_time = current_time
 
@@ -296,8 +298,10 @@ class StreamManager:
             # Skip inference, draw cached detections on current frame
             if self.cached_detection_results is not None:
                 # Process frame with cached detection results
-                processing_result = self.frame_processor.process_frame_with_cached_results(
-                    frame, fps, self.cached_detection_results
+                processing_result = (
+                    self.frame_processor.process_frame_with_cached_results(
+                        frame, fps, self.cached_detection_results
+                    )
                 )
             else:
                 # No cached result yet, create minimal result
