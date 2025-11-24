@@ -11,7 +11,7 @@ from detection.detector import Detector
 from intrusion.tracking import SafeAreaTracker
 from main.shared import safe_area_trackers
 
-from .constants import MAX_FRAME_QUEUE_SIZE
+from .constants import MAX_FRAME_QUEUE_SIZE, INFERENCE_INTERVAL
 
 from .pipelines.manager import GStreamerPipeline
 from .processing import (
@@ -185,7 +185,7 @@ class StreamManager:
 
         # Frame rate limiting for inference
         self.last_inference_time = 0
-        self.inference_interval = 1 / 10  # Process inference once per second
+        self.inference_interval = INFERENCE_INTERVAL
 
         # Separate FPS tracking for streaming (independent of inference)
         self.streaming_fps_queue = []
