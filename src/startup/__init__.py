@@ -34,6 +34,7 @@ def configure_matching_models():
 
 
 def configure_detection_models(precision=DEFAULT_PRECISION):
+    return
     """
     - Check if .pt models exist; if not download the models
     - Check respective precision directory for .engine model; if not export .engine
