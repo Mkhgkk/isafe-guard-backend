@@ -10,6 +10,10 @@ from detection.npu_inference import NPUInferenceEngine, InferenceConfig, Detecti
 
 USE_NPU = os.getenv("USE_NPU", "false").lower() == "true"
 
+# Import ByteTrack for NPU tracking
+if USE_NPU:
+    from boxmot import ByteTrack
+
 from sahi.models.ultralytics import UltralyticsDetectionModel
 from sahi.predict import get_sliced_prediction
 
@@ -77,6 +81,7 @@ class Detector:
         self.confidence_threshold = confidence_threshold
 
         self.npu_engine = None
+        self.tracker = None  # For NPU tracking
 
         if USE_NPU:
             log_event(
@@ -85,6 +90,20 @@ class Detector:
                 "NPU is enabled. Using NPU for inference.",
                 event_type="info",
             )
+            # Initialize ByteTrack for NPU tracking (only for HeavyEquipment model)
+            if self.model_name in ["PPE", "PPEAerial", "HeavyEquipment"]:
+                self.tracker = ByteTrack(
+                    track_thresh=0.5,
+                    track_buffer=30,
+                    match_thresh=0.8,
+                    frame_rate=30,
+                )
+                log_event(
+                    logger,
+                    "info",
+                    f"ByteTrack tracker initialized for NPU {self.model_name} detection",
+                    event_type="info",
+                )
         else:
             if self.use_sahi:
                 if not SAHI_AVAILABLE:
@@ -230,19 +249,50 @@ class Detector:
 
     def detect(
         self, frame: np.ndarray
-    ) -> Tuple["np.ndarray", str, List[str], Optional[List[Tuple[int, int, int, int]]], any]:
+    ) -> Tuple[
+        "np.ndarray", str, List[str], Optional[List[Tuple[int, int, int, int]]], any
+    ]:
 
         if USE_NPU:
             detections = npu_engine.detect(frame)
             # log_event(logger, "info", f"NPU detections: {detections}", event_type="npu_detections")
-            # Convert NPU Detection objects to YOLO-like Results format
-            mock_results = self._convert_npu_to_yolo_format(detections)
-            processed_frame, status, reasons, bboxes = self._process_detections_with_mock_results(frame, mock_results)
+
+            # Apply tracking if enabled for this model
+            if self.tracker is not None and len(detections) > 0:
+                # Convert detections to format expected by ByteTrack: [x1, y1, x2, y2, conf, cls]
+                dets = np.array(
+                    [
+                        [det.x1, det.y1, det.x2, det.y2, det.confidence, det.class_id]
+                        for det in detections
+                    ]
+                )
+
+                # Update tracker and get tracked detections with IDs
+                # ByteTrack returns: [x1, y1, x2, y2, track_id, conf, cls, det_ind]
+                tracks = self.tracker.update(dets, frame)
+
+                # Convert tracked results to YOLO-like Results format
+                mock_results = self._convert_tracked_npu_to_yolo_format(
+                    tracks, detections
+                )
+            else:
+                # No tracking - use original detections
+                mock_results = self._convert_npu_to_yolo_format(detections)
+
+            processed_frame, status, reasons, bboxes = (
+                self._process_detections_with_mock_results(frame, mock_results)
+            )
             return processed_frame, status, reasons, bboxes, mock_results
         else:
             if self.use_sahi:
                 processed_frame, status, reasons, bboxes = self._detect_with_sahi(frame)
-                return processed_frame, status, reasons, bboxes, None  # SAHI doesn't need caching for now
+                return (
+                    processed_frame,
+                    status,
+                    reasons,
+                    bboxes,
+                    None,
+                )  # SAHI doesn't need caching for now
             else:
                 return self._detect_standard(frame)
 
@@ -295,7 +345,9 @@ class Detector:
 
     def _detect_standard(
         self, frame: np.ndarray
-    ) -> Tuple["np.ndarray", str, List[str], Optional[List[Tuple[int, int, int, int]]], any]:
+    ) -> Tuple[
+        "np.ndarray", str, List[str], Optional[List[Tuple[int, int, int, int]]], any
+    ]:
         # Use YOLO's native tracking for HeavyEquipment model for better performance
         if self.model_name == "HeavyEquipment":
             results: List[Results] = self.model.track(
@@ -358,6 +410,15 @@ class Detector:
         if not predictions:
             # Return empty results in YOLO format
             empty_tensor = torch.empty((0, 4))
+            mock_boxes = type(
+                "MockBoxes",
+                (),
+                {
+                    "__len__": lambda self: 0,
+                    "__getitem__": lambda self, idx: None,
+                    "__iter__": lambda self: iter([]),
+                },
+            )()
             mock_boxes = type("MockBoxes", (), {})()
             mock_boxes.xyxy = empty_tensor
             mock_boxes.conf = torch.empty(0)
@@ -395,7 +456,17 @@ class Detector:
         )
 
         # Create mock YOLO Results object
-        mock_boxes = type("MockBoxes", (), {})()
+        mock_boxes = type(
+            "MockBoxes",
+            (),
+            {
+                "__len__": lambda self: len(boxes_tensor),
+                "__getitem__": lambda self, idx: (
+                    boxes_tensor[idx] if idx < len(boxes_tensor) else None
+                ),
+                "__iter__": lambda self: iter(boxes_tensor),
+            },
+        )()
         mock_boxes.xyxy = boxes_tensor
         mock_boxes.conf = conf_tensor
         mock_boxes.cls = cls_tensor
@@ -416,11 +487,20 @@ class Detector:
         if not detections:
             # Return empty results in YOLO format
             empty_tensor = torch.empty((0, 4))
-            mock_boxes = type("MockBoxes", (), {})()
+            mock_boxes = type(
+                "MockBoxes",
+                (),
+                {
+                    "__len__": lambda self: 0,
+                    "__getitem__": lambda self, idx: None,
+                    "__iter__": lambda self: iter([]),
+                },
+            )()
             mock_boxes.xyxy = empty_tensor
             mock_boxes.conf = torch.empty(0)
             mock_boxes.cls = torch.empty(0)
             mock_boxes.data = torch.empty((0, 6))  # [x1,y1,x2,y2,conf,cls]
+            mock_boxes.id = None  # No tracking IDs
 
             mock_result = type("MockResult", (), {})()
             mock_result.boxes = mock_boxes
@@ -452,11 +532,107 @@ class Detector:
         )
 
         # Create mock YOLO Results object
-        mock_boxes = type("MockBoxes", (), {})()
+        mock_boxes = type(
+            "MockBoxes",
+            (),
+            {
+                "__len__": lambda self: len(boxes_tensor),
+                "__getitem__": lambda self, idx: (
+                    boxes_tensor[idx] if idx < len(boxes_tensor) else None
+                ),
+                "__iter__": lambda self: iter(boxes_tensor),
+            },
+        )()
         mock_boxes.xyxy = boxes_tensor
         mock_boxes.conf = conf_tensor
         mock_boxes.cls = cls_tensor
         mock_boxes.data = data_tensor
+        mock_boxes.id = None  # No tracking IDs
+
+        mock_result = type("MockResult", (), {})()
+        mock_result.boxes = mock_boxes
+        mock_result.names = class_names
+
+        return [mock_result]
+
+    def _convert_tracked_npu_to_yolo_format(
+        self, tracks: np.ndarray, original_detections: List[Detection]
+    ):
+        """
+        Convert tracked NPU detections (with IDs) to YOLO-like Results format
+
+        Args:
+            tracks: Tracked detections from ByteTrack [x1, y1, x2, y2, track_id, conf, cls, det_ind]
+            original_detections: Original NPU Detection objects for class names
+
+        Returns:
+            List containing a mock YOLO Result object with tracking IDs
+        """
+        import torch
+
+        if len(tracks) == 0:
+            # Return empty results in YOLO format
+            empty_tensor = torch.empty((0, 4))
+            mock_boxes = type(
+                "MockBoxes",
+                (),
+                {
+                    "__len__": lambda self: 0,
+                    "__getitem__": lambda self, idx: None,
+                    "__iter__": lambda self: iter([]),
+                },
+            )()
+            mock_boxes.xyxy = empty_tensor
+            mock_boxes.conf = torch.empty(0)
+            mock_boxes.cls = torch.empty(0)
+            mock_boxes.data = torch.empty((0, 6))  # [x1,y1,x2,y2,conf,cls]
+            mock_boxes.id = torch.empty(0, dtype=torch.int32)
+
+            mock_result = type("MockResult", (), {})()
+            mock_result.boxes = mock_boxes
+            mock_result.names = {}
+            return [mock_result]
+
+        # Extract data from tracks
+        boxes = tracks[:, :4]  # [x1, y1, x2, y2]
+        track_ids = tracks[:, 4]  # track_id
+        confidences = tracks[:, 5]  # conf
+        class_ids = tracks[:, 6]  # cls
+
+        # Build class names dictionary from original detections
+        class_names = {}
+        for detection in original_detections:
+            if detection.class_name:
+                class_names[detection.class_id] = detection.class_name
+
+        # Create tensors
+        boxes_tensor = torch.tensor(boxes, dtype=torch.float32)
+        conf_tensor = torch.tensor(confidences, dtype=torch.float32)
+        cls_tensor = torch.tensor(class_ids, dtype=torch.float32)
+        id_tensor = torch.tensor(track_ids, dtype=torch.int32)
+
+        # Create data tensor combining boxes, conf, and cls
+        data_tensor = torch.cat(
+            [boxes_tensor, conf_tensor.unsqueeze(1), cls_tensor.unsqueeze(1)], dim=1
+        )
+
+        # Create mock YOLO Results object with tracking IDs
+        mock_boxes = type(
+            "MockBoxes",
+            (),
+            {
+                "__len__": lambda self: len(boxes_tensor),
+                "__getitem__": lambda self, idx: (
+                    boxes_tensor[idx] if idx < len(boxes_tensor) else None
+                ),
+                "__iter__": lambda self: iter(boxes_tensor),
+            },
+        )()
+        mock_boxes.xyxy = boxes_tensor
+        mock_boxes.conf = conf_tensor
+        mock_boxes.cls = cls_tensor
+        mock_boxes.data = data_tensor
+        mock_boxes.id = id_tensor  # Add tracking IDs
 
         mock_result = type("MockResult", (), {})()
         mock_result.boxes = mock_boxes
@@ -562,66 +738,66 @@ class Detector:
 
         return frame, final_status, reasons, bboxes
 
-    def _convert_sahi_to_yolo_format(self, sahi_results, frame_shape):
-        """
-        Convert SAHI results to YOLO-like Results format for compatibility
-        """
-        import torch
+    # def _convert_sahi_to_yolo_format(self, sahi_results, frame_shape):
+    #     """
+    #     Convert SAHI results to YOLO-like Results format for compatibility
+    #     """
+    #     import torch
 
-        # Extract predictions from SAHI results
-        predictions = sahi_results.object_prediction_list
+    #     # Extract predictions from SAHI results
+    #     predictions = sahi_results.object_prediction_list
 
-        if not predictions:
-            # Return empty results in YOLO format
-            empty_tensor = torch.empty((0, 4))
-            mock_boxes = type("MockBoxes", (), {})()
-            mock_boxes.xyxy = empty_tensor
-            mock_boxes.conf = torch.empty(0)
-            mock_boxes.cls = torch.empty(0)
-            mock_boxes.data = torch.empty(
-                (0, 6)
-            )  # Add data attribute [x1,y1,x2,y2,conf,cls]
+    #     if not predictions:
+    #         # Return empty results in YOLO format
+    #         empty_tensor = torch.empty((0, 4))
+    #         mock_boxes = type("MockBoxes", (), {})()
+    #         mock_boxes.xyxy = empty_tensor
+    #         mock_boxes.conf = torch.empty(0)
+    #         mock_boxes.cls = torch.empty(0)
+    #         mock_boxes.data = torch.empty(
+    #             (0, 6)
+    #         )  # Add data attribute [x1,y1,x2,y2,conf,cls]
 
-            mock_result = type("MockResult", (), {})()
-            mock_result.boxes = mock_boxes
-            mock_result.names = {}
-            return [mock_result]
+    #         mock_result = type("MockResult", (), {})()
+    #         mock_result.boxes = mock_boxes
+    #         mock_result.names = {}
+    #         return [mock_result]
 
-        # Convert SAHI predictions to tensors
-        boxes = []
-        confidences = []
-        class_ids = []
-        class_names = {}
+    #     # Convert SAHI predictions to tensors
+    #     boxes = []
+    #     confidences = []
+    #     class_ids = []
+    #     class_names = {}
 
-        for pred in predictions:
-            bbox = pred.bbox.to_voc_bbox()  # x1, y1, x2, y2
-            boxes.append(bbox)
-            confidences.append(pred.score.value)
-            class_ids.append(pred.category.id)
-            class_names[pred.category.id] = pred.category.name
+    #     for pred in predictions:
+    #         bbox = pred.bbox.to_voc_bbox()  # x1, y1, x2, y2
+    #         boxes.append(bbox)
+    #         confidences.append(pred.score.value)
+    #         class_ids.append(pred.category.id)
+    #         class_names[pred.category.id] = pred.category.name
 
-        # Create tensors
-        boxes_tensor = torch.tensor(boxes, dtype=torch.float32)
-        conf_tensor = torch.tensor(confidences, dtype=torch.float32)
-        cls_tensor = torch.tensor(class_ids, dtype=torch.float32)
+    #     # Create tensors
+    #     boxes_tensor = torch.tensor(boxes, dtype=torch.float32)
+    #     conf_tensor = torch.tensor(confidences, dtype=torch.float32)
+    #     cls_tensor = torch.tensor(class_ids, dtype=torch.float32)
 
-        # Create data tensor combining boxes, conf, and cls
-        data_tensor = torch.cat(
-            [boxes_tensor, conf_tensor.unsqueeze(1), cls_tensor.unsqueeze(1)], dim=1
-        )
+    #     # Create data tensor combining boxes, conf, and cls
+    #     data_tensor = torch.cat(
+    #         [boxes_tensor, conf_tensor.unsqueeze(1), cls_tensor.unsqueeze(1)], dim=1
+    #     )
 
-        # Create mock YOLO Results object
-        mock_boxes = type("MockBoxes", (), {})()
-        mock_boxes.xyxy = boxes_tensor
-        mock_boxes.conf = conf_tensor
-        mock_boxes.cls = cls_tensor
-        mock_boxes.data = data_tensor
+    #     # Create mock YOLO Results object
+    #     mock_boxes = type("MockBoxes", (), {})()
+    #     mock_boxes.xyxy = boxes_tensor
+    #     mock_boxes.conf = conf_tensor
+    #     mock_boxes.cls = cls_tensor
+    #     mock_boxes.data = data_tensor
 
-        mock_result = type("MockResult", (), {})()
-        mock_result.boxes = mock_boxes
-        mock_result.names = class_names
+    #     mock_result = type("MockResult", (), {})()
+    #     mock_result.boxes = mock_boxes
+    #     mock_result.names = class_names
 
-        return [mock_result]
+    #     return [mock_result]
 
     def cleanup(self):
         """Clean up GPU memory and resources."""
@@ -629,6 +805,11 @@ class Detector:
             if hasattr(self, "model") and self.model is not None:
                 del self.model
                 self.model = None
+
+            # Clean up ByteTrack tracker for NPU
+            if hasattr(self, "tracker") and self.tracker is not None:
+                del self.tracker
+                self.tracker = None
 
             # Clear CUDA cache
             try:
