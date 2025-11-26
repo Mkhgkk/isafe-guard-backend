@@ -15,6 +15,7 @@ from main.event.routes import event_blueprint
 from main.system.routes import system_blueprint
 from main.logs.routes import logs_blueprint
 from main.logs.simple_routes import simple_logs_blueprint
+from main.models.routes import models_blueprint
 
 from .extensions import socketio
 from events import initialize_socketio
@@ -34,6 +35,7 @@ def create_app():
     CORS(user_blueprint, resources={r"/*": {"origins": "*"}})
     CORS(stream_blueprint, resources={r"/*": {"origins": "*"}})
     CORS(event_blueprint, resources={r"/*": {"origins": "*"}})
+    CORS(models_blueprint, resources={r"/*": {"origins": "*"}})
 
     os.environ["TZ"] = app.config["TIMEZONE"]
 
@@ -47,6 +49,7 @@ def create_app():
     app.register_blueprint(system_blueprint, url_prefix="/api/system")
     app.register_blueprint(logs_blueprint, url_prefix="/api/logs")
     app.register_blueprint(simple_logs_blueprint, url_prefix="/api/logs")
+    app.register_blueprint(models_blueprint, url_prefix="/api/models")
 
     socketio.init_app(app, cors_allowed_origins="*", async_mode="threading")
     initialize_socketio(socketio)
