@@ -42,16 +42,32 @@ class ModelsConfig:
         models_to_load = os.getenv("MODELS_TO_LOAD", "").strip()
 
         if not models_to_load:
-            # If not set, return all models
             return [model["value"] for model in ALL_MODELS]
 
-        # Split and clean up the model names
-        enabled_models = []
-        _ = [m.strip() for m in models_to_load.split(",") if m.strip()]
-        for model_value in _:
-            if model_value.startswith("hamyang"):
-                enabled_models.append("HeavyEquipment")
-        return list(set(enabled_models))
+        MODEL_PREFIX_MAP = {
+            "nexilis_proximity": "NexilisProximity",
+            "mobile_scaffolding": "MobileScaffolding",
+            "ppe_aerial": "PPEAerial",
+            "cutting_welding": "CuttingWelding",
+            "fire_smoke": "Fire",
+            "hamyang": "HeavyEquipment",
+            "proximity": "Proximity",
+            "approtium": "Approtium",
+            "scaffolding": "Scaffolding",
+            "ladder": "Ladder",
+            "ppe": "PPE",
+        }
+
+        enabled_models = set()
+        model_names = [m.strip() for m in models_to_load.split(",") if m.strip()]
+
+        for model_name in model_names:
+            for prefix, value in MODEL_PREFIX_MAP.items():
+                if model_name.startswith(prefix):
+                    enabled_models.add(value)
+                    break
+
+        return list(enabled_models)
 
     def get_available_models(self):
         """
