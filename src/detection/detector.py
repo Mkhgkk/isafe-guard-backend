@@ -33,7 +33,7 @@ from detection.nexilis_proximity import detect_nexilis_proximity
 from detection.approtium import detect_approtium
 from ultralytics.engine.results import Results
 
-from config import DEFAULT_PRECISION
+from config import DEFAULT_PRECISION, TRITON_SERVER_URL
 
 MODELS_PATH = video_directory = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "../models")
@@ -154,7 +154,7 @@ class Detector:
             #     MODELS_PATH,
             #     f"heavy_equipment/v2/1280L/{DEFAULT_PRECISION}/model.engine",
             # ),
-            "HeavyEquipment": "http://tritonserver:8000/hamyang_1280_fp16",
+            "HeavyEquipment": f"{TRITON_SERVER_URL}/hamyang_1280_fp16",
             "Proximity": os.path.join(
                 # MODELS_PATH, f"heavy_equipment/{DEFAULT_PRECISION}/model.engine"
                 MODELS_PATH,

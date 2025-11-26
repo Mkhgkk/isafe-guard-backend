@@ -21,3 +21,5 @@ WATCH_NOTIFICATION_URL = "http://118.67.143.38:7000/external/camera"
 RECEIVER_EMAILS = []
 SENDER_EMAIL = "contilabcau@gmail.com"
 EMAIL_PASSWORD = "lbzf dykm dvgz yzuk"
+
+TRITON_SERVER_URL = "http://tritonserver:8000"
