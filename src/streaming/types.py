@@ -48,10 +48,20 @@ class StreamStats:
     unsafe_frames: int = 0
     fps_queue: deque = None # type: ignore
     last_event_time: float = 0
-    
+
+    # Connection speed tracking
+    frame_latencies: deque = None # type: ignore  # Track frame acquisition times
+    average_latency: float = 0.0  # Average latency in milliseconds
+    current_speed: float = 0.0  # Current connection speed in fps
+    bandwidth_kbps: float = 0.0  # Bandwidth in kilobits per second
+    bandwidth_mbps: float = 0.0  # Bandwidth in megabits per second
+    last_speed_emit_time: float = 0.0  # Last time connection speed was emitted
+
     def __post_init__(self):
         if self.fps_queue is None:
             self.fps_queue = deque(maxlen=FPS_QUEUE_SIZE)
+        if self.frame_latencies is None:
+            self.frame_latencies = deque(maxlen=30)  # Track last 30 frame latencies
 
 @dataclass
 class FrameProcessingResult:

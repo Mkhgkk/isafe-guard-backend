@@ -65,7 +65,11 @@ class GStreamerPipeline:
         self.connection_trials = 0
         self.last_frame_time = 0
         self.frame_callback = None
-        
+
+        # Connection speed tracking
+        self.frame_request_time = 0  # Time when frame was requested
+        self.frame_latency = 0  # Latency of last frame in milliseconds
+
         # Install GStreamer debug handler
         _install_gst_debug_handler()
         
@@ -135,16 +139,24 @@ class GStreamerPipeline:
     def _on_new_sample(self, appsink) -> Gst.FlowReturn:
         """Handle new sample from appsink."""
         try:
+            frame_received_time = time.time()
+
             sample = appsink.emit("pull-sample")
             if not sample:
                 return Gst.FlowReturn.OK
-                
+
             frame = self._extract_frame_from_sample(sample)
             if frame is not None:
-                self.last_frame_time = time.time()
+                # Calculate frame latency if we have a previous frame time
+                if self.last_frame_time > 0:
+                    # Latency is the time between frames in milliseconds
+                    self.frame_latency = (frame_received_time - self.last_frame_time) * 1000
+
+                self.last_frame_time = frame_received_time
+
                 if self.frame_callback:
                     self.frame_callback(frame)
-                    
+
             return Gst.FlowReturn.OK
         except Exception as e:
             log_event(logger, "error", f"Error in _on_new_sample: {e}", event_type="error")
@@ -227,9 +239,13 @@ class GStreamerPipeline:
         """Check if pipeline is healthy."""
         if not self.pipeline:
             return False
-            
+
         current_time = time.time()
         if self.last_frame_time > 0 and current_time - self.last_frame_time > DEFAULT_FRAME_TIMEOUT:
             return False
-            
+
         return True
+
+    def get_frame_latency(self) -> float:
+        """Get the latency of the last frame in milliseconds."""
+        return self.frame_latency

@@ -24,6 +24,10 @@ from .processing import (
 from .types import PipelineConfig, StreamStats, FrameProcessingResult
 from .health import StreamHealthMonitor
 
+from events.api import emit_event, emit_dynamic_event
+from events.events import EventType
+from config import FRAME_WIDTH, FRAME_HEIGHT
+
 
 class StreamManager:
     """Main class for managing RTSP stream processing."""
@@ -278,6 +282,9 @@ class StreamManager:
         current_time = time.time()
         fps = self._calculate_fps()
 
+        # Update and emit connection speed data
+        self._update_and_emit_connection_speed()
+
         # Check if enough time has passed for inference
         should_run_inference = (
             current_time - self.last_inference_time
@@ -350,3 +357,69 @@ class StreamManager:
             return (len(self.streaming_fps_queue) - 1) / time_span
 
         return 20.0
+
+    def _update_and_emit_connection_speed(self):
+        """Calculate and emit connection speed statistics."""
+        current_time = time.time()
+
+        # Get frame latency from pipeline
+        frame_latency = self.pipeline.get_frame_latency()
+
+        if frame_latency > 0:
+            # Add to latency queue
+            self.stats.frame_latencies.append(frame_latency)
+
+            # Calculate average latency
+            if len(self.stats.frame_latencies) > 0:
+                self.stats.average_latency = sum(self.stats.frame_latencies) / len(
+                    self.stats.frame_latencies
+                )
+
+                # Calculate connection speed (fps based on frame intervals)
+                if self.stats.average_latency > 0:
+                    self.stats.current_speed = 1000.0 / self.stats.average_latency
+                else:
+                    self.stats.current_speed = 0.0
+
+                # Calculate bandwidth based on frame size and fps
+                # Frame size = width * height * 3 (BGR channels)
+                frame_size_bytes = FRAME_WIDTH * FRAME_HEIGHT * 3
+
+                # Bandwidth = frame_size * fps (in bytes per second)
+                bandwidth_bytes_per_sec = frame_size_bytes * self.stats.current_speed
+
+                # Convert to kilobits and megabits per second
+                self.stats.bandwidth_kbps = (bandwidth_bytes_per_sec * 8) / 1000
+                self.stats.bandwidth_mbps = (bandwidth_bytes_per_sec * 8) / 1000000
+
+        # Emit connection speed data every second
+        if current_time - self.stats.last_speed_emit_time >= 1.0:
+            self.stats.last_speed_emit_time = current_time
+
+            # emit_event(
+            #     event_type=EventType.CONNECTION_SPEED,
+            #     data={
+            #         "stream_id": self.stream_id,
+            #         "latency_ms": round(frame_latency, 2) if frame_latency > 0 else 0,
+            #         "average_latency_ms": round(self.stats.average_latency, 2),
+            #         "connection_fps": round(self.stats.current_speed, 2),
+            #         "bandwidth_kbps": round(self.stats.bandwidth_kbps, 2),
+            #         "bandwidth_mbps": round(self.stats.bandwidth_mbps, 2),
+            #     },
+            #     room=self.stream_id,
+            #     broadcast=False,
+            # )
+
+            emit_dynamic_event(
+                base_event_type=EventType.CONNECTION_SPEED,
+                data={
+                    "latency_ms": round(frame_latency, 2) if frame_latency > 0 else 0,
+                    "average_latency_ms": round(self.stats.average_latency, 2),
+                    "connection_fps": round(self.stats.current_speed, 2),
+                    "bandwidth_kbps": round(self.stats.bandwidth_kbps, 2),
+                    "bandwidth_mbps": round(self.stats.bandwidth_mbps, 2),
+                },
+                room=self.stream_id,
+                identifier=self.stream_id,
+                broadcast=False,
+            )

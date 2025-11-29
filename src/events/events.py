@@ -23,6 +23,8 @@ class EventType(Enum):
     STREAM_EVENT_STATUS = "stream_event_status"
     # PTZ_AUTOTRACK_STATUS = "ptz_autotrack_status"
 
+    CONNECTION_SPEED = "connection-speed"
+
     # Dynamic event types
     ALERT = "alert"
     EVENT = "event"
