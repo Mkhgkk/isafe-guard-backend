@@ -18,7 +18,7 @@ from sahi.models.ultralytics import UltralyticsDetectionModel
 from sahi.predict import get_sliced_prediction
 
 SAHI_AVAILABLE = True
-IMGSZ = 1280
+# IMGSZ = 1280
 
 logger = get_logger(__name__)
 from detection.ppe import detect_ppe
@@ -82,6 +82,8 @@ class Detector:
 
         self.npu_engine = None
         self.tracker = None  # For NPU tracking
+
+        self.IMGSZ = model_name == "Approtium" and 640 or 1280
 
         if USE_NPU:
             log_event(
@@ -166,7 +168,8 @@ class Detector:
                 f"nexilis_proximity/v2/1280L/{DEFAULT_PRECISION}/model.engine",
             ),
             "Approtium": os.path.join(
-                MODELS_PATH, f"approtium/{DEFAULT_PRECISION}/model.engine"
+                # MODELS_PATH, f"approtium/{DEFAULT_PRECISION}/model.engine"
+                f"{TRITON_SERVER_URL}/approtium_640_fp16",
             ),
         }
 
@@ -349,15 +352,15 @@ class Detector:
         "np.ndarray", str, List[str], Optional[List[Tuple[int, int, int, int]]], any
     ]:
         # Use YOLO's native tracking for HeavyEquipment model for better performance
-        if self.model_name == "HeavyEquipment":
+        if self.model_name in ["HeavyEquipment", "Approtium"]:
             results: List[Results] = self.model.track(
                 frame,
-                imgsz=IMGSZ,
+                imgsz=self.IMGSZ,
                 persist=True,
                 tracker="bytetrack.yaml",
             )
         else:
-            results: List[Results] = self.model(frame, imgsz=IMGSZ)
+            results: List[Results] = self.model(frame, imgsz=self.IMGSZ)
 
         final_status: str = "Safe"
         reasons: List[str] = []
