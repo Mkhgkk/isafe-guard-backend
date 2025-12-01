@@ -23,3 +23,7 @@ SENDER_EMAIL = "contilabcau@gmail.com"
 EMAIL_PASSWORD = "lbzf dykm dvgz yzuk"
 
 TRITON_SERVER_URL = "http://tritonserver:8000"
+
+# KDL WebSocket Server Configuration
+KDL_SERVER_URL = os.getenv("KDL_SERVER_URL", "172.17.0.1")
+KDL_SERVER_PORT = int(os.getenv("KDL_SERVER_PORT", "12321"))

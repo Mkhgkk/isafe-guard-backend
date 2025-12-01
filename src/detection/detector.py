@@ -31,6 +31,7 @@ from detection.heavy_equipment import detect_heavy_equipment
 from detection.proximity import detect_proximity
 from detection.nexilis_proximity import detect_nexilis_proximity
 from detection.approtium import detect_approtium
+from detection.kdl import detect_kdl
 from ultralytics.engine.results import Results
 
 from config import DEFAULT_PRECISION, TRITON_SERVER_URL
@@ -85,6 +86,9 @@ class Detector:
 
         self.IMGSZ = model_name == "Approtium" and 640 or 1280
 
+        # For KDL, we don't need to load a model as it uses WebSocket
+        self.is_kdl = model_name == "KDL"
+
         if USE_NPU:
             log_event(
                 logger,
@@ -107,18 +111,20 @@ class Detector:
                     event_type="info",
                 )
         else:
-            if self.use_sahi:
-                if not SAHI_AVAILABLE:
-                    log_event(
-                        logger,
-                        "warning",
-                        "SAHI not available, falling back to standard detection",
-                        event_type="warning",
-                    )
-                    self.use_sahi = False
-                self.model = self._load_sahi_model()
-            else:
-                self.model = self._load_model()
+            # Don't load model for KDL as it uses WebSocket
+            if not self.is_kdl:
+                if self.use_sahi:
+                    if not SAHI_AVAILABLE:
+                        log_event(
+                            logger,
+                            "warning",
+                            "SAHI not available, falling back to standard detection",
+                            event_type="warning",
+                        )
+                        self.use_sahi = False
+                    self.model = self._load_sahi_model()
+                else:
+                    self.model = self._load_model()
 
     def _load_model(self) -> YOLO:
         """
@@ -255,6 +261,10 @@ class Detector:
     ) -> Tuple[
         "np.ndarray", str, List[str], Optional[List[Tuple[int, int, int, int]]], any
     ]:
+        # Handle KDL detector separately
+        if self.is_kdl:
+            status, reasons, bboxes = detect_kdl(frame, [], self.stream_id)
+            return frame, status, reasons, bboxes, None
 
         if USE_NPU:
             detections = npu_engine.detect(frame)
@@ -331,6 +341,8 @@ class Detector:
             result = detect_nexilis_proximity(frame, cached_results)
         elif self.model_name == "Approtium":
             result = detect_approtium(frame, cached_results)
+        elif self.model_name == "KDL":
+            result = detect_kdl(frame, cached_results, self.stream_id)
         else:
             log_event(
                 logger,
@@ -386,6 +398,8 @@ class Detector:
             result = detect_nexilis_proximity(frame, results)
         elif self.model_name == "Approtium":
             result = detect_approtium(frame, results)
+        elif self.model_name == "KDL":
+            result = detect_kdl(frame, results, self.stream_id)
         else:
             log_event(
                 logger,

@@ -84,6 +84,8 @@ class ModelsConfig:
                 if model["value"] in enabled_model_values
             ]
 
+            available_models.append({"value": "KDL", "label": "KDL Gauge Detection"})
+
             return tools.JsonResp({"models": available_models}, 200)
         except Exception as e:
             print(f"Error getting available models: {e}")

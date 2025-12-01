@@ -7,6 +7,9 @@ from startup import (
     get_system_utilization,
     configure_matching_models,
 )
+from detection.kdl_detector import initialize_kdl_client
+from detection.kdl import handle_kdl_result
+from config import KDL_SERVER_URL, KDL_SERVER_PORT
 
 # Logging configuration moved to utils/logging_config.py
 # These specific logger level settings are now handled in setup_logging()
@@ -22,6 +25,20 @@ def create_app_services(app):
     configure_detection_models()
     configure_matching_models()
     log_event(logger, "info", "Models successfully configured!", event_type="info")
+
+    log_event(logger, "info", "Initializing KDL WebSocket client...", event_type="info")
+    kdl_client = initialize_kdl_client(KDL_SERVER_URL, KDL_SERVER_PORT)
+
+    # Set up result callback - need to track which stream_id sent each frame
+    # For now, we'll use a simple approach where results are broadcast to all KDL streams
+    # TODO: Implement proper stream_id tracking if needed
+    def kdl_result_callback(metadata, image_bytes):
+        # Extract stream_id from metadata if available, otherwise use default
+        stream_id = metadata.get("stream_id", "default")
+        handle_kdl_result(metadata, image_bytes, stream_id)
+
+    kdl_client.set_result_callback(kdl_result_callback)
+    log_event(logger, "info", "KDL WebSocket client initialized!", event_type="info")
 
     log_event(logger, "info", "Starting async stream tasks...", event_type="info")
     with app.app_context():

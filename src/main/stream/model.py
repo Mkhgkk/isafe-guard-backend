@@ -83,6 +83,7 @@ class StreamSchema(Schema):
                 "Proximity",
                 "Approtium",
                 "NexilisProximity",
+                "KDL",
             ]
         ),
     )

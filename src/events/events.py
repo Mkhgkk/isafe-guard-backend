@@ -25,6 +25,9 @@ class EventType(Enum):
 
     CONNECTION_SPEED = "connection-speed"
 
+    # KDL WebSocket detection events
+    KDL_DETECTION = "kdl-detection"
+
     # Dynamic event types
     ALERT = "alert"
     EVENT = "event"
