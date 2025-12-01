@@ -185,7 +185,7 @@ def detect_approtium(
             if len(box_list) == 6:
                 x1, y1, x2, y2, conf, cls = box_list
                 # Get track ID from boxes.id if available
-                track_id = int(boxes.id[idx].item()) if has_track_ids else -1
+                track_id = int(boxes.id[idx].item()) if (has_track_ids and boxes.id is not None) else -1
             elif len(box_list) == 7:
                 # Track format with ID in data
                 x1, y1, x2, y2, track_id_data, conf, cls = box_list
@@ -195,7 +195,7 @@ def detect_approtium(
                 x1, y1, x2, y2 = box_list[:4]
                 conf = box_list[-2] if len(box_list) >= 6 else 0.5
                 cls = box_list[-1] if len(box_list) >= 5 else 0
-                track_id = int(boxes.id[idx].item()) if has_track_ids else -1
+                track_id = int(boxes.id[idx].item()) if (has_track_ids and boxes.id is not None) else -1
 
             coords = [int(x1), int(y1), int(x2), int(y2)]
             clas = int(cls)
