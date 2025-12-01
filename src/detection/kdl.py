@@ -5,8 +5,12 @@ from detection.kdl_detector import get_kdl_client
 from events.api import emit_dynamic_event
 from events.events import EventType
 from utils.logging_config import get_logger
+from detection import draw_text_with_background
 
 logger = get_logger(__name__)
+
+# Global cache for KDL metadata per stream_id
+kdl_metadata_cache: Dict[str, Dict[str, Any]] = {}
 
 
 def detect_kdl(
@@ -18,6 +22,7 @@ def detect_kdl(
 
     This function sends the frame to the KDL server asynchronously.
     Results will be received later via WebSocket callback and emitted to frontend.
+    It also draws cached metadata on the current frame.
 
     Args:
         image: Input image array
@@ -38,6 +43,47 @@ def detect_kdl(
     if kdl_client is None:
         logger.warning("KDL client not initialized")
         return "Safe", [], []
+
+    # Draw cached metadata on the current frame if available
+    if stream_id in kdl_metadata_cache:
+        cached_data = kdl_metadata_cache[stream_id]
+        gauge_xyxy = cached_data.get("gauge_xyxy", [])
+        pin_angle = cached_data.get("pin_angle", [])
+        gauge_status = cached_data.get("gauge_status", "normal")
+
+        # Draw box around gauge if gauge_xyxy is available
+        if gauge_xyxy and len(gauge_xyxy) == 4:
+            x1, y1, x2, y2 = map(int, gauge_xyxy)
+
+            # Determine box color based on gauge status
+            if gauge_status == "danger":
+                box_color = (0, 0, 255)  # Red
+            elif gauge_status == "warning":
+                box_color = (0, 165, 255)  # Orange
+            else:
+                box_color = (0, 255, 0)  # Green
+
+            # Draw rectangle around gauge
+            cv2.rectangle(image, (x1, y1), (x2, y2), box_color, 2)
+
+            # Draw angle text if available
+            if pin_angle and len(pin_angle) > 0:
+                angle_value = pin_angle[0]
+                angle_text = f"Angle: {angle_value:.1f}°"
+
+                # Position text above the gauge box
+                text_position = (x1, max(y1 - 10, 25))
+
+                # Determine background color based on gauge status
+                if gauge_status == "danger":
+                    bg_color = (0, 0, 255)  # Red
+                elif gauge_status == "warning":
+                    bg_color = (0, 165, 255)  # Orange
+                else:
+                    bg_color = (0, 255, 0)  # Green
+
+                # Draw angle text with background
+                draw_text_with_background(image, angle_text, text_position, bg_color, t_type="label")
 
     # Send frame to KDL server (non-blocking)
     kdl_client.send_frame(image, stream_id)
@@ -83,6 +129,15 @@ def handle_kdl_result(metadata: Dict[str, Any], image_bytes: bytes, stream_id: s
         pin_angle = metadata.get("pin_angle", [])
         timestamp = metadata.get("timestamp", "")
         comment = metadata.get("comment", "")
+
+        # Cache the metadata for this stream_id
+        kdl_metadata_cache[stream_id] = {
+            "gauge_status": gauge_status,
+            "gauge_xyxy": gauge_xyxy,
+            "pin_angle": pin_angle,
+            "timestamp": timestamp,
+            "comment": comment,
+        }
 
         # Emit the complete KDL detection results to frontend
         # Broadcast to all clients since KDL server doesn't track stream_id
