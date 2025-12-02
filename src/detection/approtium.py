@@ -164,6 +164,7 @@ def detect_approtium(
 
     person_boxes_with_tracking: List[Tuple[int, List[int]]] = []  # (track_id, box)
     hat_boxes: List[List[int]] = []
+    yellow_hat_boxes: List[List[int]] = []  # Track yellow helmets separately
     final_status: str = "Safe"
     reasons: List[str] = []
 
@@ -229,6 +230,7 @@ def detect_approtium(
                 # Class 2: Yellow helmet
                 elif clas == 2:
                     hat_boxes.append(coords)
+                    yellow_hat_boxes.append(coords)  # Track yellow helmets separately
                     # Only draw helmet boxes if not in violations-only mode
                     if not draw_violations_only:
                         cv2.rectangle(
@@ -245,6 +247,7 @@ def detect_approtium(
 
     # Process each tracked person
     person_bboxes: List[Tuple[int, int, int, int]] = []
+    persons_with_nonyellow_bboxes: List[Tuple[int, int, int, int]] = []
 
     for person_track_id, perBox in person_boxes_with_tracking:
         # Check if person box is large enough for reliable helmet detection
@@ -327,7 +330,18 @@ def detect_approtium(
         # Add to person boxes for return value
         person_bboxes.append((perBox[0], perBox[1], perBox[2], perBox[3]))
 
+        # Check if person has a yellow helmet
+        has_yellow_helmet = any(
+            perBox[0] <= (yellowHatBox[0] + yellowHatBox[2]) / 2 < perBox[2]
+            and yellowHatBox[1] >= perBox[1] - 20
+            for yellowHatBox in yellow_hat_boxes
+        )
+
+        # Only add to nonyellow list if person doesn't have a yellow helmet
+        if not has_yellow_helmet:
+            persons_with_nonyellow_bboxes.append((perBox[0], perBox[1], perBox[2], perBox[3]))
+
     # Ensure reasons are unique
     reasons = list(set(reasons))
 
-    return final_status, reasons, person_bboxes
+    return final_status, reasons, persons_with_nonyellow_bboxes
