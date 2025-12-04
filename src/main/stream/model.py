@@ -1137,6 +1137,7 @@ class Stream:
         home_tilt: Optional[float] = None,
         home_zoom: Optional[float] = None,
         patrol_area: Optional[dict] = None,
+        patrol_pattern: Optional[dict] = None,
         safe_area: Optional[dict] = None,
         intrusion_detection: Optional[bool] = None,
         saving_video: Optional[bool] = None,
@@ -1336,6 +1337,7 @@ class Stream:
                     stream_id,
                     profile_name,
                     patrol_area,
+                    patrol_pattern,
                 ),
                 daemon=True,
             )
@@ -1350,6 +1352,7 @@ class Stream:
         stream_id,
         profile_name=None,
         patrol_area=None,
+        patrol_pattern=None,
     ):
         """This function will be executed in a background thread to avoid blocking the loop."""
         try:
@@ -1380,6 +1383,26 @@ class Stream:
                         logger,
                         "warning",
                         f"Failed to set patrol area for stream {stream_id}: {e}",
+                        event_type="warning",
+                    )
+
+            # Load saved patrol pattern if available
+            if patrol_pattern and patrol_pattern.get("coordinates"):
+                try:
+                    coordinates = patrol_pattern.get("coordinates", [])
+                    if len(coordinates) >= 2:
+                        ptz_auto_tracker.set_custom_patrol_pattern(coordinates)
+                        log_event(
+                            logger,
+                            "info",
+                            f"Loaded saved patrol pattern for stream {stream_id} with {len(coordinates)} waypoints",
+                            event_type="info",
+                        )
+                except Exception as e:
+                    log_event(
+                        logger,
+                        "warning",
+                        f"Failed to set patrol pattern for stream {stream_id}: {e}",
                         event_type="warning",
                     )
 

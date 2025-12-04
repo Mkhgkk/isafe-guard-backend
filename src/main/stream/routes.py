@@ -106,10 +106,33 @@ def change_autotrack():
                     video_streaming.ptz_auto_tracker.set_patrol_parameters(
                         focus_max_zoom=1.0
                     )
-                    video_streaming.ptz_auto_tracker.set_patrol_parameters(
-                        x_positions=10, y_positions=4, dwell_time=1.5
-                    )
-                    video_streaming.ptz_auto_tracker.start_patrol("horizontal")
+
+                    # Check if there's a custom patrol pattern
+                    patrol_pattern = stream_doc.get("patrol_pattern")
+                    if patrol_pattern and patrol_pattern.get("coordinates"):
+                        # Start pattern patrol
+                        coordinates = patrol_pattern.get("coordinates", [])
+                        if len(coordinates) >= 2:
+                            video_streaming.ptz_auto_tracker.set_custom_patrol_pattern(coordinates)
+                            video_streaming.ptz_auto_tracker.start_patrol(mode="pattern")
+                            log_event(
+                                logger,
+                                "info",
+                                f"Started custom pattern patrol for stream {stream_id} with {len(coordinates)} waypoints",
+                                event_type="info",
+                            )
+                        else:
+                            # Fall back to grid patrol
+                            video_streaming.ptz_auto_tracker.set_patrol_parameters(
+                                x_positions=10, y_positions=4, dwell_time=1.5
+                            )
+                            video_streaming.ptz_auto_tracker.start_patrol("horizontal", mode="grid")
+                    else:
+                        # No pattern, use grid patrol
+                        video_streaming.ptz_auto_tracker.set_patrol_parameters(
+                            x_positions=10, y_positions=4, dwell_time=1.5
+                        )
+                        video_streaming.ptz_auto_tracker.start_patrol("horizontal", mode="grid")
         else:
             # Stop tracking
             if video_streaming.ptz_auto_tracker:

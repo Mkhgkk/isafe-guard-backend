@@ -23,7 +23,7 @@ class PatrolMixin:
     DEFAULT_FOCUS_MAX_ZOOM = 1.0
     DEFAULT_PATROL_GRID_X = 4
     DEFAULT_PATROL_GRID_Y = 3
-    DEFAULT_HOME_REST_DURATION = 60.0  # 1 minute rest at home position
+    DEFAULT_HOME_REST_DURATION = 10.0  # 1 minute rest at home position
 
     # Default patrol area
     DEFAULT_PATROL_AREA = {
@@ -64,6 +64,9 @@ class PatrolMixin:
         self.patrol_dwell_time = self.DEFAULT_PATROL_DWELL_TIME
         self.patrol_stop_event = threading.Event()
         self.patrol_direction = "horizontal"
+        self.patrol_mode = "grid"  # "grid" or "pattern" - defaults to grid
+        self.custom_patrol_pattern: Optional[list] = None  # Stores custom waypoints
+        self.pattern_cycle_count = 0  # Track number of complete pattern cycles
         self.zoom_during_patrol = self.patrol_area.get("zoom_level", 0.3)
         self.home_rest_duration = (
             self.DEFAULT_HOME_REST_DURATION
@@ -127,12 +130,50 @@ class PatrolMixin:
             event_type="patrol_step_size",
         )
 
-    def start_patrol(self, direction: str = "horizontal") -> None:
-        """Start the patrol function in a separate thread."""
+    def start_patrol(self, direction: str = "horizontal", mode: str = "grid") -> None:
+        """Start the patrol function in a separate thread.
+
+        Args:
+            direction: "horizontal" or "vertical" (only used for grid mode)
+            mode: "grid" or "pattern" - determines patrol type
+        """
         if not hasattr(self, "patrol_area"):
             self.add_patrol_functionality()
 
-        if direction not in ["horizontal", "vertical"]:
+        # Validate mode
+        if mode not in ["grid", "pattern"]:
+            log_event(
+                logger,
+                "warning",
+                f"Invalid patrol mode: {mode}. Using 'grid'.",
+                event_type="warning",
+            )
+            mode = "grid"
+
+        # For pattern mode, check if custom pattern is set
+        if mode == "pattern":
+            if (
+                not hasattr(self, "custom_patrol_pattern")
+                or not self.custom_patrol_pattern
+            ):
+                log_event(
+                    logger,
+                    "error",
+                    "Cannot start pattern patrol: no custom pattern set",
+                    event_type="error",
+                )
+                return
+            if len(self.custom_patrol_pattern) < 2:
+                log_event(
+                    logger,
+                    "error",
+                    f"Cannot start pattern patrol: need at least 2 waypoints, got {len(self.custom_patrol_pattern)}",
+                    event_type="error",
+                )
+                return
+
+        # Validate direction for grid mode
+        if mode == "grid" and direction not in ["horizontal", "vertical"]:
             log_event(
                 logger,
                 "warning",
@@ -142,6 +183,7 @@ class PatrolMixin:
             direction = "horizontal"
 
         self.patrol_direction = direction
+        self.patrol_mode = mode
 
         if self.is_patrolling:
             self.stop_patrol()
@@ -151,10 +193,19 @@ class PatrolMixin:
         self.patrol_thread = threading.Thread(target=self._patrol_routine)
         self.patrol_thread.daemon = True
         self.patrol_thread.start()
+
+        if mode == "grid":
+            mode_description = f"{direction} progression"
+        else:
+            waypoint_count = (
+                len(self.custom_patrol_pattern) if self.custom_patrol_pattern else 0
+            )
+            mode_description = f"custom pattern ({waypoint_count} waypoints)"
+
         log_event(
             logger,
             "info",
-            f"Patrol started in {direction} progression mode",
+            f"Patrol started in {mode_description} mode",
             event_type="info",
         )
 
@@ -174,12 +225,16 @@ class PatrolMixin:
     def _patrol_routine(self) -> None:
         """Main patrol routine that implements a scanning pattern."""
         try:
-            zoom_level = self.zoom_during_patrol
-
-            if self.patrol_direction == "horizontal":
-                self._horizontal_patrol(zoom_level)
+            # Route to appropriate patrol method based on mode
+            if self.patrol_mode == "pattern":
+                self._custom_pattern_patrol()
             else:
-                self._vertical_patrol(zoom_level)
+                # Grid mode
+                zoom_level = self.zoom_during_patrol
+                if self.patrol_direction == "horizontal":
+                    self._horizontal_patrol(zoom_level)
+                else:
+                    self._vertical_patrol(zoom_level)
 
         except Exception as e:
             log_event(
@@ -491,6 +546,76 @@ class PatrolMixin:
                 )
                 self._return_to_home_and_rest()
 
+    def _custom_pattern_patrol(self) -> None:
+        """Custom pattern patrol that loops through predefined waypoints continuously.
+        Loops indefinitely through all waypoints without returning to home.
+        """
+        if not self.custom_patrol_pattern or len(self.custom_patrol_pattern) < 2:
+            log_event(
+                logger,
+                "error",
+                "Cannot execute custom pattern patrol: invalid pattern",
+                event_type="error",
+            )
+            self.is_patrolling = False
+            return
+
+        log_event(
+            logger,
+            "info",
+            f"Starting continuous custom pattern patrol with {len(self.custom_patrol_pattern)} waypoints",
+            event_type="patrol_start",
+        )
+
+        # Reset cycle count when starting patrol
+        self.pattern_cycle_count = 0
+
+        while not self.patrol_stop_event.is_set():
+            self.pattern_cycle_count += 1
+            log_event(
+                logger,
+                "debug",
+                f"Custom pattern patrol cycle {self.pattern_cycle_count} starting",
+                event_type="patrol_cycle_start",
+            )
+
+            # Loop through all waypoints continuously
+            for waypoint_index, waypoint in enumerate(self.custom_patrol_pattern):
+                if self.patrol_stop_event.is_set():
+                    break
+
+                # Extract coordinates
+                current_x = waypoint.get("x", 0.0)
+                current_y = waypoint.get("y", 0.0)
+                current_zoom = waypoint.get("z", 0.0)
+
+                log_event(
+                    logger,
+                    "debug",
+                    f"Custom pattern patrol moving to waypoint {waypoint_index + 1}/{len(self.custom_patrol_pattern)} (cycle {self.pattern_cycle_count}): ({current_x:.6f}, {current_y:.6f}, zoom: {current_zoom:.6f})",
+                    event_type="patrol_movement",
+                )
+
+                # Move to waypoint
+                if hasattr(self, "absolute_move"):
+                    self.absolute_move(current_x, current_y, current_zoom)
+
+                # Update current waypoint index for tracking
+                if hasattr(self, "current_patrol_waypoint_index"):
+                    self.current_patrol_waypoint_index = waypoint_index
+
+                # Wait at position, but check for pause events
+                self._patrol_dwell_with_pause_check()
+
+            # Cycle complete - log and immediately start next cycle
+            if not self.patrol_stop_event.is_set():
+                log_event(
+                    logger,
+                    "debug",
+                    f"Custom pattern patrol cycle {self.pattern_cycle_count} complete, continuing to next cycle",
+                    event_type="patrol_cycle_complete",
+                )
+
     def _patrol_dwell_with_pause_check(self) -> None:
         """Dwell at patrol position while checking for pause/resume events - simplified."""
         dwell_start = time.time()
@@ -639,12 +764,28 @@ class PatrolMixin:
         ):
             cooldown_remaining = self.tracking_cooldown_end_time - current_time
 
+        # Get patrol mode specific information
+        patrol_mode = getattr(self, "patrol_mode", "grid")
+        pattern_info = None
+        if patrol_mode == "pattern" and hasattr(self, "custom_patrol_pattern"):
+            pattern_info = {
+                "waypoint_count": (
+                    len(self.custom_patrol_pattern) if self.custom_patrol_pattern else 0
+                ),
+                "current_waypoint_index": getattr(
+                    self, "current_patrol_waypoint_index", 0
+                ),
+                "cycle_count": getattr(self, "pattern_cycle_count", 0),
+            }
+
         return {
             "is_patrolling": self.is_patrolling,
+            "patrol_mode": patrol_mode,
             "is_focusing_on_object": getattr(self, "is_focusing_on_object", False),
             "patrol_paused": getattr(self, "patrol_paused", False),
             "patrol_direction": self.get_patrol_direction(),
             "grid_info": self.get_patrol_grid_info(),
+            "pattern_info": pattern_info,
             "object_focus_duration": getattr(self, "object_focus_duration", 3.0),
             "dwell_time": self.patrol_dwell_time,
             "tracking_cooldown": {
