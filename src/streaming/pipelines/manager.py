@@ -62,7 +62,6 @@ class GStreamerPipeline:
         self.stream_id = stream_id
         self.pipeline: Optional[Gst.Pipeline] = None
         self.use_alternative = False
-        self.connection_trials = 0
         self.last_frame_time = 0
         self.frame_callback = None
 
@@ -76,28 +75,21 @@ class GStreamerPipeline:
     def create_and_start(self, frame_callback) -> bool:
         """Create and start the GStreamer pipeline."""
         self.frame_callback = frame_callback
-        
+
         # Choose pipeline type based on previous failures
         if self.use_alternative:
             pipeline_str = PipelineBuilder.create_alternative_pipeline(self.config)
             log_event(logger, "info", f"Using alternative pipeline for {self.stream_id}", event_type="info")
         else:
             pipeline_str = PipelineBuilder.create_primary_pipeline(self.config)
-            
+
         log_event(logger, "info", f"Creating pipeline: {pipeline_str}", event_type="info")
-        
+
         try:
             self.pipeline = Gst.parse_launch(pipeline_str)
             return self._configure_pipeline()
         except Exception as e:
             log_event(logger, "error", f"Error creating pipeline: {e}", event_type="error")
-            self.connection_trials += 1
-            
-            # Switch to alternative after multiple failures
-            if self.connection_trials >= 2 and not self.use_alternative:
-                self.use_alternative = True
-                log_event(logger, "info", "Switching to alternative pipeline on next attempt", event_type="info")
-                
             return False
     
     def _configure_pipeline(self) -> bool:
@@ -124,15 +116,14 @@ class GStreamerPipeline:
         if ret == Gst.StateChangeReturn.FAILURE:
             log_event(logger, "error", f"Failed to start pipeline for stream {self.stream_id}", event_type="error")
             return False
-            
+
         if ret == Gst.StateChangeReturn.ASYNC:
             ret = self.pipeline.get_state(Gst.CLOCK_TIME_NONE) # pyright: ignore[reportOptionalMemberAccess]
             if ret[0] != Gst.StateChangeReturn.SUCCESS:
                 log_event(logger, "error", f"Pipeline state change failed for stream {self.stream_id}", event_type="error")
                 return False
-                
+
         log_event(logger, "info", f"Successfully started GStreamer pipeline for {self.stream_id}", event_type="info")
-        self.connection_trials = 0
         self.last_frame_time = time.time()
         return True
     
@@ -197,12 +188,35 @@ class GStreamerPipeline:
     def _handle_error_message(self, message):
         """Handle error messages from GStreamer."""
         err, debug = message.parse_error()
-        log_event(logger, "error", f"GStreamer error: {err.message}, {debug}", event_type="error")
-        
-        # Check for ONVIF metadata issues
-        if "ONVIF.METADATA" in str(debug):
-            log_event(logger, "warning", "ONVIF metadata issue detected", event_type="warning")
-            self.use_alternative = True
+        error_msg = str(err.message)
+        debug_msg = str(debug)
+
+        log_event(logger, "error", f"GStreamer error: {error_msg}, {debug_msg}", event_type="error")
+
+        # Switch to alternative pipeline only for specific non-connection errors
+        # Do NOT switch for connection/network errors - keep retrying with primary
+        connection_errors = [
+            "Could not connect",
+            "Connection refused",
+            "timeout",
+            "Timeout",
+            "No route to host",
+            "Network is unreachable",
+            "Connection timed out"
+        ]
+
+        # Check if this is a connection error
+        is_connection_error = any(err_pattern in error_msg or err_pattern in debug_msg
+                                   for err_pattern in connection_errors)
+
+        if not is_connection_error:
+            # Non-connection errors: switch to alternative pipeline
+            if "ONVIF.METADATA" in debug_msg:
+                log_event(logger, "warning", "ONVIF metadata issue detected, switching to alternative pipeline", event_type="warning")
+                self.use_alternative = True
+            elif "stream" in error_msg.lower() or "format" in error_msg.lower():
+                log_event(logger, "warning", f"Stream/format error detected: {error_msg}, switching to alternative pipeline", event_type="warning")
+                self.use_alternative = True
     
     def _handle_warning_message(self, message):
         """Handle warning messages from GStreamer."""
