@@ -839,7 +839,7 @@ class Stream:
 
             # Preview the patrol pattern (execute once)
             coordinates = validated_patrol_pattern["coordinates"]
-            video_streaming.ptz_auto_tracker.preview_custom_patrol_pattern(coordinates)
+            video_streaming.ptz_auto_tracker.preview_custom_patrol_pattern(coordinates, stream_id)
 
             log_event(
                 logger,

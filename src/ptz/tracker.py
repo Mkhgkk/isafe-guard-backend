@@ -409,9 +409,17 @@ class PTZAutoTracker(ONVIFCameraBase, PatrolMixin):
     
     def _handle_no_objects_during_patrol(self, current_time: float) -> None:
         """Handle case when no objects are detected during patrol."""
-        if self.is_focusing_on_object and current_time - self.object_focus_start_time >= 1.0:
-            log_event(logger, "info", "Object lost during focus - ending tracking", event_type="object_lost")
-            self._end_object_focus_with_cooldown()
+        if self.is_focusing_on_object:
+            focus_elapsed = current_time - self.object_focus_start_time
+            min_focus_duration = getattr(self, "min_object_focus_duration", 5.0)
+
+            # Only end focus if minimum focus duration has been met
+            if focus_elapsed >= min_focus_duration:
+                log_event(logger, "info", f"Object lost during focus after {focus_elapsed:.1f}s (min {min_focus_duration}s met) - ending tracking", event_type="object_lost")
+                self._end_object_focus_with_cooldown()
+            elif focus_elapsed >= 1.0:
+                # Object lost but minimum focus time not met - keep focusing position
+                log_event(logger, "debug", f"Object lost but minimum focus time not met ({focus_elapsed:.1f}s / {min_focus_duration}s) - holding position", event_type="object_lost_holding")
     
     def _track_object_with_enhanced_zoom(self, frame_width: int, frame_height: int, bboxes: List[Tuple[float, float, float, float]], current_time: float) -> None:
         """Track object with enhanced zoom capabilities."""

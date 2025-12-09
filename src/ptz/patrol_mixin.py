@@ -3,6 +3,7 @@ import time
 from typing import Any, Dict, Optional, Tuple
 
 from utils.logging_config import get_logger, log_event
+from events.api import emit_custom_event
 
 logger = get_logger(__name__)
 
@@ -19,11 +20,13 @@ class PatrolMixin:
     # Patrol configuration constants
     DEFAULT_PATROL_DWELL_TIME = 10.0
     DEFAULT_OBJECT_FOCUS_DURATION = 10.0
+    DEFAULT_MIN_OBJECT_FOCUS_DURATION = 5.0  # Minimum focus time even if object lost
     DEFAULT_TRACKING_COOLDOWN_DURATION = 5.0
     DEFAULT_FOCUS_MAX_ZOOM = 1.0
     DEFAULT_PATROL_GRID_X = 4
     DEFAULT_PATROL_GRID_Y = 3
-    DEFAULT_HOME_REST_DURATION = 10.0  # 1 minute rest at home position
+    DEFAULT_HOME_REST_DURATION = 10.0  # 10 seconds rest at home position
+    DEFAULT_PATTERN_REST_CYCLES = 1  # Rest after every N pattern cycles
 
     # Default patrol area
     DEFAULT_PATROL_AREA = {
@@ -67,12 +70,25 @@ class PatrolMixin:
         self.patrol_mode = "grid"  # "grid" or "pattern" - defaults to grid
         self.custom_patrol_pattern: Optional[list] = None  # Stores custom waypoints
         self.pattern_cycle_count = 0  # Track number of complete pattern cycles
+        self.pattern_rest_cycles = (
+            self.DEFAULT_PATTERN_REST_CYCLES
+        )  # Rest after N cycles
+        self.pattern_focused_waypoints: set = (
+            set()
+        )  # Track which waypoints focused in current cycle
+        self.is_at_pattern_waypoint = False  # True only when dwelling at a waypoint
         self.zoom_during_patrol = self.patrol_area.get("zoom_level", 0.3)
         self.home_rest_duration = (
             self.DEFAULT_HOME_REST_DURATION
-        )  # Rest time at home (1 minute default)
+        )  # Rest time at home (default 10 seconds)
         self.is_resting_at_home = (
             False  # Flag to indicate when patrol is in rest period
+        )
+        self.preview_stop_event = threading.Event()  # Stop event for preview
+        self.is_previewing = False  # Flag to indicate preview is running
+        self.waypoint_arrival_time = 0.0  # Track when we arrived at current waypoint
+        self.min_waypoint_dwell_before_focus = (
+            5.0  # Minimum seconds at waypoint before focus allowed
         )
 
     def _init_patrol_tracking(self) -> None:
@@ -81,6 +97,7 @@ class PatrolMixin:
         self.patrol_pause_event = threading.Event()
         self.patrol_resume_event = threading.Event()
         self.object_focus_duration = self.DEFAULT_OBJECT_FOCUS_DURATION
+        self.min_object_focus_duration = self.DEFAULT_MIN_OBJECT_FOCUS_DURATION
         self.object_focus_start_time = 0.0
         self.is_focusing_on_object = False
         self.pre_focus_position: Optional[Dict[str, Any]] = None
@@ -249,7 +266,11 @@ class PatrolMixin:
         return x, y
 
     def _stop_tracking_for_rest(self) -> None:
-        """Stop any ongoing tracking/focusing when patrol cycle completes."""
+        """Stop any ongoing tracking/focusing when patrol cycle completes.
+
+        This method aggressively clears all tracking state to ensure no focusing
+        happens during rest periods.
+        """
         # Reset focus state
         if hasattr(self, "is_focusing_on_object"):
             self.is_focusing_on_object = False
@@ -259,6 +280,16 @@ class PatrolMixin:
         # Clear tracked object
         if hasattr(self, "tracked_object"):
             self.tracked_object = None
+
+        # Clear any pause/resume events that might trigger focusing
+        if hasattr(self, "patrol_pause_event"):
+            self.patrol_pause_event.clear()
+        if hasattr(self, "patrol_resume_event"):
+            self.patrol_resume_event.clear()
+
+        # Reset patrol paused state
+        if hasattr(self, "patrol_paused"):
+            self.patrol_paused = False
 
         # Clear movement queue if available
         if hasattr(self, "_clear_movement_queue"):
@@ -384,7 +415,8 @@ class PatrolMixin:
 
         During rest period:
         - Checks for stop events every 0.5 seconds
-        - Prevents any tracking or focusing
+        - Prevents any tracking or focusing (aggressively)
+        - Clears any pause events that might trigger tracking
         - Ensures camera remains completely static at home position
         """
         rest_start = time.time()
@@ -404,9 +436,29 @@ class PatrolMixin:
                 self.is_focusing_on_object = False
                 log_event(
                     logger,
-                    "debug",
-                    "Disabled tracking during rest period",
+                    "warning",
+                    "Forcibly disabled tracking during rest period",
                     event_type="patrol_rest_tracking_disabled",
+                )
+
+            # Clear any pause events that might have been set
+            if hasattr(self, "patrol_pause_event") and self.patrol_pause_event.is_set():
+                self.patrol_pause_event.clear()
+                log_event(
+                    logger,
+                    "warning",
+                    "Cleared pause event during rest period - tracking not allowed",
+                    event_type="patrol_rest_pause_cleared",
+                )
+
+            # Ensure tracked object is cleared
+            if hasattr(self, "tracked_object") and self.tracked_object is not None:
+                self.tracked_object = None
+                log_event(
+                    logger,
+                    "warning",
+                    "Cleared tracked object during rest period",
+                    event_type="patrol_rest_object_cleared",
                 )
 
             # Ensure camera stays stopped
@@ -415,7 +467,7 @@ class PatrolMixin:
                     self.stop_movement()
                 log_event(
                     logger,
-                    "debug",
+                    "warning",
                     "Stopped movement during rest period",
                     event_type="patrol_rest_movement_stopped",
                 )
@@ -548,7 +600,8 @@ class PatrolMixin:
 
     def _custom_pattern_patrol(self) -> None:
         """Custom pattern patrol that loops through predefined waypoints continuously.
-        Loops indefinitely through all waypoints without returning to home.
+        Includes periodic rest periods to prevent tracking interference during movement.
+        Rests at home position after every N cycles (configurable via pattern_rest_cycles).
         """
         if not self.custom_patrol_pattern or len(self.custom_patrol_pattern) < 2:
             log_event(
@@ -563,7 +616,7 @@ class PatrolMixin:
         log_event(
             logger,
             "info",
-            f"Starting continuous custom pattern patrol with {len(self.custom_patrol_pattern)} waypoints",
+            f"Starting continuous custom pattern patrol with {len(self.custom_patrol_pattern)} waypoints (rest after every {self.pattern_rest_cycles} cycles)",
             event_type="patrol_start",
         )
 
@@ -572,10 +625,14 @@ class PatrolMixin:
 
         while not self.patrol_stop_event.is_set():
             self.pattern_cycle_count += 1
+
+            # Reset focus tracking for new cycle - each waypoint can focus once per cycle
+            self.pattern_focused_waypoints.clear()
+
             log_event(
                 logger,
                 "debug",
-                f"Custom pattern patrol cycle {self.pattern_cycle_count} starting",
+                f"Custom pattern patrol cycle {self.pattern_cycle_count} starting (focus tracking reset)",
                 event_type="patrol_cycle_start",
             )
 
@@ -604,25 +661,54 @@ class PatrolMixin:
                 if hasattr(self, "current_patrol_waypoint_index"):
                     self.current_patrol_waypoint_index = waypoint_index
 
-                # Wait at position, but check for pause events
-                self._patrol_dwell_with_pause_check()
+                # Mark that we're now at a waypoint (enables focusing)
+                self.is_at_pattern_waypoint = True
 
-            # Cycle complete - log and immediately start next cycle
+                # Record arrival time at this waypoint for focus delay enforcement
+                self.waypoint_arrival_time = time.time()
+
+                # Wait at position - focusing can only happen during this dwell period
+                self._patrol_dwell_with_pause_check_pattern(waypoint_index)
+
+                # Mark that we're leaving the waypoint (disables focusing during movement)
+                self.is_at_pattern_waypoint = False
+
+            # Cycle complete - check if it's time to rest
             if not self.patrol_stop_event.is_set():
                 log_event(
                     logger,
                     "debug",
-                    f"Custom pattern patrol cycle {self.pattern_cycle_count} complete, continuing to next cycle",
+                    f"Custom pattern patrol cycle {self.pattern_cycle_count} complete",
                     event_type="patrol_cycle_complete",
                 )
 
+                # Rest after every N cycles to avoid tracking interference during movement
+                if self.pattern_cycle_count % self.pattern_rest_cycles == 0:
+                    log_event(
+                        logger,
+                        "info",
+                        f"Pattern patrol completed {self.pattern_cycle_count} cycles, returning to home for rest",
+                        event_type="patrol_rest_scheduled",
+                    )
+                    self._return_to_home_and_rest()
+
     def _patrol_dwell_with_pause_check(self) -> None:
-        """Dwell at patrol position while checking for pause/resume events - simplified."""
+        """Dwell at patrol position while checking for pause/resume events - simplified.
+        Used by grid patrol mode.
+        """
         dwell_start = time.time()
 
         while time.time() - dwell_start < self.patrol_dwell_time:
             if self.patrol_stop_event.is_set():
                 break
+
+            # NEVER allow focus during rest periods
+            if getattr(self, "is_resting_at_home", False):
+                # Clear pause event if somehow set during rest
+                if self.patrol_pause_event.is_set():
+                    self.patrol_pause_event.clear()
+                time.sleep(0.1)
+                continue
 
             # Check if patrol should pause for object focus
             if self.patrol_pause_event.is_set():
@@ -661,6 +747,166 @@ class PatrolMixin:
 
             time.sleep(0.1)  # Short sleep to avoid busy waiting
 
+    def _patrol_dwell_with_pause_check_pattern(self, waypoint_index: int) -> None:
+        """Dwell at pattern waypoint with focus tracking - one focus per waypoint per cycle.
+        Used by pattern patrol mode.
+
+        IMPORTANT: Camera will ALWAYS stay at waypoint for at least min_waypoint_dwell_before_focus
+        seconds (default 5s) before leaving, regardless of focus activity. This prevents the camera
+        from visiting waypoints too quickly.
+
+        Args:
+            waypoint_index: Index of current waypoint in pattern
+        """
+        dwell_start = time.time()
+        min_dwell_before_focus = getattr(self, "min_waypoint_dwell_before_focus", 5.0)
+
+        # CRITICAL: Enforce minimum dwell time - camera must stay at waypoint for at least this long
+        # This ensures stable positioning before any focus can happen and prevents rapid waypoint hopping
+        min_absolute_dwell_time = min_dwell_before_focus
+
+        # Safety check: Ensure patrol_dwell_time is at least as long as min_dwell_before_focus
+        if self.patrol_dwell_time < min_absolute_dwell_time:
+            log_event(
+                logger,
+                "warning",
+                f"patrol_dwell_time ({self.patrol_dwell_time}s) < min_waypoint_dwell_before_focus ({min_absolute_dwell_time}s). Auto-adjusting to {min_absolute_dwell_time}s",
+                event_type="patrol_dwell_time_adjusted",
+            )
+            self.patrol_dwell_time = min_absolute_dwell_time
+
+        # Check if this waypoint has already focused in this cycle
+        has_focused_this_cycle = waypoint_index in self.pattern_focused_waypoints
+
+        while time.time() - dwell_start < self.patrol_dwell_time:
+            if self.patrol_stop_event.is_set():
+                break
+
+            # NEVER allow focus during rest periods - absolute priority
+            if getattr(self, "is_resting_at_home", False):
+                # Clear pause event if somehow set during rest
+                if self.patrol_pause_event.is_set():
+                    self.patrol_pause_event.clear()
+                time.sleep(0.1)
+                continue
+
+            # Calculate time since arriving at waypoint
+            time_at_waypoint = time.time() - getattr(self, "waypoint_arrival_time", 0.0)
+
+            # Check if patrol should pause for object focus
+            # Only allow focus if:
+            # 1. NOT in rest period (checked above)
+            # 2. We're at a waypoint (is_at_pattern_waypoint = True)
+            # 3. This waypoint hasn't focused yet in this cycle
+            # 4. We've been at the waypoint for at least min_waypoint_dwell_before_focus seconds
+            # 5. Pause event is set
+            if (
+                self.patrol_pause_event.is_set()
+                and self.is_at_pattern_waypoint
+                and not has_focused_this_cycle
+                and time_at_waypoint >= min_dwell_before_focus
+            ):
+                log_event(
+                    logger,
+                    "info",
+                    f"Patrol paused at waypoint {waypoint_index + 1} for object focus (first focus this cycle)",
+                    event_type="patrol_pause",
+                )
+
+                # Mark this waypoint as having focused in this cycle
+                self.pattern_focused_waypoints.add(waypoint_index)
+                has_focused_this_cycle = True
+
+                # Wait for resume signal with timeout
+                resume_signaled = self.patrol_resume_event.wait(
+                    timeout=30.0
+                )  # 30 second max wait
+
+                if resume_signaled:
+                    log_event(
+                        logger,
+                        "debug",
+                        f"Patrol resume signal received at waypoint {waypoint_index + 1}",
+                        event_type="patrol_resume_signal",
+                    )
+                    self.patrol_resume_event.clear()
+
+                    # DON'T exit early - check if minimum dwell time has been met
+                    elapsed_dwell = time.time() - dwell_start
+                    if elapsed_dwell < min_absolute_dwell_time:
+                        remaining_dwell = min_absolute_dwell_time - elapsed_dwell
+                        log_event(
+                            logger,
+                            "info",
+                            f"Focus complete but enforcing minimum dwell - waiting {remaining_dwell:.1f}s more at waypoint {waypoint_index + 1}",
+                            event_type="patrol_min_dwell_enforced",
+                        )
+                        # Continue the dwell loop to complete minimum time
+                    else:
+                        # Minimum dwell met, can exit early
+                        log_event(
+                            logger,
+                            "debug",
+                            f"Minimum dwell met ({elapsed_dwell:.1f}s), continuing to next waypoint",
+                            event_type="patrol_dwell_complete",
+                        )
+                        break
+                else:
+                    log_event(
+                        logger,
+                        "warning",
+                        f"Patrol resume timeout at waypoint {waypoint_index + 1} - forcing resume",
+                        event_type="patrol_resume_timeout",
+                    )
+                    if hasattr(self, "_force_reset_tracking_state"):
+                        getattr(self, "_force_reset_tracking_state")()
+
+                    # Same check - don't exit early if minimum dwell not met
+                    elapsed_dwell = time.time() - dwell_start
+                    if elapsed_dwell < min_absolute_dwell_time:
+                        remaining_dwell = min_absolute_dwell_time - elapsed_dwell
+                        log_event(
+                            logger,
+                            "info",
+                            f"Focus timeout but enforcing minimum dwell - waiting {remaining_dwell:.1f}s more at waypoint {waypoint_index + 1}",
+                            event_type="patrol_min_dwell_enforced",
+                        )
+                        # Continue the dwell loop
+                    else:
+                        break
+
+            elif self.patrol_pause_event.is_set() and self.is_at_pattern_waypoint:
+                # Focus requested but blocked for various reasons
+                if has_focused_this_cycle:
+                    # Prevent focus - already focused at this waypoint this cycle
+                    log_event(
+                        logger,
+                        "debug",
+                        f"Ignoring focus request at waypoint {waypoint_index + 1} - already focused this cycle",
+                        event_type="patrol_focus_blocked",
+                    )
+                elif time_at_waypoint < min_dwell_before_focus:
+                    # Prevent focus - haven't been at waypoint long enough
+                    log_event(
+                        logger,
+                        "debug",
+                        f"Ignoring focus request at waypoint {waypoint_index + 1} - need to dwell {min_dwell_before_focus - time_at_waypoint:.1f}s more (min {min_dwell_before_focus}s)",
+                        event_type="patrol_focus_blocked_time",
+                    )
+                # Clear the pause event to prevent blocking
+                self.patrol_pause_event.clear()
+
+            time.sleep(0.1)  # Short sleep to avoid busy waiting
+
+        # Log final dwell time for debugging
+        final_dwell = time.time() - dwell_start
+        log_event(
+            logger,
+            "debug",
+            f"Completed dwell at waypoint {waypoint_index + 1}: {final_dwell:.1f}s (min required: {min_absolute_dwell_time:.1f}s)",
+            event_type="patrol_waypoint_dwell_complete",
+        )
+
     def _advance_patrol_step(self) -> None:
         """Called when patrol advances to next position - kept for compatibility."""
         pass
@@ -668,6 +914,60 @@ class PatrolMixin:
     def is_patrol_active(self) -> bool:
         """Returns whether patrol is currently active."""
         return self.is_patrolling
+
+    def can_focus_during_patrol(self) -> bool:
+        """Check if focusing/tracking is allowed during current patrol state.
+
+        This is the authoritative method that external tracking systems should call
+        before attempting to focus/track objects during patrol.
+
+        Returns:
+            True if focusing is allowed, False otherwise
+
+        Focus Blocking Rules (in order of priority):
+        1. ALWAYS BLOCKED during rest periods (is_resting_at_home = True)
+           - This takes absolute priority over everything else
+           - Rest periods are sacred - no tracking whatsoever
+        2. Grid mode: Always allow (after rest check)
+        3. Pattern mode: Only allow if:
+           - Currently dwelling at a waypoint (not moving between waypoints)
+           - Current waypoint hasn't focused yet this cycle
+           - Been at waypoint for at least min_waypoint_dwell_before_focus seconds
+        """
+        # CRITICAL: Never allow focus during rest periods - this is absolute
+        if getattr(self, "is_resting_at_home", False):
+            return False
+
+        # Grid mode - always allow
+        patrol_mode = getattr(self, "patrol_mode", "grid")
+        if patrol_mode == "grid":
+            return True
+
+        # Pattern mode - check specific conditions
+        if patrol_mode == "pattern":
+            # Must be at a waypoint (not moving between waypoints)
+            if not getattr(self, "is_at_pattern_waypoint", False):
+                return False
+
+            # Check if current waypoint has already focused this cycle
+            current_waypoint = getattr(self, "current_patrol_waypoint_index", 0)
+            focused_waypoints = getattr(self, "pattern_focused_waypoints", set())
+
+            if current_waypoint in focused_waypoints:
+                return False
+
+            # Check if we've been at the waypoint long enough
+            time_at_waypoint = time.time() - getattr(self, "waypoint_arrival_time", 0.0)
+            min_dwell_before_focus = getattr(
+                self, "min_waypoint_dwell_before_focus", 5.0
+            )
+
+            if time_at_waypoint < min_dwell_before_focus:
+                return False
+
+            return True
+
+        return True
 
     def get_patrol_direction(self) -> str:
         """Returns the current patrol direction."""
@@ -693,11 +993,28 @@ class PatrolMixin:
         dwell_time: Optional[float] = None,
         direction: Optional[str] = None,
         object_focus_duration: Optional[float] = None,
+        min_object_focus_duration: Optional[float] = None,
         tracking_cooldown_duration: Optional[float] = None,
         focus_max_zoom: Optional[float] = None,
         home_rest_duration: Optional[float] = None,
+        pattern_rest_cycles: Optional[int] = None,
+        min_waypoint_dwell_before_focus: Optional[float] = None,
     ) -> None:
-        """Set patrol parameters."""
+        """Set patrol parameters.
+
+        Args:
+            x_positions: Grid X positions (grid mode only)
+            y_positions: Grid Y positions (grid mode only)
+            dwell_time: Time to dwell at each waypoint/position (seconds)
+            direction: Patrol direction "horizontal" or "vertical" (grid mode only)
+            object_focus_duration: Maximum duration to focus on detected objects (seconds)
+            min_object_focus_duration: Minimum focus duration even if object is lost (seconds)
+            tracking_cooldown_duration: Cooldown after tracking before resuming (seconds)
+            focus_max_zoom: Maximum zoom level when focusing on objects
+            home_rest_duration: Duration to rest at home position (seconds)
+            pattern_rest_cycles: Rest after every N cycles (pattern mode only)
+            min_waypoint_dwell_before_focus: Minimum time (seconds) at waypoint before focus allowed (pattern mode only)
+        """
         if not hasattr(self, "patrol_area"):
             self.add_patrol_functionality()
 
@@ -711,6 +1028,15 @@ class PatrolMixin:
 
         if dwell_time is not None:
             self.patrol_dwell_time = dwell_time
+            # Ensure dwell_time is at least as long as min_waypoint_dwell_before_focus
+            if self.patrol_dwell_time < self.min_waypoint_dwell_before_focus:
+                log_event(
+                    logger,
+                    "warning",
+                    f"patrol_dwell_time ({self.patrol_dwell_time}s) is less than min_waypoint_dwell_before_focus ({self.min_waypoint_dwell_before_focus}s). Increasing dwell_time to {self.min_waypoint_dwell_before_focus}s",
+                    event_type="warning",
+                )
+                self.patrol_dwell_time = self.min_waypoint_dwell_before_focus
 
         # Update zoom_during_patrol from patrol_area if available
         if hasattr(self, "patrol_area") and "zoom_level" in self.patrol_area:
@@ -741,6 +1067,11 @@ class PatrolMixin:
                 1.0, object_focus_duration
             )  # Minimum 1 second
 
+        if min_object_focus_duration is not None:
+            self.min_object_focus_duration = max(
+                1.0, min_object_focus_duration
+            )  # Minimum 1 second
+
         if tracking_cooldown_duration is not None:
             self.patrol_tracking_cooldown_duration = max(
                 0.0, tracking_cooldown_duration
@@ -753,6 +1084,23 @@ class PatrolMixin:
 
         if home_rest_duration is not None:
             self.home_rest_duration = max(0.0, home_rest_duration)  # Minimum 0 seconds
+
+        if pattern_rest_cycles is not None:
+            self.pattern_rest_cycles = max(1, pattern_rest_cycles)  # Minimum 1 cycle
+
+        if min_waypoint_dwell_before_focus is not None:
+            self.min_waypoint_dwell_before_focus = max(
+                0.0, min_waypoint_dwell_before_focus
+            )  # Minimum 0 seconds
+            # Ensure patrol_dwell_time is at least as long as min_waypoint_dwell_before_focus
+            if self.patrol_dwell_time < self.min_waypoint_dwell_before_focus:
+                log_event(
+                    logger,
+                    "warning",
+                    f"Adjusting patrol_dwell_time from {self.patrol_dwell_time}s to {self.min_waypoint_dwell_before_focus}s to meet minimum waypoint dwell requirement",
+                    event_type="warning",
+                )
+                self.patrol_dwell_time = self.min_waypoint_dwell_before_focus
 
     def get_patrol_status(self) -> Dict[str, Any]:
         """Get comprehensive patrol status information."""
@@ -768,26 +1116,54 @@ class PatrolMixin:
         patrol_mode = getattr(self, "patrol_mode", "grid")
         pattern_info = None
         if patrol_mode == "pattern" and hasattr(self, "custom_patrol_pattern"):
+            current_waypoint_idx = getattr(self, "current_patrol_waypoint_index", 0)
+            focused_waypoints = getattr(self, "pattern_focused_waypoints", set())
             pattern_info = {
                 "waypoint_count": (
                     len(self.custom_patrol_pattern) if self.custom_patrol_pattern else 0
                 ),
-                "current_waypoint_index": getattr(
-                    self, "current_patrol_waypoint_index", 0
-                ),
+                "current_waypoint_index": current_waypoint_idx,
                 "cycle_count": getattr(self, "pattern_cycle_count", 0),
+                "rest_cycles": getattr(
+                    self, "pattern_rest_cycles", self.DEFAULT_PATTERN_REST_CYCLES
+                ),
+                "next_rest_in": getattr(
+                    self, "pattern_rest_cycles", self.DEFAULT_PATTERN_REST_CYCLES
+                )
+                - (
+                    getattr(self, "pattern_cycle_count", 0)
+                    % getattr(
+                        self, "pattern_rest_cycles", self.DEFAULT_PATTERN_REST_CYCLES
+                    )
+                ),
+                "focused_waypoints_this_cycle": len(focused_waypoints),
+                "is_at_waypoint": getattr(self, "is_at_pattern_waypoint", False),
+                "current_waypoint_can_focus": (
+                    current_waypoint_idx not in focused_waypoints
+                    and getattr(self, "is_at_pattern_waypoint", False)
+                ),
             }
 
         return {
             "is_patrolling": self.is_patrolling,
             "patrol_mode": patrol_mode,
             "is_focusing_on_object": getattr(self, "is_focusing_on_object", False),
+            "is_resting_at_home": getattr(self, "is_resting_at_home", False),
             "patrol_paused": getattr(self, "patrol_paused", False),
             "patrol_direction": self.get_patrol_direction(),
             "grid_info": self.get_patrol_grid_info(),
             "pattern_info": pattern_info,
-            "object_focus_duration": getattr(self, "object_focus_duration", 3.0),
+            "object_focus_duration": getattr(self, "object_focus_duration", 10.0),
+            "min_object_focus_duration": getattr(
+                self, "min_object_focus_duration", 5.0
+            ),
             "dwell_time": self.patrol_dwell_time,
+            "min_waypoint_dwell_before_focus": getattr(
+                self, "min_waypoint_dwell_before_focus", 5.0
+            ),
+            "home_rest_duration": getattr(
+                self, "home_rest_duration", self.DEFAULT_HOME_REST_DURATION
+            ),
             "tracking_cooldown": {
                 "is_in_cooldown": getattr(self, "is_in_tracking_cooldown", False),
                 "time_remaining": cooldown_remaining,
@@ -837,11 +1213,14 @@ class PatrolMixin:
             event_type="custom_patrol_pattern_set",
         )
 
-    def preview_custom_patrol_pattern(self, coordinates: list) -> None:
+    def preview_custom_patrol_pattern(
+        self, coordinates: list, stream_id: Optional[str] = None
+    ) -> None:
         """Preview a custom patrol pattern by executing it once.
 
         Args:
             coordinates: List of dicts with x, y, z values representing waypoints
+            stream_id: Optional stream identifier for socket event emissions
         """
         if not coordinates or len(coordinates) < 2:
             log_event(
@@ -852,6 +1231,31 @@ class PatrolMixin:
             )
             return
 
+        # Stop any previous preview that might be running
+        if self.is_previewing:
+            log_event(
+                logger,
+                "info",
+                "Stopping previous preview before starting new one",
+                event_type="preview_stop_previous",
+            )
+            self.preview_stop_event.set()
+            time.sleep(0.5)  # Give previous preview time to stop
+
+        # Remember if patrol was running so we can resume it after preview
+        patrol_was_running = self.is_patrolling
+        patrol_mode_before = getattr(self, "patrol_mode", "grid")
+
+        # Temporarily stop patrol if it's running to avoid conflicts
+        if patrol_was_running:
+            log_event(
+                logger,
+                "info",
+                "Temporarily stopping patrol for preview",
+                event_type="preview_pause_patrol",
+            )
+            self.stop_patrol()
+
         log_event(
             logger,
             "info",
@@ -859,10 +1263,35 @@ class PatrolMixin:
             event_type="custom_patrol_preview_start",
         )
 
+        # Clear and reset the preview stop event
+        self.preview_stop_event.clear()
+        self.is_previewing = True
+
         # Execute the pattern once in a separate thread
         def _preview_pattern():
             try:
+                # Emit preview start event
+                if stream_id:
+                    emit_custom_event(
+                        event_name=f"patrol-preview-start-{stream_id}",
+                        data={
+                            "waypoint_count": len(coordinates),
+                        },
+                        room=stream_id,
+                        broadcast=False,
+                    )
+
                 for idx, waypoint in enumerate(coordinates):
+                    # Check if preview should stop
+                    if self.preview_stop_event.is_set():
+                        log_event(
+                            logger,
+                            "info",
+                            f"Preview stopped at waypoint {idx + 1}/{len(coordinates)}",
+                            event_type="preview_stopped",
+                        )
+                        break
+
                     x = waypoint.get("x", 0.0)
                     y = waypoint.get("y", 0.0)
                     z = waypoint.get("z", 0.0)
@@ -874,19 +1303,52 @@ class PatrolMixin:
                         event_type="custom_patrol_waypoint",
                     )
 
+                    # Emit waypoint event
+                    if stream_id:
+                        emit_custom_event(
+                            event_name=f"patrol-preview-waypoint-{stream_id}",
+                            data={
+                                "waypoint_index": idx,
+                                "waypoint_number": idx + 1,
+                                "total_waypoints": len(coordinates),
+                                "position": {"x": x, "y": y, "z": z},
+                            },
+                            room=stream_id,
+                            broadcast=False,
+                        )
+
                     if hasattr(self, "absolute_move"):
                         self.absolute_move(x, y, z)
 
-                    # Wait at each waypoint
+                    # Wait at each waypoint, but check for stop event periodically
                     dwell_time = getattr(self, "patrol_dwell_time", 2.0)
-                    time.sleep(dwell_time)
+                    sleep_interval = 0.5
+                    elapsed = 0.0
+                    while elapsed < dwell_time:
+                        if self.preview_stop_event.is_set():
+                            break
+                        time.sleep(min(sleep_interval, dwell_time - elapsed))
+                        elapsed += sleep_interval
 
-                log_event(
-                    logger,
-                    "info",
-                    "Custom patrol pattern preview complete",
-                    event_type="custom_patrol_preview_complete",
-                )
+                if not self.preview_stop_event.is_set():
+                    log_event(
+                        logger,
+                        "info",
+                        "Custom patrol pattern preview complete",
+                        event_type="custom_patrol_preview_complete",
+                    )
+
+                    # Emit preview complete event
+                    if stream_id:
+                        emit_custom_event(
+                            event_name=f"patrol-preview-complete-{stream_id}",
+                            data={
+                                "waypoints_visited": len(coordinates),
+                            },
+                            room=stream_id,
+                            broadcast=False,
+                        )
+
             except Exception as e:
                 log_event(
                     logger,
@@ -894,6 +1356,32 @@ class PatrolMixin:
                     f"Error during custom patrol preview: {e}",
                     event_type="error",
                 )
+
+                # Emit error event
+                if stream_id:
+                    emit_custom_event(
+                        event_name=f"patrol-preview-error-{stream_id}",
+                        data={
+                            "error": str(e),
+                        },
+                        room=stream_id,
+                        broadcast=False,
+                    )
+            finally:
+                # Mark preview as finished
+                self.is_previewing = False
+
+                # Resume patrol if it was running before
+                if patrol_was_running:
+                    log_event(
+                        logger,
+                        "info",
+                        f"Resuming {patrol_mode_before} patrol after preview",
+                        event_type="preview_resume_patrol",
+                    )
+                    # Small delay before resuming to avoid movement conflicts
+                    time.sleep(1.0)
+                    self.start_patrol(mode=patrol_mode_before)
 
         preview_thread = threading.Thread(target=_preview_pattern)
         preview_thread.daemon = True
