@@ -44,7 +44,8 @@ class InferenceConfig:
 
     model_path: str
     img_size: Tuple[int, int] = (640, 640)
-    num_classes: int = 17
+    # num_classes: int = 17
+    num_classes: int = None
     num_layers: int = 3
     reg_max: int = 16
     conf_threshold: float = 0.5
@@ -77,21 +78,21 @@ class NPUInferenceEngine:
     # Default class names - can be overridden
     DEFAULT_CLASS_NAMES = [
         "backhoe_loader",
-        "cement_truck",
+        # "cement_truck",
         "compactor",
-        "dozer",
+        # "dozer",
         "dump_truck",
         "excavator",
         "grader",
         "mobile_crane",
         "tower_crane",
-        "wheel_loader",
+        "Crane_Hook",
+        # "wheel_loader",
         "worker",
         "Hardhat",
         "Red_Hardhat",
         "scaffolds",
         "Lifted Load",
-        "Crane_Hook",
         "Hook",
     ]
 
