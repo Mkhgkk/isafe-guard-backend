@@ -20,60 +20,95 @@ HELMET_DETECTION_OFFSET = 20
 DANGER_DIST_METERS = 2  # in meters
 VEHICLE_MOVING_THRESH = 10
 
+# CLASS_NAMES = {
+#     0: "backhoe_loader",
+#     1: "cement_truck",
+#     2: "compactor",
+#     3: "dozer",
+#     4: "dump_truck",
+#     5: "excavator",
+#     6: "grader",
+#     7: "mobile_crane",
+#     8: "tower_crane",
+#     9: "wheel_loader",
+#     10: "worker",
+#     11: "hard_hat",
+#     12: "red_hard_hat",
+#     13: "scaffolding",
+#     14: "lifted_load",
+#     15: "crane_hook",
+#     16: "hook",
+# }
+
 CLASS_NAMES = {
-    0: "backhoe_loader",
-    1: "cement_truck",
-    2: "compactor",
-    3: "dozer",
-    4: "dump_truck",
-    5: "excavator",
-    6: "grader",
-    7: "mobile_crane",
-    8: "tower_crane",
-    9: "wheel_loader",
-    10: "worker",
-    11: "hard_hat",
-    12: "red_hard_hat",
-    13: "scaffolding",
-    14: "lifted_load",
-    15: "crane_hook",
-    16: "hook",
+    0: "cement_truck",
+    1: "compactor",
+    2: "dump_truck",
+    3: "excavator",
+    4: "grader",
+    5: "mobile_crane",
+    6: "tower_crane",
+    7: "crane_hook",
+    8: "worker",
+    9: "hard_hat",
+    10: "red_hard_hat",
+    11: "scaffolding",
+    12: "lifted_load",
+    13: "hook",
 }
+
+
+# CLS_NAMES = [
+#     "Backhoe loader",
+#     "Cement truck",
+#     "Compactor",
+#     "Dozer",
+#     "Dump truck",
+#     "Excavator",
+#     "Grader",
+#     "Mobile crane",
+#     "Tower crane",
+#     "Wheel loader",
+#     "Worker",
+#     "Hard hat",
+#     "Red hardhat",
+#     "Scaffolds",
+#     "Lifted load",
+#     "Crane hook",
+#     "Hook",
+# ]
 
 # Class name lists for proximity detection
 CLS_NAMES = [
-    "Backhoe loader",
     "Cement truck",
     "Compactor",
-    "Dozer",
     "Dump truck",
     "Excavator",
     "Grader",
     "Mobile crane",
     "Tower crane",
-    "Wheel loader",
+    "Crane hook",
     "Worker",
     "Hard hat",
     "Red hardhat",
     "Scaffolds",
     "Lifted load",
-    "Crane hook",
     "Hook",
 ]
 
 WORKER_CLASSES = ["worker"]
 
 VEHICLE_CLASSES = [
-    "backhoe_loader",
+    # "backhoe_loader",
     "cement_truck",
     "compactor",
-    "dozer",
+    # "dozer",
     "dump_truck",
     "excavator",
     "grader",
     "mobile_crane",
     "tower_crane",
-    "wheel_loader",
+    # "wheel_loader",
 ]
 
 # Global tracking history per stream (for movement detection)
@@ -142,14 +177,12 @@ def is_vehicle_moving(history: deque, threshold: float = VEHICLE_MOVING_THRESH) 
     last_box = history[-1]
 
     # Calculate center points
-    first_center = np.array([
-        float(first_box[0] + first_box[2]) / 2,
-        float(first_box[1] + first_box[3]) / 2
-    ])
-    last_center = np.array([
-        float(last_box[0] + last_box[2]) / 2,
-        float(last_box[1] + last_box[3]) / 2
-    ])
+    first_center = np.array(
+        [float(first_box[0] + first_box[2]) / 2, float(first_box[1] + first_box[3]) / 2]
+    )
+    last_center = np.array(
+        [float(last_box[0] + last_box[2]) / 2, float(last_box[1] + last_box[3]) / 2]
+    )
 
     # Calculate displacement
     displacement = np.linalg.norm(last_center - first_center)
@@ -361,7 +394,9 @@ def detect_heavy_equipment(
                 update_track_history(stream_id, track_id, box)
 
             # Get tracking history for movement detection
-            history = get_track_history(stream_id, track_id) if track_id >= 0 else deque()
+            history = (
+                get_track_history(stream_id, track_id) if track_id >= 0 else deque()
+            )
 
             # Skip objects with insufficient tracking history
             if track_id >= 0 and len(history) < 3:
@@ -370,7 +405,9 @@ def detect_heavy_equipment(
             if cls_name in VEHICLE_CLASSES:
                 # Only draw vehicle boxes if not in violations-only mode
                 if not draw_violations_only:
-                    cv2.rectangle(image, (box[0], box[1]), (box[2], box[3]), (0, 255, 0), 2)
+                    cv2.rectangle(
+                        image, (box[0], box[1]), (box[2], box[3]), (0, 255, 0), 2
+                    )
                     draw_text_with_background(
                         image,
                         f"{cls_name}_id:{track_id}",
@@ -395,7 +432,9 @@ def detect_heavy_equipment(
                 hat_box.append(box)
                 # Only draw helmet boxes if not in violations-only mode
                 if not draw_violations_only:
-                    cv2.rectangle(image, (box[0], box[1]), (box[2], box[3]), (0, 255, 0), 2)
+                    cv2.rectangle(
+                        image, (box[0], box[1]), (box[2], box[3]), (0, 255, 0), 2
+                    )
             elif cls_name == "red_hard_hat":
                 signaler_box.append(box)
                 # Only draw signaler helmet boxes if not in violations-only mode
@@ -417,7 +456,9 @@ def detect_heavy_equipment(
                 hook_box.append(box)
                 # Only draw hook boxes if not in violations-only mode
                 if not draw_violations_only:
-                    cv2.rectangle(image, (box[0], box[1]), (box[2], box[3]), (0, 150, 0), 2)
+                    cv2.rectangle(
+                        image, (box[0], box[1]), (box[2], box[3]), (0, 150, 0), 2
+                    )
                     draw_text_with_background(
                         image, "Hook", (box[0], box[1] - 10), (0, 200, 0)
                     )
