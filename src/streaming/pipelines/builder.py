@@ -61,6 +61,7 @@ class PipelineBuilder:
             # SRT pipeline
             return (
                 f"srtsrc uri={escaped_url} latency={config.latency} "
+                f"! identity name=bitrate_monitor_{config.sink_name} "
                 f"! tsdemux "
                 f"! decodebin "
                 f"! videoconvert "
@@ -77,6 +78,7 @@ class PipelineBuilder:
                 f"buffer-mode=auto drop-on-latency=true retry={config.retry_count} timeout={config.timeout} "
                 f"! application/x-rtp, media=video "
                 f"! rtpjitterbuffer latency=200 "
+                f"! identity name=bitrate_monitor_{config.sink_name} "
                 f"! decodebin "
                 f"! videoconvert "
                 f"! videoscale "
@@ -95,6 +97,7 @@ class PipelineBuilder:
             # SRT alternative pipeline (simpler version)
             return (
                 f"srtsrc uri={escaped_url} "
+                f"! identity name=bitrate_monitor_{config.sink_name} "
                 f"! decodebin "
                 f"! videoconvert "
                 f"! videoscale "
@@ -108,6 +111,7 @@ class PipelineBuilder:
                 f"rtspsrc location={escaped_url} latency={config.latency} "
                 f"protocols=tcp "
                 f"retry={config.retry_count} timeout=10 "
+                f"! identity name=bitrate_monitor_{config.sink_name} "
                 f"! decodebin "
                 f"! videoconvert "
                 f"! videoscale "

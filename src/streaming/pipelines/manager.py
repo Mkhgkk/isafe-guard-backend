@@ -69,6 +69,12 @@ class GStreamerPipeline:
         self.frame_request_time = 0  # Time when frame was requested
         self.frame_latency = 0  # Latency of last frame in milliseconds
 
+        # Bitrate tracking
+        self.bitrate_bytes_transferred = 0  # Total bytes transferred
+        self.bitrate_start_time = 0  # Start time for bitrate calculation
+        self.bitrate_window = 1.0  # Calculate bitrate over 1 second window
+        self.current_bitrate = 0.0  # Current bitrate in bits per second
+
         # Install GStreamer debug handler
         _install_gst_debug_handler()
         
@@ -117,6 +123,13 @@ class GStreamerPipeline:
             appsink.set_property("sync", False)
             appsink.connect("new-sample", self._on_new_sample)
 
+            # Configure bitrate monitor (identity element)
+            bitrate_monitor = self.pipeline.get_by_name(f"bitrate_monitor_{self.config.sink_name}") # pyright: ignore[reportOptionalMemberAccess]
+            if bitrate_monitor:
+                bitrate_monitor.set_property("signal-handoffs", True)
+                bitrate_monitor.connect("handoff", self._on_buffer_handoff)
+                self.bitrate_start_time = time.time()
+
             # Connect bus messages
             bus = self.pipeline.get_bus() # pyright: ignore[reportOptionalMemberAccess]
             bus.add_signal_watch()
@@ -155,6 +168,27 @@ class GStreamerPipeline:
         except Exception as e:
             log_event(logger, "error", f"Error cleaning up failed pipeline: {e}", event_type="error")
     
+    def _on_buffer_handoff(self, identity, buffer):
+        """Track buffer sizes for bitrate calculation."""
+        try:
+            current_time = time.time()
+            buffer_size = buffer.get_size()
+
+            # Add buffer size to total
+            self.bitrate_bytes_transferred += buffer_size
+
+            # Calculate bitrate if enough time has passed
+            time_elapsed = current_time - self.bitrate_start_time
+            if time_elapsed >= self.bitrate_window:
+                # Calculate bitrate in bits per second
+                self.current_bitrate = (self.bitrate_bytes_transferred * 8) / time_elapsed
+
+                # Reset counters for next window
+                self.bitrate_bytes_transferred = 0
+                self.bitrate_start_time = current_time
+        except Exception as e:
+            log_event(logger, "warning", f"Error in _on_buffer_handoff: {e}", event_type="warning")
+
     def _on_new_sample(self, appsink) -> Gst.FlowReturn:
         """Handle new sample from appsink."""
         try:
@@ -297,3 +331,7 @@ class GStreamerPipeline:
     def get_frame_latency(self) -> float:
         """Get the latency of the last frame in milliseconds."""
         return self.frame_latency
+
+    def get_bitrate(self) -> float:
+        """Get the current bitrate in bits per second."""
+        return self.current_bitrate

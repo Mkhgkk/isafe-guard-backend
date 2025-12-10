@@ -381,16 +381,13 @@ class StreamManager:
                 else:
                     self.stats.current_speed = 0.0
 
-                # Calculate bandwidth based on frame size and fps
-                # Frame size = width * height * 3 (BGR channels)
-                frame_size_bytes = FRAME_WIDTH * FRAME_HEIGHT * 3
+        # Get actual bitrate from GStreamer bitrate element
+        bitrate_bps = self.pipeline.get_bitrate()
 
-                # Bandwidth = frame_size * fps (in bytes per second)
-                bandwidth_bytes_per_sec = frame_size_bytes * self.stats.current_speed
-
-                # Convert to kilobits and megabits per second
-                self.stats.bandwidth_kbps = (bandwidth_bytes_per_sec * 8) / 1000
-                self.stats.bandwidth_mbps = (bandwidth_bytes_per_sec * 8) / 1000000
+        if bitrate_bps > 0:
+            # Convert bitrate from bits per second to kbps and mbps
+            self.stats.bandwidth_kbps = bitrate_bps / 1000
+            self.stats.bandwidth_mbps = bitrate_bps / 1000000
 
         # Emit connection speed data every second
         if current_time - self.stats.last_speed_emit_time >= 1.0:
