@@ -44,10 +44,21 @@ npu_engine = None
 
 if USE_NPU:
 
+    # config = InferenceConfig(
+    #     model_path=os.path.join(MODELS_PATH, f"yolov8s_best_globalCore_v1.mxq"),
+    #     img_size=(640, 640),
+    #     # num_classes=17,
+    #     conf_threshold=0.5,
+    #     iou_threshold=0.5,
+    #     use_global8_core=True,  # Use all 8 NPU cores
+    #     device_id=0,  # Use first NPU device
+    # )
+
     config = InferenceConfig(
-        model_path=os.path.join(MODELS_PATH, f"yolov8s_best_globalCore_v1.mxq"),
-        img_size=(640, 640),
-        # num_classes=17,
+        # model_path=os.path.join(MODELS_PATH, f"yolov8s_best_globalCore_v1.mxq"),
+        model_path=os.path.join(MODELS_PATH, f"yolov11_NIPA_Data_2025_v8.mxq"),
+        img_size=(1280, 1280),
+        num_classes=14,
         conf_threshold=0.5,
         iou_threshold=0.5,
         use_global8_core=True,  # Use all 8 NPU cores
