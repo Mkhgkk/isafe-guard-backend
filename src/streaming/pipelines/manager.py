@@ -87,45 +87,73 @@ class GStreamerPipeline:
 
         try:
             self.pipeline = Gst.parse_launch(pipeline_str)
-            return self._configure_pipeline()
+            success = self._configure_pipeline()
+            if not success:
+                # Configuration failed, ensure pipeline is cleaned up
+                if self.pipeline:
+                    self.pipeline.set_state(Gst.State.NULL)
+                    self.pipeline = None
+            return success
         except Exception as e:
             log_event(logger, "error", f"Error creating pipeline: {e}", event_type="error")
+            if self.pipeline:
+                self.pipeline.set_state(Gst.State.NULL)
+                self.pipeline = None
             return False
     
     def _configure_pipeline(self) -> bool:
         """Configure the pipeline elements and start it."""
-        appsink = self.pipeline.get_by_name(self.config.sink_name) # pyright: ignore[reportOptionalMemberAccess]
-        if not appsink:
-            log_event(logger, "error", f"Failed to get appsink element '{self.config.sink_name}'", event_type="error")
-            return False
-            
-        # Configure appsink
-        appsink.set_property("emit-signals", True)
-        appsink.set_property("max-buffers", self.config.max_buffers)
-        appsink.set_property("drop", True)
-        appsink.set_property("sync", False)
-        appsink.connect("new-sample", self._on_new_sample)
-        
-        # Connect bus messages
-        bus = self.pipeline.get_bus() # pyright: ignore[reportOptionalMemberAccess]
-        bus.add_signal_watch()
-        bus.connect("message", self._on_bus_message)
-        
-        # Start pipeline
-        ret = self.pipeline.set_state(Gst.State.PLAYING) # pyright: ignore[reportOptionalMemberAccess]
-        if ret == Gst.StateChangeReturn.FAILURE:
-            log_event(logger, "error", f"Failed to start pipeline for stream {self.stream_id}", event_type="error")
-            return False
-
-        if ret == Gst.StateChangeReturn.ASYNC:
-            ret = self.pipeline.get_state(Gst.CLOCK_TIME_NONE) # pyright: ignore[reportOptionalMemberAccess]
-            if ret[0] != Gst.StateChangeReturn.SUCCESS:
-                log_event(logger, "error", f"Pipeline state change failed for stream {self.stream_id}", event_type="error")
+        bus = None
+        try:
+            appsink = self.pipeline.get_by_name(self.config.sink_name) # pyright: ignore[reportOptionalMemberAccess]
+            if not appsink:
+                log_event(logger, "error", f"Failed to get appsink element '{self.config.sink_name}'", event_type="error")
                 return False
 
-        log_event(logger, "info", f"Successfully started GStreamer pipeline for {self.stream_id}", event_type="info")
-        self.last_frame_time = time.time()
-        return True
+            # Configure appsink
+            appsink.set_property("emit-signals", True)
+            appsink.set_property("max-buffers", self.config.max_buffers)
+            appsink.set_property("drop", True)
+            appsink.set_property("sync", False)
+            appsink.connect("new-sample", self._on_new_sample)
+
+            # Connect bus messages
+            bus = self.pipeline.get_bus() # pyright: ignore[reportOptionalMemberAccess]
+            bus.add_signal_watch()
+            bus.connect("message", self._on_bus_message)
+
+            # Start pipeline
+            ret = self.pipeline.set_state(Gst.State.PLAYING) # pyright: ignore[reportOptionalMemberAccess]
+            if ret == Gst.StateChangeReturn.FAILURE:
+                log_event(logger, "error", f"Failed to start pipeline for stream {self.stream_id}", event_type="error")
+                self._cleanup_failed_pipeline(bus)
+                return False
+
+            if ret == Gst.StateChangeReturn.ASYNC:
+                ret = self.pipeline.get_state(Gst.CLOCK_TIME_NONE) # pyright: ignore[reportOptionalMemberAccess]
+                if ret[0] != Gst.StateChangeReturn.SUCCESS:
+                    log_event(logger, "error", f"Pipeline state change failed for stream {self.stream_id}", event_type="error")
+                    self._cleanup_failed_pipeline(bus)
+                    return False
+
+            log_event(logger, "info", f"Successfully started GStreamer pipeline for {self.stream_id}", event_type="info")
+            self.last_frame_time = time.time()
+            return True
+        except Exception as e:
+            log_event(logger, "error", f"Exception in _configure_pipeline: {e}", event_type="error")
+            if bus:
+                self._cleanup_failed_pipeline(bus)
+            return False
+
+    def _cleanup_failed_pipeline(self, bus):
+        """Clean up resources when pipeline configuration fails."""
+        try:
+            if bus:
+                bus.remove_signal_watch()
+            if self.pipeline:
+                self.pipeline.set_state(Gst.State.NULL)
+        except Exception as e:
+            log_event(logger, "error", f"Error cleaning up failed pipeline: {e}", event_type="error")
     
     def _on_new_sample(self, appsink) -> Gst.FlowReturn:
         """Handle new sample from appsink."""
