@@ -1,5 +1,8 @@
+import os
 import urllib.parse
 from ..types import PipelineConfig
+
+os.environ.setdefault("GST_PLUGIN_FEATURE_RANK", "avdec_h265:257,avdec_h264:257")
 
 
 class PipelineBuilder:
@@ -16,7 +19,7 @@ class PipelineBuilder:
         Returns:
             str: Properly escaped URL safe for GStreamer pipeline
         """
-        if not (stream_url.startswith('rtsp://') or stream_url.startswith('srt://')):
+        if not (stream_url.startswith("rtsp://") or stream_url.startswith("srt://")):
             return stream_url
 
         try:
@@ -28,8 +31,12 @@ class PipelineBuilder:
                 return stream_url
 
             # Escape username and password separately
-            escaped_username = urllib.parse.quote(parsed.username, safe='') if parsed.username else ''
-            escaped_password = urllib.parse.quote(parsed.password, safe='') if parsed.password else ''
+            escaped_username = (
+                urllib.parse.quote(parsed.username, safe="") if parsed.username else ""
+            )
+            escaped_password = (
+                urllib.parse.quote(parsed.password, safe="") if parsed.password else ""
+            )
 
             # Reconstruct the URL with escaped credentials
             if escaped_username and escaped_password:
@@ -57,13 +64,13 @@ class PipelineBuilder:
         escaped_url = PipelineBuilder._escape_stream_url(config.rtsp_link)
 
         # Detect protocol type
-        if config.rtsp_link.startswith('srt://'):
+        if config.rtsp_link.startswith("srt://"):
             # SRT pipeline
             return (
                 f"srtsrc uri={escaped_url} latency={config.latency} "
                 f"! identity name=bitrate_monitor_{config.sink_name} "
                 f"! tsdemux "
-                f"! decodebin "
+                f"! decodebin force-sw-decoders=true "
                 f"! videoconvert "
                 f"! videoscale "
                 f"! video/x-raw, width={config.width}, height={config.height}, format={config.format} "
@@ -79,7 +86,7 @@ class PipelineBuilder:
                 f"! application/x-rtp, media=video "
                 f"! rtpjitterbuffer latency=200 "
                 f"! identity name=bitrate_monitor_{config.sink_name} "
-                f"! decodebin "
+                f"! decodebin force-sw-decoders=true "
                 f"! videoconvert "
                 f"! videoscale "
                 f"! video/x-raw, width={config.width}, height={config.height}, format={config.format} "
@@ -93,12 +100,12 @@ class PipelineBuilder:
         escaped_url = PipelineBuilder._escape_stream_url(config.rtsp_link)
 
         # Detect protocol type
-        if config.rtsp_link.startswith('srt://'):
+        if config.rtsp_link.startswith("srt://"):
             # SRT alternative pipeline (simpler version)
             return (
                 f"srtsrc uri={escaped_url} "
                 f"! identity name=bitrate_monitor_{config.sink_name} "
-                f"! decodebin "
+                f"! decodebin force-sw-decoders=true "
                 f"! videoconvert "
                 f"! videoscale "
                 f"! video/x-raw, width={config.width}, height={config.height}, format={config.format} "
@@ -112,7 +119,7 @@ class PipelineBuilder:
                 f"protocols=tcp "
                 f"retry={config.retry_count} timeout=10 "
                 f"! identity name=bitrate_monitor_{config.sink_name} "
-                f"! decodebin "
+                f"! decodebin force-sw-decoders=true "
                 f"! videoconvert "
                 f"! videoscale "
                 f"! video/x-raw, width={config.width}, height={config.height}, format={config.format} "
