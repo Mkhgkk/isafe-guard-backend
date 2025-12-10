@@ -244,8 +244,14 @@ class GStreamerPipeline:
             self.last_frame_time = time.time()
     
     def stop(self):
-        """Stop the pipeline."""
+        """Stop the pipeline and clean up resources."""
         if self.pipeline:
+            # Remove bus signal watch to prevent file descriptor leak
+            bus = self.pipeline.get_bus()
+            if bus:
+                bus.remove_signal_watch()
+
+            # Stop the pipeline
             self.pipeline.set_state(Gst.State.NULL)
             self.pipeline = None
     
