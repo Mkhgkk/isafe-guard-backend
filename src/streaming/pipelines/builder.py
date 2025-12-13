@@ -73,7 +73,8 @@ class PipelineBuilder:
                 f"! decodebin force-sw-decoders=true "
                 f"! videoconvert "
                 f"! videoscale "
-                f"! video/x-raw, width={config.width}, height={config.height}, format={config.format} "
+                f"! videorate drop-only=true "
+                f"! video/x-raw, width={config.width}, height={config.height}, format={config.format}, framerate=10/1 "
                 f"! appsink name={config.sink_name} drop=true max-buffers={config.max_buffers} "
                 f"emit-signals=true sync=false"
             )
@@ -89,7 +90,8 @@ class PipelineBuilder:
                 f"! decodebin force-sw-decoders=true "
                 f"! videoconvert "
                 f"! videoscale "
-                f"! video/x-raw, width={config.width}, height={config.height}, format={config.format} "
+                f"! videorate drop-only=true "
+                f"! video/x-raw, width={config.width}, height={config.height}, format={config.format}, framerate=10/1 "
                 f"! appsink name={config.sink_name} drop=true max-buffers={config.max_buffers} "
                 f"emit-signals=true sync=false"
             )
@@ -108,7 +110,8 @@ class PipelineBuilder:
                 f"! decodebin force-sw-decoders=true "
                 f"! videoconvert "
                 f"! videoscale "
-                f"! video/x-raw, width={config.width}, height={config.height}, format={config.format} "
+                f"! videorate drop-only=true "
+                f"! video/x-raw, width={config.width}, height={config.height}, format={config.format}, framerate=10/1 "
                 f"! appsink name={config.sink_name} drop=true max-buffers={config.max_buffers} "
                 f"emit-signals=true sync=false"
             )
@@ -122,7 +125,8 @@ class PipelineBuilder:
                 f"! decodebin force-sw-decoders=true "
                 f"! videoconvert "
                 f"! videoscale "
-                f"! video/x-raw, width={config.width}, height={config.height}, format={config.format} "
+                f"! videorate drop-only=true "
+                f"! video/x-raw, width={config.width}, height={config.height}, format={config.format}, framerate=10/1 "
                 f"! appsink name={config.sink_name} drop=true max-buffers={config.max_buffers} "
                 f"emit-signals=true sync=false"
             )
