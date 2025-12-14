@@ -19,6 +19,7 @@ pymongo = "4.10.1"
 pytz = "2024.2"
 flask-socketio = "5.4.1"
 marshmallow = "3.23.1"
+pyyaml = "^6.0.2"
 onvif-zeep = {git="https://github.com/Mkhgkk/python-onvif-zeep.git", branch="fix/update-xaddr-url-handling"}
 python-jose = "3.3.0"
 passlib = "1.7.4"

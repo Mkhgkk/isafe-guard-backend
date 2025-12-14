@@ -3,14 +3,14 @@ NPU Inference Module for YOLOv8 Object Detection
 Production-ready module for Mobilint NPU inference.
 """
 
-import os
 import numpy as np
 import cv2
 from typing import List, Tuple, Optional, Dict, Any
 from dataclasses import dataclass
 import logging
+from utils.config_loader import config
 
-USE_NPU = os.getenv("USE_NPU", "false").lower() == "true"
+USE_NPU = config.get("detection.npu.enabled", False)
 try:
     import maccel
 except ImportError as e:

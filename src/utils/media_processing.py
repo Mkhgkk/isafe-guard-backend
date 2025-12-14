@@ -4,12 +4,15 @@ import threading
 import re
 from typing import Tuple
 from utils.logging_config import get_logger, log_event
+from utils.config_loader import config
 import numpy as np
-from config import STATIC_DIR, FRAME_HEIGHT, FRAME_WIDTH
 
 logger = get_logger(__name__)
 
-RTMP_MEDIA_SERVER = os.getenv("RTMP_MEDIA_SERVER", "rtmp://localhost:1935")
+STATIC_DIR = config.get("directories.static_dir")
+FRAME_HEIGHT = config.get("processing.frame_height")
+FRAME_WIDTH = config.get("processing.frame_width")
+RTMP_MEDIA_SERVER = config.get("streaming.rtmp_server")
 
 
 def _log_gstreamer_output(stream, log_level: str, stream_id: str, output_type: str):

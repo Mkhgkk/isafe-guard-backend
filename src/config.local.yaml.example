@@ -1,0 +1,33 @@
+# Local Configuration Override Example
+# Copy this file to config.local.yaml to override default settings
+# This file is optional and ignored by git
+# Priority: Environment Variables > config.local.yaml > config.yaml
+
+# Example: Override development settings
+app:
+  debug: true
+  environment: "development"
+
+# Example: Override database settings
+database:
+  uri: "mongodb://localhost:27017"
+  name: "isafe_guard_dev"
+
+# Example: Override logging settings
+logging:
+  level: "DEBUG"
+  colored_logging: true
+  file_logging: false
+
+# Example: Override streaming settings
+streaming:
+  rtmp_server: "rtmp://localhost:1935"
+  bitrate: 5000
+
+# Example: Override detection settings
+detection:
+  npu:
+    enabled: false
+  default_precision: "fp32"
+
+# You can override any setting from config.yaml here

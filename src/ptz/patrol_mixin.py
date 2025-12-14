@@ -67,7 +67,7 @@ class PatrolMixin:
         self.patrol_dwell_time = self.DEFAULT_PATROL_DWELL_TIME
         self.patrol_stop_event = threading.Event()
         self.patrol_direction = "horizontal"
-        self.patrol_mode = "grid"  # "grid" or "pattern" - defaults to grid
+        self.patrol_mode = "pattern"  # "grid" or "pattern" - defaults to grid
         self.custom_patrol_pattern: Optional[list] = None  # Stores custom waypoints
         self.pattern_cycle_count = 0  # Track number of complete pattern cycles
         self.pattern_rest_cycles = (

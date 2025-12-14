@@ -1,4 +1,5 @@
 from utils.logging_config import get_logger, log_event
+from utils.config_loader import config
 
 logger = get_logger(__name__)
 import time
@@ -9,8 +10,8 @@ from gi.repository import Gst # pyright: ignore[reportMissingImports]
 import os
 
 # Set GStreamer debug level and redirect to Python logging
-os.environ.setdefault('GST_DEBUG', '2')
-os.environ.setdefault('GST_DEBUG_NO_COLOR', '1')
+os.environ.setdefault('GST_DEBUG', str(config.get("gstreamer.debug_level", 2)))
+os.environ.setdefault('GST_DEBUG_NO_COLOR', str(int(config.get("gstreamer.debug_no_color", True))))
 
 # Global flag to track if debug handler is installed
 _debug_handler_installed = False

@@ -7,6 +7,7 @@ from flask import (
 )
 from pymongo.database import Database
 from flask_socketio import SocketIO
+from utils.config_loader import config
 
 from main.tools import JsonResp
 from main.stream.routes import stream_blueprint
@@ -37,10 +38,10 @@ def create_app():
     CORS(event_blueprint, resources={r"/*": {"origins": "*"}})
     CORS(models_blueprint, resources={r"/*": {"origins": "*"}})
 
-    os.environ["TZ"] = app.config["TIMEZONE"]
+    os.environ["TZ"] = config.get("app.timezone", "US/Eastern")
 
-    DB_HOST = os.getenv("DB_HOST", app.config["MONGO_URI"])
-    initialize_database(DB_HOST, app.config["MONGO_APP_DATABASE"])
+    DB_HOST = config.get("database.uri")
+    initialize_database(DB_HOST, config.get("database.name"))
     app.db = get_database()
 
     app.register_blueprint(stream_blueprint, url_prefix="/api/stream")

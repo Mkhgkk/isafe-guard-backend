@@ -1,15 +1,17 @@
 import os
 import sys
 from utils.logging_config import get_logger, log_event
+from utils.config_loader import config
 import psutil
 import GPUtil
 from ultralytics import YOLO
 from events import emit_event, EventType
-from config import DEFAULT_PRECISION, BASE_DIR
 
 logger = get_logger(__name__)
 
-USE_NPU = os.getenv("USE_NPU", "false").lower() == "true"
+USE_NPU = config.get("detection.npu.enabled", False)
+DEFAULT_PRECISION = config.get("detection.default_precision", "fp16")
+BASE_DIR = config.get("directories.base_dir", "src")
 
 MODELS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../models"))
 NAMESPACE = "/default"
