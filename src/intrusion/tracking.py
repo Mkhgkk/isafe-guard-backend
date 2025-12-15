@@ -29,7 +29,7 @@ class SafeAreaTracker:
                 "max_keypoints": 500,
             },
             "superglue": {
-                "weights": "outdoor",
+                "weights": "indoor",
                 "sinkhorn_iterations": 10,
                 "match_threshold": 0.3,
             },
