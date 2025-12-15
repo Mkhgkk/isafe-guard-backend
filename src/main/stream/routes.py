@@ -103,8 +103,12 @@ def change_autotrack():
 
                 stream_doc = app.db.streams.find_one({"stream_id": stream_id})
                 if stream_doc and stream_doc.get("patrol_enabled", False):
+                    # Get enable_focus_during_patrol setting from database (default: True)
+                    enable_focus = stream_doc.get("enable_focus_during_patrol", True)
+
                     video_streaming.ptz_auto_tracker.set_patrol_parameters(
-                        focus_max_zoom=1.0
+                        focus_max_zoom=1.0,
+                        enable_focus_during_patrol=enable_focus
                     )
 
                     # Check if there's a custom patrol pattern
@@ -215,6 +219,75 @@ def toggle_patrol():
 
     except Exception as e:
         logger.error(f"Error in toggle_patrol: {e}")
+        traceback.print_exc()
+        return tools.JsonResp(
+            {"status": "error", "message": str(e)},
+            500,
+        )
+
+
+@stream_blueprint.route("/toggle_patrol_focus", methods=["POST"])
+def toggle_patrol_focus():
+    """Toggle enable_focus_during_patrol status in database."""
+    try:
+        data = json.loads(request.data)
+        stream_id = data.get("stream_id")
+
+        if not stream_id:
+            return tools.JsonResp(
+                {"status": "error", "message": "Missing 'stream_id' in request data."},
+                400,
+            )
+
+        from datetime import datetime, timezone
+        from flask import current_app as app
+
+        # Get current status from database
+        stream_doc = app.db.streams.find_one({"stream_id": stream_id})
+        if not stream_doc:
+            return tools.JsonResp(
+                {"status": "error", "message": "Stream not found"}, 404
+            )
+
+        # Toggle enable_focus_during_patrol (default to True if not set)
+        current_status = stream_doc.get("enable_focus_during_patrol", True)
+        new_status = not current_status
+
+        # Update database
+        app.db.streams.update_one(
+            {"stream_id": stream_id},
+            {
+                "$set": {
+                    "enable_focus_during_patrol": new_status,
+                    "updated_at": datetime.now(timezone.utc),
+                }
+            },
+        )
+
+        # If stream is active and has ptz_auto_tracker, update the setting immediately
+        video_streaming = streams.get(stream_id)
+        if video_streaming and video_streaming.ptz_auto_tracker:
+            video_streaming.ptz_auto_tracker.set_patrol_parameters(
+                enable_focus_during_patrol=new_status
+            )
+            log_event(
+                logger,
+                "info",
+                f"Updated patrol focus setting for active stream {stream_id}: {new_status}",
+                event_type="patrol_focus_updated",
+            )
+
+        return tools.JsonResp(
+            {
+                "status": "Success",
+                "message": f"Patrol focus {'enabled' if new_status else 'disabled'} successfully",
+                "data": {"enable_focus_during_patrol": new_status},
+            },
+            200,
+        )
+
+    except Exception as e:
+        logger.error(f"Error in toggle_patrol_focus: {e}")
         traceback.print_exc()
         return tools.JsonResp(
             {"status": "error", "message": str(e)},

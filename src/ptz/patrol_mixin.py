@@ -101,6 +101,7 @@ class PatrolMixin:
         self.object_focus_start_time = 0.0
         self.is_focusing_on_object = False
         self.pre_focus_position: Optional[Dict[str, Any]] = None
+        self.enable_focus_during_patrol = False  # Enable focus by default
 
     def _init_patrol_position_tracking(self) -> None:
         """Initialize patrol position tracking for resume functionality."""
@@ -925,15 +926,21 @@ class PatrolMixin:
             True if focusing is allowed, False otherwise
 
         Focus Blocking Rules (in order of priority):
-        1. ALWAYS BLOCKED during rest periods (is_resting_at_home = True)
+        1. BLOCKED if enable_focus_during_patrol is False
+           - User has explicitly disabled focus during patrol
+        2. ALWAYS BLOCKED during rest periods (is_resting_at_home = True)
            - This takes absolute priority over everything else
            - Rest periods are sacred - no tracking whatsoever
-        2. Grid mode: Always allow (after rest check)
-        3. Pattern mode: Only allow if:
+        3. Grid mode: Always allow (after rest check)
+        4. Pattern mode: Only allow if:
            - Currently dwelling at a waypoint (not moving between waypoints)
            - Current waypoint hasn't focused yet this cycle
            - Been at waypoint for at least min_waypoint_dwell_before_focus seconds
         """
+        # FIRST CHECK: If focus is disabled globally, block immediately
+        if not getattr(self, "enable_focus_during_patrol", True):
+            return False
+
         # CRITICAL: Never allow focus during rest periods - this is absolute
         if getattr(self, "is_resting_at_home", False):
             return False
@@ -999,6 +1006,7 @@ class PatrolMixin:
         home_rest_duration: Optional[float] = None,
         pattern_rest_cycles: Optional[int] = None,
         min_waypoint_dwell_before_focus: Optional[float] = None,
+        enable_focus_during_patrol: Optional[bool] = None,
     ) -> None:
         """Set patrol parameters.
 
@@ -1014,6 +1022,7 @@ class PatrolMixin:
             home_rest_duration: Duration to rest at home position (seconds)
             pattern_rest_cycles: Rest after every N cycles (pattern mode only)
             min_waypoint_dwell_before_focus: Minimum time (seconds) at waypoint before focus allowed (pattern mode only)
+            enable_focus_during_patrol: Enable or disable object focus during patrol
         """
         if not hasattr(self, "patrol_area"):
             self.add_patrol_functionality()
@@ -1102,6 +1111,15 @@ class PatrolMixin:
                 )
                 self.patrol_dwell_time = self.min_waypoint_dwell_before_focus
 
+        if enable_focus_during_patrol is not None:
+            self.enable_focus_during_patrol = enable_focus_during_patrol
+            log_event(
+                logger,
+                "info",
+                f"Patrol focus {'enabled' if enable_focus_during_patrol else 'disabled'}",
+                event_type="patrol_focus_configured",
+            )
+
     def get_patrol_status(self) -> Dict[str, Any]:
         """Get comprehensive patrol status information."""
         current_time = time.time()
@@ -1180,6 +1198,9 @@ class PatrolMixin:
             "stored_position": getattr(self, "patrol_position_before_tracking", None),
             "position_return_in_progress": getattr(
                 self, "position_return_in_progress", False
+            ),
+            "enable_focus_during_patrol": getattr(
+                self, "enable_focus_during_patrol", True
             ),
         }
 
