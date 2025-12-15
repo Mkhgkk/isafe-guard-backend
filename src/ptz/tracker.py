@@ -364,6 +364,16 @@ class PTZAutoTracker(ONVIFCameraBase, PatrolMixin):
             )
             return
 
+        # Check if focus is enabled during patrol
+        if not self.can_focus_during_patrol():
+            log_event(
+                logger,
+                "debug",
+                "Focus disabled during patrol - skipping tracking",
+                event_type="patrol_focus_disabled",
+            )
+            return
+
         current_time = time.time()
 
         # Handle cooldown period

@@ -711,20 +711,14 @@ class PatrolMixin:
                 time.sleep(0.1)
                 continue
 
-            # Check if focus is allowed and if patrol should pause for object focus
+            # Check if patrol should pause for object focus
             if self.patrol_pause_event.is_set():
-                # Use can_focus_during_patrol() to determine if focus is allowed
+                # Safety check: verify focus is still allowed (defense in depth)
                 if not self.can_focus_during_patrol():
-                    # Focus not allowed - clear the pause event and continue patrol
                     self.patrol_pause_event.clear()
-                    log_event(
-                        logger,
-                        "debug",
-                        "Focus request ignored - focus disabled during patrol",
-                        event_type="patrol_focus_disabled",
-                    )
                     time.sleep(0.1)
                     continue
+
                 log_event(
                     logger,
                     "debug",
@@ -762,20 +756,12 @@ class PatrolMixin:
 
     def _patrol_dwell_with_pause_check_pattern(self, waypoint_index: int) -> None:
         """Dwell at pattern waypoint with focus tracking - one focus per waypoint per cycle.
-        Used by pattern patrol mode.
-
-        IMPORTANT: Camera will ALWAYS stay at waypoint for at least min_waypoint_dwell_before_focus
-        seconds (default 5s) before leaving, regardless of focus activity. This prevents the camera
-        from visiting waypoints too quickly.
 
         Args:
             waypoint_index: Index of current waypoint in pattern
         """
         dwell_start = time.time()
         min_dwell_before_focus = getattr(self, "min_waypoint_dwell_before_focus", 5.0)
-
-        # CRITICAL: Enforce minimum dwell time - camera must stay at waypoint for at least this long
-        # This ensures stable positioning before any focus can happen and prevents rapid waypoint hopping
         min_absolute_dwell_time = min_dwell_before_focus
 
         # Safety check: Ensure patrol_dwell_time is at least as long as min_dwell_before_focus
@@ -807,13 +793,7 @@ class PatrolMixin:
             time_at_waypoint = time.time() - getattr(self, "waypoint_arrival_time", 0.0)
 
             # Check if patrol should pause for object focus
-            # Only allow focus if:
-            # 1. NOT in rest period (checked above)
-            # 2. We're at a waypoint (is_at_pattern_waypoint = True)
-            # 3. This waypoint hasn't focused yet in this cycle
-            # 4. We've been at the waypoint for at least min_waypoint_dwell_before_focus seconds
-            # 5. Pause event is set
-            # 6. Focus is enabled (can_focus_during_patrol returns True)
+            # Conditions: at waypoint, not focused this cycle, sufficient dwell time, focus enabled
             if (
                 self.patrol_pause_event.is_set()
                 and self.is_at_pattern_waypoint
@@ -846,25 +826,13 @@ class PatrolMixin:
                     )
                     self.patrol_resume_event.clear()
 
-                    # DON'T exit early - check if minimum dwell time has been met
+                    # Check if minimum dwell time has been met
                     elapsed_dwell = time.time() - dwell_start
                     if elapsed_dwell < min_absolute_dwell_time:
-                        remaining_dwell = min_absolute_dwell_time - elapsed_dwell
-                        log_event(
-                            logger,
-                            "info",
-                            f"Focus complete but enforcing minimum dwell - waiting {remaining_dwell:.1f}s more at waypoint {waypoint_index + 1}",
-                            event_type="patrol_min_dwell_enforced",
-                        )
-                        # Continue the dwell loop to complete minimum time
+                        # Continue dwell loop to meet minimum time
+                        pass
                     else:
-                        # Minimum dwell met, can exit early
-                        log_event(
-                            logger,
-                            "debug",
-                            f"Minimum dwell met ({elapsed_dwell:.1f}s), continuing to next waypoint",
-                            event_type="patrol_dwell_complete",
-                        )
+                        # Minimum dwell met, continue to next waypoint
                         break
                 else:
                     log_event(
@@ -876,59 +844,15 @@ class PatrolMixin:
                     if hasattr(self, "_force_reset_tracking_state"):
                         getattr(self, "_force_reset_tracking_state")()
 
-                    # Same check - don't exit early if minimum dwell not met
-                    elapsed_dwell = time.time() - dwell_start
-                    if elapsed_dwell < min_absolute_dwell_time:
-                        remaining_dwell = min_absolute_dwell_time - elapsed_dwell
-                        log_event(
-                            logger,
-                            "info",
-                            f"Focus timeout but enforcing minimum dwell - waiting {remaining_dwell:.1f}s more at waypoint {waypoint_index + 1}",
-                            event_type="patrol_min_dwell_enforced",
-                        )
-                        # Continue the dwell loop
-                    else:
+                    # Check if minimum dwell time met before exiting
+                    if time.time() - dwell_start >= min_absolute_dwell_time:
                         break
 
-            elif self.patrol_pause_event.is_set() and self.is_at_pattern_waypoint:
-                # Focus requested but blocked for various reasons
-                if not self.can_focus_during_patrol():
-                    # Prevent focus - focus is disabled during patrol
-                    log_event(
-                        logger,
-                        "debug",
-                        f"Ignoring focus request at waypoint {waypoint_index + 1} - focus disabled during patrol",
-                        event_type="patrol_focus_disabled",
-                    )
-                elif has_focused_this_cycle:
-                    # Prevent focus - already focused at this waypoint this cycle
-                    log_event(
-                        logger,
-                        "debug",
-                        f"Ignoring focus request at waypoint {waypoint_index + 1} - already focused this cycle",
-                        event_type="patrol_focus_blocked",
-                    )
-                elif time_at_waypoint < min_dwell_before_focus:
-                    # Prevent focus - haven't been at waypoint long enough
-                    log_event(
-                        logger,
-                        "debug",
-                        f"Ignoring focus request at waypoint {waypoint_index + 1} - need to dwell {min_dwell_before_focus - time_at_waypoint:.1f}s more (min {min_dwell_before_focus}s)",
-                        event_type="patrol_focus_blocked_time",
-                    )
-                # Clear the pause event to prevent blocking
+            elif self.patrol_pause_event.is_set():
+                # Focus requested but conditions not met - clear and continue
                 self.patrol_pause_event.clear()
 
             time.sleep(0.1)  # Short sleep to avoid busy waiting
-
-        # Log final dwell time for debugging
-        final_dwell = time.time() - dwell_start
-        log_event(
-            logger,
-            "debug",
-            f"Completed dwell at waypoint {waypoint_index + 1}: {final_dwell:.1f}s (min required: {min_absolute_dwell_time:.1f}s)",
-            event_type="patrol_waypoint_dwell_complete",
-        )
 
     def _advance_patrol_step(self) -> None:
         """Called when patrol advances to next position - kept for compatibility."""
@@ -941,33 +865,23 @@ class PatrolMixin:
     def can_focus_during_patrol(self) -> bool:
         """Check if focusing/tracking is allowed during current patrol state.
 
-        This is the authoritative method that external tracking systems should call
-        before attempting to focus/track objects during patrol.
-
         Returns:
             True if focusing is allowed, False otherwise
 
-        Focus Blocking Rules (in order of priority):
-        1. BLOCKED if enable_focus_during_patrol is False
-           - User has explicitly disabled focus during patrol
-        2. ALWAYS BLOCKED during rest periods (is_resting_at_home = True)
-           - This takes absolute priority over everything else
-           - Rest periods are sacred - no tracking whatsoever
-        3. Grid mode: Always allow (after rest check)
-        4. Pattern mode: Only allow if:
-           - Currently dwelling at a waypoint (not moving between waypoints)
-           - Current waypoint hasn't focused yet this cycle
-           - Been at waypoint for at least min_waypoint_dwell_before_focus seconds
+        Blocking conditions:
+        - enable_focus_during_patrol is False
+        - Currently in rest period (is_resting_at_home)
+        - Pattern mode: not at waypoint, already focused this cycle, or insufficient dwell time
         """
-        # FIRST CHECK: If focus is disabled globally, block immediately
+        # Check if focus is disabled globally
         if not getattr(self, "enable_focus_during_patrol", False):
             return False
 
-        # CRITICAL: Never allow focus during rest periods - this is absolute
+        # Never allow focus during rest periods
         if getattr(self, "is_resting_at_home", False):
             return False
 
-        # Grid mode - always allow
+        # Grid mode always allows focus (after basic checks above)
         patrol_mode = getattr(self, "patrol_mode", "grid")
         if patrol_mode == "grid":
             return True
