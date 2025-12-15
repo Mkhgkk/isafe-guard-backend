@@ -31,7 +31,7 @@ class SafeAreaTracker:
             "superglue": {
                 "weights": "outdoor",
                 "sinkhorn_iterations": 10,
-                "match_threshold": 0.5,
+                "match_threshold": 0.3,
             },
         }
         self.device: str = device
