@@ -29,9 +29,9 @@ class SafeAreaTracker:
                 "max_keypoints": 500,
             },
             "superglue": {
-                "weights": "indoor",
+                "weights": "outdoor",
                 "sinkhorn_iterations": 10,
-                "match_threshold": 0.3,
+                "match_threshold": 0.5,
             },
         }
         self.device: str = device
