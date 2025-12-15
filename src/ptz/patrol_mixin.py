@@ -18,14 +18,14 @@ class PatrolMixin:
     """
 
     # Patrol configuration constants
-    DEFAULT_PATROL_DWELL_TIME = 10.0
+    DEFAULT_PATROL_DWELL_TIME = 30.0
     DEFAULT_OBJECT_FOCUS_DURATION = 10.0
     DEFAULT_MIN_OBJECT_FOCUS_DURATION = 5.0  # Minimum focus time even if object lost
     DEFAULT_TRACKING_COOLDOWN_DURATION = 5.0
     DEFAULT_FOCUS_MAX_ZOOM = 1.0
     DEFAULT_PATROL_GRID_X = 4
     DEFAULT_PATROL_GRID_Y = 3
-    DEFAULT_HOME_REST_DURATION = 10.0  # 10 seconds rest at home position
+    DEFAULT_HOME_REST_DURATION = 30.0  # 10 seconds rest at home position
     DEFAULT_PATTERN_REST_CYCLES = 1  # Rest after every N pattern cycles
 
     # Default patrol area
