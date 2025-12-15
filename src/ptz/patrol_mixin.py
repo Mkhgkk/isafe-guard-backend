@@ -101,7 +101,7 @@ class PatrolMixin:
         self.object_focus_start_time = 0.0
         self.is_focusing_on_object = False
         self.pre_focus_position: Optional[Dict[str, Any]] = None
-        self.enable_focus_during_patrol = False  # Enable focus by default
+        self.enable_focus_during_patrol = False  # Disable focus by default
 
     def _init_patrol_position_tracking(self) -> None:
         """Initialize patrol position tracking for resume functionality."""
@@ -711,8 +711,20 @@ class PatrolMixin:
                 time.sleep(0.1)
                 continue
 
-            # Check if patrol should pause for object focus
+            # Check if focus is allowed and if patrol should pause for object focus
             if self.patrol_pause_event.is_set():
+                # Use can_focus_during_patrol() to determine if focus is allowed
+                if not self.can_focus_during_patrol():
+                    # Focus not allowed - clear the pause event and continue patrol
+                    self.patrol_pause_event.clear()
+                    log_event(
+                        logger,
+                        "debug",
+                        "Focus request ignored - focus disabled during patrol",
+                        event_type="patrol_focus_disabled",
+                    )
+                    time.sleep(0.1)
+                    continue
                 log_event(
                     logger,
                     "debug",
@@ -801,11 +813,13 @@ class PatrolMixin:
             # 3. This waypoint hasn't focused yet in this cycle
             # 4. We've been at the waypoint for at least min_waypoint_dwell_before_focus seconds
             # 5. Pause event is set
+            # 6. Focus is enabled (can_focus_during_patrol returns True)
             if (
                 self.patrol_pause_event.is_set()
                 and self.is_at_pattern_waypoint
                 and not has_focused_this_cycle
                 and time_at_waypoint >= min_dwell_before_focus
+                and self.can_focus_during_patrol()
             ):
                 log_event(
                     logger,
@@ -878,7 +892,15 @@ class PatrolMixin:
 
             elif self.patrol_pause_event.is_set() and self.is_at_pattern_waypoint:
                 # Focus requested but blocked for various reasons
-                if has_focused_this_cycle:
+                if not self.can_focus_during_patrol():
+                    # Prevent focus - focus is disabled during patrol
+                    log_event(
+                        logger,
+                        "debug",
+                        f"Ignoring focus request at waypoint {waypoint_index + 1} - focus disabled during patrol",
+                        event_type="patrol_focus_disabled",
+                    )
+                elif has_focused_this_cycle:
                     # Prevent focus - already focused at this waypoint this cycle
                     log_event(
                         logger,
@@ -938,7 +960,7 @@ class PatrolMixin:
            - Been at waypoint for at least min_waypoint_dwell_before_focus seconds
         """
         # FIRST CHECK: If focus is disabled globally, block immediately
-        if not getattr(self, "enable_focus_during_patrol", True):
+        if not getattr(self, "enable_focus_during_patrol", False):
             return False
 
         # CRITICAL: Never allow focus during rest periods - this is absolute
@@ -1200,7 +1222,7 @@ class PatrolMixin:
                 self, "position_return_in_progress", False
             ),
             "enable_focus_during_patrol": getattr(
-                self, "enable_focus_during_patrol", True
+                self, "enable_focus_during_patrol", False
             ),
         }
 

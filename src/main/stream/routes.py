@@ -103,8 +103,8 @@ def change_autotrack():
 
                 stream_doc = app.db.streams.find_one({"stream_id": stream_id})
                 if stream_doc and stream_doc.get("patrol_enabled", False):
-                    # Get enable_focus_during_patrol setting from database (default: True)
-                    enable_focus = stream_doc.get("enable_focus_during_patrol", True)
+                    # Get enable_focus_during_patrol setting from database (default: False)
+                    enable_focus = stream_doc.get("enable_focus_during_patrol", False)
 
                     video_streaming.ptz_auto_tracker.set_patrol_parameters(
                         focus_max_zoom=1.0,
@@ -249,8 +249,8 @@ def toggle_patrol_focus():
                 {"status": "error", "message": "Stream not found"}, 404
             )
 
-        # Toggle enable_focus_during_patrol (default to True if not set)
-        current_status = stream_doc.get("enable_focus_during_patrol", True)
+        # Toggle enable_focus_during_patrol (default to False if not set)
+        current_status = stream_doc.get("enable_focus_during_patrol", False)
         new_status = not current_status
 
         # Update database
