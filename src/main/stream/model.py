@@ -423,6 +423,41 @@ class Stream:
                 "Stream could not be updated", "updating_stream_failed"
             )
 
+    def _add_derived_fields(self, stream):
+        """Add derived boolean fields to a stream object."""
+        # Direct fields from database
+        stream["saving_video"] = stream.get("saving_video", True)
+        stream["intrusion_detection"] = stream.get("intrusion_detection", False)
+        stream["patrol_mode"] = stream.get("patrol_mode", "off")
+
+        # Focus enabled during patrol
+        stream["focus_enabled"] = stream.get("enable_focus_during_patrol", False)
+
+        # Hazard area configured (based on safe_area being set)
+        stream["is_hazard_area_configured"] = stream.get("safe_area") is not None
+
+        # PTZ support (based on having all required PTZ credentials)
+        has_ptz = all([
+            stream.get("cam_ip"),
+            stream.get("ptz_port"),
+            stream.get("ptz_username"),
+            stream.get("ptz_password")
+        ])
+        stream["has_ptz"] = has_ptz
+
+        # Grid patrol configured (based on patrol_area being set)
+        stream["is_grid_patrol_configured"] = stream.get("patrol_area") is not None
+
+        # Pattern patrol configured (based on patrol_pattern being set and having coordinates)
+        patrol_pattern = stream.get("patrol_pattern")
+        stream["is_pattern_patrol_configured"] = (
+            patrol_pattern is not None and
+            patrol_pattern.get("coordinates") is not None and
+            len(patrol_pattern.get("coordinates", [])) >= 2
+        )
+
+        return stream
+
     def get(self, stream_id):
         resp = tools.JsonResp({"message": "Stream(s) not found!"}, 404)
 
@@ -435,6 +470,10 @@ class Stream:
                 )
                 stream["unresolved_events"] = unresolved_count
                 stream["has_unresolved"] = unresolved_count > 0
+
+                # Add derived fields
+                stream = self._add_derived_fields(stream)
+
                 resp = tools.JsonResp(stream, 200)
 
         else:
@@ -450,11 +489,14 @@ class Stream:
                     item["_id"]: item["unresolved_count"] for item in event_counts
                 }
 
-                # Add event counts to each stream
+                # Add event counts and derived fields to each stream
                 for stream in streams:
                     unresolved_count = count_dict.get(stream["stream_id"], 0)
                     stream["unresolved_events"] = unresolved_count
                     stream["has_unresolved"] = unresolved_count > 0
+
+                    # Add derived fields
+                    stream = self._add_derived_fields(stream)
 
                 resp = tools.JsonResp(streams, 200)
 
