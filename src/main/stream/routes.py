@@ -107,8 +107,7 @@ def change_autotrack():
                     enable_focus = stream_doc.get("enable_focus_during_patrol", False)
 
                     video_streaming.ptz_auto_tracker.set_patrol_parameters(
-                        focus_max_zoom=1.0,
-                        enable_focus_during_patrol=enable_focus
+                        focus_max_zoom=1.0, enable_focus_during_patrol=enable_focus
                     )
 
                     # Check if there's a custom patrol pattern
@@ -117,8 +116,12 @@ def change_autotrack():
                         # Start pattern patrol
                         coordinates = patrol_pattern.get("coordinates", [])
                         if len(coordinates) >= 2:
-                            video_streaming.ptz_auto_tracker.set_custom_patrol_pattern(coordinates)
-                            video_streaming.ptz_auto_tracker.start_patrol(mode="pattern")
+                            video_streaming.ptz_auto_tracker.set_custom_patrol_pattern(
+                                coordinates
+                            )
+                            video_streaming.ptz_auto_tracker.start_patrol(
+                                mode="pattern"
+                            )
                             log_event(
                                 logger,
                                 "info",
@@ -130,13 +133,17 @@ def change_autotrack():
                             video_streaming.ptz_auto_tracker.set_patrol_parameters(
                                 x_positions=10, y_positions=4, dwell_time=1.5
                             )
-                            video_streaming.ptz_auto_tracker.start_patrol("horizontal", mode="grid")
+                            video_streaming.ptz_auto_tracker.start_patrol(
+                                "horizontal", mode="grid"
+                            )
                     else:
                         # No pattern, use grid patrol
                         video_streaming.ptz_auto_tracker.set_patrol_parameters(
                             x_positions=10, y_positions=4, dwell_time=1.5
                         )
-                        video_streaming.ptz_auto_tracker.start_patrol("horizontal", mode="grid")
+                        video_streaming.ptz_auto_tracker.start_patrol(
+                            "horizontal", mode="grid"
+                        )
         else:
             # Stop tracking
             if video_streaming.ptz_auto_tracker:
@@ -164,10 +171,11 @@ def change_autotrack():
 
 @stream_blueprint.route("/toggle_patrol", methods=["POST"])
 def toggle_patrol():
-    """Toggle patrol_enabled status in database."""
+    """Set patrol mode: 'pattern', 'grid', or 'off'."""
     try:
         data = json.loads(request.data)
         stream_id = data.get("stream_id")
+        mode = data.get("mode")  # 'pattern', 'grid', or 'off'
 
         if not stream_id:
             return tools.JsonResp(
@@ -175,44 +183,224 @@ def toggle_patrol():
                 400,
             )
 
+        if not mode:
+            return tools.JsonResp(
+                {
+                    "status": "error",
+                    "message": "Missing 'mode' in request data. Must be 'pattern', 'grid', or 'off'.",
+                },
+                400,
+            )
+
+        # Validate mode
+        valid_modes = ["pattern", "grid", "off"]
+        if mode not in valid_modes:
+            return tools.JsonResp(
+                {
+                    "status": "error",
+                    "message": f"Invalid mode '{mode}'. Must be one of: {', '.join(valid_modes)}",
+                },
+                400,
+            )
+
         from datetime import datetime, timezone
         from flask import current_app as app
 
-        # Get current status from database
+        # Get stream from database
         stream_doc = app.db.streams.find_one({"stream_id": stream_id})
         if not stream_doc:
             return tools.JsonResp(
                 {"status": "error", "message": "Stream not found"}, 404
             )
 
-        # Toggle patrol_enabled
-        current_status = stream_doc.get("patrol_enabled", False)
-        new_status = not current_status
+        # Validate required configuration for each mode
+        if mode == "pattern":
+            patrol_pattern = stream_doc.get("patrol_pattern")
+            if not patrol_pattern or not patrol_pattern.get("coordinates"):
+                return tools.JsonResp(
+                    {
+                        "status": "error",
+                        "message": "Cannot enable pattern patrol: no patrol pattern configured. Please save a patrol pattern first.",
+                    },
+                    400,
+                )
+            if len(patrol_pattern.get("coordinates", [])) < 2:
+                return tools.JsonResp(
+                    {
+                        "status": "error",
+                        "message": "Cannot enable pattern patrol: patrol pattern must have at least 2 waypoints.",
+                    },
+                    400,
+                )
+        elif mode == "grid":
+            patrol_area = stream_doc.get("patrol_area")
+            if not patrol_area:
+                return tools.JsonResp(
+                    {
+                        "status": "error",
+                        "message": "Cannot enable grid patrol: no patrol area configured. Please save a patrol area first.",
+                    },
+                    400,
+                )
+
+        # Get active video stream
+        video_streaming = streams.get(stream_id)
+        home_position = None
+        can_start_patrol = False
+        enable_focus = False
+
+        # If enabling patrol (not 'off')
+        if mode != "off":
+            # If stream is active, prepare to start patrol
+            if video_streaming and video_streaming.ptz_auto_tracker:
+                can_start_patrol = True
+
+                # Save current camera position as home
+                if video_streaming.camera_controller:
+                    try:
+                        pan, tilt, zoom = (
+                            video_streaming.camera_controller.get_current_position()
+                        )
+                        home_position = {
+                            "pan": pan,
+                            "tilt": tilt,
+                            "zoom": zoom,
+                            "saved_at": datetime.now(timezone.utc),
+                        }
+                        log_event(
+                            logger,
+                            "info",
+                            f"Saved patrol home position for stream {stream_id}: pan={pan:.3f}, tilt={tilt:.3f}, zoom={zoom:.3f}",
+                            event_type="patrol_home_saved",
+                        )
+                    except Exception as e:
+                        log_event(
+                            logger,
+                            "warning",
+                            f"Failed to get current camera position: {e}",
+                            event_type="warning",
+                        )
+
+        # Prepare database update
+        update_fields = {
+            "patrol_enabled": mode != "off",
+            "patrol_mode": mode,
+            "updated_at": datetime.now(timezone.utc),
+        }
+
+        # Add home position if we captured it
+        if home_position:
+            update_fields["patrol_home_position"] = home_position
 
         # Update database
         app.db.streams.update_one(
             {"stream_id": stream_id},
-            {
-                "$set": {
-                    "patrol_enabled": new_status,
-                    "updated_at": datetime.now(timezone.utc),
-                }
-            },
+            {"$set": update_fields},
         )
 
-        # If toggling off, stop patrol if stream is active and patrol is running
-        if not new_status:
-            video_streaming = streams.get(stream_id)
-            if video_streaming and video_streaming.ptz_auto_tracker:
-                if video_streaming.ptz_auto_tracker.is_patrol_active():
-                    video_streaming.ptz_auto_tracker.stop_patrol()
-                    video_streaming.ptz_auto_tracker.reset_camera_position()
+        # Handle active stream updates (only if stream is active and we can start patrol)
+        if can_start_patrol and video_streaming and video_streaming.ptz_auto_tracker:
+            # Stop any currently running patrol first
+            if video_streaming.ptz_auto_tracker.is_patrol_active():
+                video_streaming.ptz_auto_tracker.stop_patrol()
+                log_event(
+                    logger,
+                    "info",
+                    f"Stopped existing patrol for stream {stream_id}",
+                    event_type="patrol_stopped",
+                )
+
+            # Update home position in tracker if we captured it
+            if home_position:
+                video_streaming.ptz_auto_tracker.update_default_position(
+                    home_position["pan"], home_position["tilt"], home_position["zoom"]
+                )
+
+            # Configure patrol
+            # Enable focus only if autotrack is enabled, otherwise patrol without focusing
+            if video_streaming.ptz_autotrack:
+                enable_focus = stream_doc.get("enable_focus_during_patrol", False)
+            else:
+                enable_focus = False
+                log_event(
+                    logger,
+                    "info",
+                    f"Patrol starting without focus capability (autotrack disabled)",
+                    event_type="patrol_no_focus",
+                )
+
+            video_streaming.ptz_auto_tracker.set_patrol_parameters(
+                focus_max_zoom=1.0, enable_focus_during_patrol=enable_focus
+            )
+
+            if mode == "pattern":
+                coordinates = patrol_pattern.get("coordinates", [])
+                video_streaming.ptz_auto_tracker.set_custom_patrol_pattern(coordinates)
+                video_streaming.ptz_auto_tracker.start_patrol(mode="pattern")
+                log_event(
+                    logger,
+                    "info",
+                    f"Started pattern patrol for stream {stream_id} with {len(coordinates)} waypoints",
+                    event_type="patrol_started",
+                )
+            elif mode == "grid":
+                video_streaming.ptz_auto_tracker.set_patrol_parameters(
+                    x_positions=10, y_positions=4, dwell_time=1.5
+                )
+                video_streaming.ptz_auto_tracker.start_patrol("horizontal", mode="grid")
+                log_event(
+                    logger,
+                    "info",
+                    f"Started grid patrol for stream {stream_id}",
+                    event_type="patrol_started",
+                )
+
+        # Handle turning off patrol (even if stream not active or can't start patrol)
+        elif mode == "off" and video_streaming and video_streaming.ptz_auto_tracker:
+            # Stop any currently running patrol
+            if video_streaming.ptz_auto_tracker.is_patrol_active():
+                video_streaming.ptz_auto_tracker.stop_patrol()
+                log_event(
+                    logger,
+                    "info",
+                    f"Stopped patrol for stream {stream_id}",
+                    event_type="patrol_stopped",
+                )
+
+            # Reset camera to home position
+            video_streaming.ptz_auto_tracker.reset_camera_position()
+            log_event(
+                logger,
+                "info",
+                f"Patrol disabled for stream {stream_id}",
+                event_type="patrol_disabled",
+            )
+
+        # Prepare response message
+        if mode == "off":
+            message = "Patrol disabled successfully"
+        elif can_start_patrol:
+            if video_streaming.ptz_autotrack:
+                message = f"{mode.capitalize()} patrol enabled and started successfully with focus capability"
+            else:
+                message = f"{mode.capitalize()} patrol enabled and started successfully (without focus - enable autotrack to allow focusing)"
+        else:
+            message = f"{mode.capitalize()} patrol settings saved. Patrol will start when stream is active."
 
         return tools.JsonResp(
             {
                 "status": "Success",
-                "message": f"Patrol {'enabled' if new_status else 'disabled'} successfully",
-                "data": {"patrol_enabled": new_status},
+                "message": message,
+                "data": {
+                    "patrol_enabled": mode != "off",
+                    "patrol_mode": mode,
+                    "home_position_saved": home_position is not None,
+                    "patrol_started": can_start_patrol,
+                    "focus_enabled": enable_focus if can_start_patrol else None,
+                    "autotrack_enabled": (
+                        video_streaming.ptz_autotrack if video_streaming else None
+                    ),
+                },
             },
             200,
         )
@@ -293,6 +481,85 @@ def toggle_patrol_focus():
             {"status": "error", "message": str(e)},
             500,
         )
+
+
+# @stream_blueprint.route("/toggle_focus", methods=["POST"])
+# def toggle_focus():
+#     """Set enable_focus_during_patrol to a specific value."""
+#     try:
+#         data = json.loads(request.data)
+#         stream_id = data.get("stream_id")
+#         enable_focus = data.get("enable_focus")
+
+#         if not stream_id:
+#             return tools.JsonResp(
+#                 {"status": "error", "message": "Missing 'stream_id' in request data."},
+#                 400,
+#             )
+
+#         if enable_focus is None:
+#             return tools.JsonResp(
+#                 {"status": "error", "message": "Missing 'enable_focus' in request data."},
+#                 400,
+#             )
+
+#         if not isinstance(enable_focus, bool):
+#             return tools.JsonResp(
+#                 {"status": "error", "message": "'enable_focus' must be a boolean value."},
+#                 400,
+#             )
+
+#         from datetime import datetime, timezone
+#         from flask import current_app as app
+
+#         # Get stream from database
+#         stream_doc = app.db.streams.find_one({"stream_id": stream_id})
+#         if not stream_doc:
+#             return tools.JsonResp(
+#                 {"status": "error", "message": "Stream not found"}, 404
+#             )
+
+#         # Update database
+#         app.db.streams.update_one(
+#             {"stream_id": stream_id},
+#             {
+#                 "$set": {
+#                     "enable_focus_during_patrol": enable_focus,
+#                     "updated_at": datetime.now(timezone.utc),
+#                 }
+#             },
+#         )
+
+#         # If stream is active and has active patrol, update the setting immediately
+#         video_streaming = streams.get(stream_id)
+#         if video_streaming and video_streaming.ptz_auto_tracker:
+#             if video_streaming.ptz_auto_tracker.is_patrol_active():
+#                 video_streaming.ptz_auto_tracker.set_patrol_parameters(
+#                     enable_focus_during_patrol=enable_focus
+#                 )
+#                 log_event(
+#                     logger,
+#                     "info",
+#                     f"Updated patrol focus for active patrol on stream {stream_id}: {enable_focus}",
+#                     event_type="patrol_focus_updated",
+#                 )
+
+#         return tools.JsonResp(
+#             {
+#                 "status": "Success",
+#                 "message": f"Focus during patrol {'enabled' if enable_focus else 'disabled'} successfully",
+#                 "data": {"enable_focus_during_patrol": enable_focus},
+#             },
+#             200,
+#         )
+
+#     except Exception as e:
+#         logger.error(f"Error in toggle_focus: {e}")
+#         traceback.print_exc()
+#         return tools.JsonResp(
+#             {"status": "error", "message": str(e)},
+#             500,
+#         )
 
 
 # @stream_blueprint.route("/create_schedule", methods=["POST"])
