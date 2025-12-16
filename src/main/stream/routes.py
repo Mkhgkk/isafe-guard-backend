@@ -131,7 +131,7 @@ def change_autotrack():
                         else:
                             # Fall back to grid patrol
                             video_streaming.ptz_auto_tracker.set_patrol_parameters(
-                                x_positions=10, y_positions=4, dwell_time=1.5
+                                x_positions=10, y_positions=4
                             )
                             video_streaming.ptz_auto_tracker.start_patrol(
                                 "horizontal", mode="grid"
@@ -139,7 +139,7 @@ def change_autotrack():
                     else:
                         # No pattern, use grid patrol
                         video_streaming.ptz_auto_tracker.set_patrol_parameters(
-                            x_positions=10, y_positions=4, dwell_time=1.5
+                            x_positions=10, y_positions=4
                         )
                         video_streaming.ptz_auto_tracker.start_patrol(
                             "horizontal", mode="grid"
@@ -345,7 +345,7 @@ def toggle_patrol():
                 )
             elif mode == "grid":
                 video_streaming.ptz_auto_tracker.set_patrol_parameters(
-                    x_positions=10, y_positions=4, dwell_time=1.5
+                    x_positions=10, y_positions=4
                 )
                 video_streaming.ptz_auto_tracker.start_patrol("horizontal", mode="grid")
                 log_event(
