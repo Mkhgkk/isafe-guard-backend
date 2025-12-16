@@ -1692,28 +1692,16 @@ class Stream:
             )
 
             # Auto-start patrol if enabled in database
-            # Get app reference for use in background thread
-            try:
-                from flask import current_app
-                flask_app = current_app._get_current_object()
-
-                with flask_app.app_context():
-                    stream_doc = flask_app.db.streams.find_one({"stream_id": stream_id})
-                    result = Stream.start_patrol_if_enabled(stream_id, stream, stream_doc)
-                    if result["patrol_started"]:
-                        log_event(
-                            logger,
-                            "info",
-                            f"Auto-started {result['patrol_mode']} patrol on system restart for stream {stream_id}",
-                            event_type="patrol_auto_started",
-                        )
-            except RuntimeError:
-                # No application context available (e.g., during testing)
+            from database import get_database
+            db = get_database()
+            stream_doc = db.streams.find_one({"stream_id": stream_id})
+            result = Stream.start_patrol_if_enabled(stream_id, stream, stream_doc)
+            if result["patrol_started"]:
                 log_event(
                     logger,
-                    "warning",
-                    f"Could not auto-start patrol for stream {stream_id}: no application context",
-                    event_type="warning",
+                    "info",
+                    f"Auto-started {result['patrol_mode']} patrol on system restart for stream {stream_id}",
+                    event_type="patrol_auto_started",
                 )
 
         except Exception as e:
