@@ -1655,6 +1655,71 @@ class Stream:
             )
             stream.ptz_auto_tracker = ptz_auto_tracker
 
+            # Get database connection for saving/loading home position
+            from database import get_database
+            from datetime import datetime, timezone
+            db = get_database()
+            stream_doc = db.streams.find_one({"stream_id": stream_id})
+
+            # Handle default home position
+            saved_home_position = stream_doc.get("patrol_home_position") if stream_doc else None
+
+            if saved_home_position:
+                # Update autotracker with saved home position
+                try:
+                    pan = saved_home_position.get("pan")
+                    tilt = saved_home_position.get("tilt")
+                    zoom = saved_home_position.get("zoom")
+
+                    if pan is not None and tilt is not None and zoom is not None:
+                        ptz_auto_tracker.update_default_position(pan, tilt, zoom)
+                        log_event(
+                            logger,
+                            "info",
+                            f"Updated autotracker with saved home position for stream {stream_id}: pan={pan:.3f}, tilt={tilt:.3f}, zoom={zoom:.3f}",
+                            event_type="ptz_home_loaded",
+                        )
+                except Exception as e:
+                    log_event(
+                        logger,
+                        "warning",
+                        f"Failed to update autotracker with saved home position for stream {stream_id}: {e}",
+                        event_type="warning",
+                    )
+            else:
+                # No saved home position, capture current position as default
+                try:
+                    pan, tilt, zoom = camera_controller.get_current_position()
+                    default_home_position = {
+                        "pan": pan,
+                        "tilt": tilt,
+                        "zoom": zoom,
+                        "saved_at": datetime.now(timezone.utc),
+                    }
+
+                    # Save to database
+                    db.streams.update_one(
+                        {"stream_id": stream_id},
+                        {"$set": {"patrol_home_position": default_home_position}},
+                    )
+
+                    # Update autotracker with the captured position
+                    ptz_auto_tracker.update_default_position(pan, tilt, zoom)
+
+                    log_event(
+                        logger,
+                        "info",
+                        f"Saved and set default home position for stream {stream_id}: pan={pan:.3f}, tilt={tilt:.3f}, zoom={zoom:.3f}",
+                        event_type="ptz_default_home_saved",
+                    )
+                except Exception as e:
+                    log_event(
+                        logger,
+                        "warning",
+                        f"Failed to save default home position for stream {stream_id}: {e}",
+                        event_type="warning",
+                    )
+
             # Load saved patrol area if available
             if patrol_area:
                 try:
@@ -1701,9 +1766,7 @@ class Stream:
             )
 
             # Auto-start patrol if enabled in database
-            from database import get_database
-            db = get_database()
-            stream_doc = db.streams.find_one({"stream_id": stream_id})
+            # Note: stream_doc already fetched above when handling home position
             result = Stream.start_patrol_if_enabled(stream_id, stream, stream_doc)
             if result["patrol_started"]:
                 log_event(
