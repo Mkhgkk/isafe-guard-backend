@@ -5,7 +5,7 @@ from utils.logging_config import get_logger, log_event
 import threading
 from typing import Optional, Any
 
-from flask import current_app as app  # pyright: ignore[reportMissingImports]
+from database import get_database
 from flask import request  # pyright: ignore[reportMissingImports]
 from marshmallow import (
     Schema,
@@ -129,7 +129,8 @@ class Stream:
     def _get_stream_from_db(self, stream_id, projection=None):
         """Get stream from database by stream_id."""
         try:
-            stream = app.db.streams.find_one({"stream_id": stream_id}, projection)
+            db = get_database()
+            stream = db.streams.find_one({"stream_id": stream_id}, projection)
             if not stream:
                 raise ValueError(f"Stream with ID '{stream_id}' not found.")
             return stream
@@ -159,6 +160,7 @@ class Stream:
 
     def create_stream(self):
         try:
+            db = get_database()
             payload = self._parse_request_data()
             data = payload.get("stream")
             start_stream = payload.get("start_stream", False)
@@ -173,7 +175,7 @@ class Stream:
 
             # Check if stream id is unique
             stream_id = data["stream_id"]
-            existing_stream_id = app.db.streams.find_one({"stream_id": stream_id})
+            existing_stream_id = db.streams.find_one({"stream_id": stream_id})
             if existing_stream_id:
                 return self._create_error_response(
                     "There is already a stream with the stream ID.", "stream_id_exists"
@@ -181,7 +183,7 @@ class Stream:
 
             # Create the stream
             data = stream_schema.load(data)
-            stream = app.db.streams.insert_one(data)
+            stream = db.streams.insert_one(data)
             inserted_id = str(stream.inserted_id)
             data["_id"] = inserted_id
 
@@ -211,6 +213,7 @@ class Stream:
 
     def delete_stream(self):
         try:
+            db = get_database()
             data = self._parse_request_data()
             stream_id = data.get("stream_id")
 
@@ -231,8 +234,8 @@ class Stream:
                 Stream.stop_stream(stream_id)
 
             # Delete event videos and stream from database
-            app.db.events.delete_many({"stream_id": stream_id})
-            app.db.streams.delete_one({"stream_id": stream_id})
+            db.events.delete_many({"stream_id": stream_id})
+            db.streams.delete_one({"stream_id": stream_id})
 
             return self._create_success_response("Stream deleted successfully.", "ok")
 
@@ -368,6 +371,7 @@ class Stream:
 
     def update_stream(self):
         try:
+            db = get_database()
             data = self._parse_request_data()
             validation_errors = stream_schema.validate(data)
 
@@ -388,7 +392,7 @@ class Stream:
 
             try:
                 _stream = stream_schema.load(data)
-                app.db.streams.replace_one({"stream_id": stream_id}, _stream)
+                db.streams.replace_one({"stream_id": stream_id}, _stream)
 
                 return self._create_success_response(
                     "Stream has been successfully updated.", data
@@ -459,13 +463,14 @@ class Stream:
         return stream
 
     def get(self, stream_id):
+        db = get_database()
         resp = tools.JsonResp({"message": "Stream(s) not found!"}, 404)
 
         if stream_id:
-            stream = app.db.streams.find_one({"stream_id": stream_id})
+            stream = db.streams.find_one({"stream_id": stream_id})
             if stream:
                 # Add unresolved event count for single stream
-                unresolved_count = app.db.events.count_documents(
+                unresolved_count = db.events.count_documents(
                     {"stream_id": stream_id, "is_resolved": {"$ne": True}}
                 )
                 stream["unresolved_events"] = unresolved_count
@@ -477,14 +482,14 @@ class Stream:
                 resp = tools.JsonResp(stream, 200)
 
         else:
-            streams = list(app.db.streams.find())
+            streams = list(db.streams.find())
             if streams:
                 # Get unresolved event counts for all streams
                 pipeline = [
                     {"$match": {"is_resolved": {"$ne": True}}},
                     {"$group": {"_id": "$stream_id", "unresolved_count": {"$sum": 1}}},
                 ]
-                event_counts = list(app.db.events.aggregate(pipeline))
+                event_counts = list(db.events.aggregate(pipeline))
                 count_dict = {
                     item["_id"]: item["unresolved_count"] for item in event_counts
                 }
@@ -505,6 +510,7 @@ class Stream:
     def save_patrol_area(self):
         """Save patrol area to database and update active stream."""
         try:
+            db = get_database()
             data = self._parse_request_data()
             stream_id = data.get("stream_id")
             patrol_area = data.get("patrol_area")
@@ -549,7 +555,7 @@ class Stream:
             self._get_stream_from_db(stream_id)
 
             # Update patrol area in database
-            result = app.db.streams.update_one(
+            result = db.streams.update_one(
                 {"stream_id": stream_id},
                 {"$set": {"patrol_area": validated_patrol_area}},
             )
@@ -719,6 +725,7 @@ class Stream:
     def save_patrol_pattern(self):
         """Save patrol pattern to database and update active stream."""
         try:
+            db = get_database()
             data = self._parse_request_data()
             stream_id = data.get("stream_id")
             patrol_pattern = data.get("patrol_pattern")
@@ -758,7 +765,7 @@ class Stream:
             self._get_stream_from_db(stream_id)
 
             # Update patrol pattern in database
-            result = app.db.streams.update_one(
+            result = db.streams.update_one(
                 {"stream_id": stream_id},
                 {"$set": {"patrol_pattern": validated_patrol_pattern}},
             )
@@ -990,6 +997,7 @@ class Stream:
     def save_safe_area(self):
         """Save safe area configuration to database and update active stream."""
         try:
+            db = get_database()
             data = self._parse_request_data()
             stream_id = data.get("streamId")
             coords = data.get("coords")
@@ -1040,7 +1048,7 @@ class Stream:
                 )
 
             # Update safe area in database
-            result = app.db.streams.update_one(
+            result = db.streams.update_one(
                 {"stream_id": stream_id}, {"$set": {"safe_area": validated_safe_area}}
             )
 
@@ -1346,7 +1354,8 @@ class Stream:
 
         # Update the database to mark stream as active
         try:
-            app.db.streams.update_one(
+            db = get_database()
+            db.streams.update_one(
                 {"stream_id": stream_id}, {"$set": {"is_active": True}}
             )
             log_event(
@@ -1399,8 +1408,8 @@ class Stream:
         """
         from main.shared import streams
         from datetime import datetime, timezone
-        from flask import current_app as app
 
+        db = get_database()
         video_streaming = streams.get(stream_id)
         home_position = None
         can_start_patrol = False
@@ -1453,7 +1462,7 @@ class Stream:
                     }
 
                     # Update database with home position
-                    app.db.streams.update_one(
+                    db.streams.update_one(
                         {"stream_id": stream_id},
                         {"$set": {"patrol_home_position": home_position}},
                     )
@@ -1715,10 +1724,11 @@ class Stream:
 
     @staticmethod
     def stop_stream(stream_id):
+        db = get_database()
         if stream_id not in streams:
             # Stream not in memory, but still update database status if needed
             try:
-                app.db.streams.update_one(
+                db.streams.update_one(
                     {"stream_id": stream_id}, {"$set": {"is_active": False}}
                 )
                 log_event(
@@ -1748,7 +1758,7 @@ class Stream:
 
             # Update the database to mark stream as inactive
             try:
-                app.db.streams.update_one(
+                db.streams.update_one(
                     {"stream_id": stream_id}, {"$set": {"is_active": False}}
                 )
                 log_event(
@@ -1770,7 +1780,7 @@ class Stream:
         except Exception as e:
             # Still try to update database even if stopping failed
             try:
-                app.db.streams.update_one(
+                db.streams.update_one(
                     {"stream_id": stream_id}, {"$set": {"is_active": False}}
                 )
             except Exception:
@@ -1802,6 +1812,7 @@ class Stream:
     def toggle_intrusion_detection(self):
         """Toggle intrusion detection for a stream."""
         try:
+            db = get_database()
             data = self._parse_request_data()
             stream_id = data.get("stream_id")
 
@@ -1823,7 +1834,7 @@ class Stream:
                 )
 
             # Update in database
-            result = app.db.streams.update_one(
+            result = db.streams.update_one(
                 {"stream_id": stream_id},
                 {"$set": {"intrusion_detection": new_intrusion_value}},
             )
@@ -1877,6 +1888,7 @@ class Stream:
     def toggle_patrol(self):
         """Toggle patrol mode for a stream."""
         try:
+            db = get_database()
             data = self._parse_request_data()
             stream_id = data.get("stream_id")
             mode = data.get("mode")  # 'pattern', 'grid', or 'off'
@@ -1920,7 +1932,7 @@ class Stream:
                     )
 
             # Update database
-            app.db.streams.update_one(
+            db.streams.update_one(
                 {"stream_id": stream_id},
                 {
                     "$set": {
@@ -1968,6 +1980,7 @@ class Stream:
     def toggle_patrol_focus(self):
         """Toggle enable_focus_during_patrol status in database."""
         try:
+            db = get_database()
             data = self._parse_request_data()
             stream_id = data.get("stream_id")
 
@@ -1985,7 +1998,7 @@ class Stream:
             new_status = not current_status
 
             # Update database
-            app.db.streams.update_one(
+            db.streams.update_one(
                 {"stream_id": stream_id},
                 {
                     "$set": {
@@ -2028,6 +2041,7 @@ class Stream:
     def toggle_saving_video(self):
         """Toggle saving video for a stream."""
         try:
+            db = get_database()
             data = self._parse_request_data()
             stream_id = data.get("stream_id")
 
@@ -2042,7 +2056,7 @@ class Stream:
             new_saving_video_value = not current_saving_video
 
             # Update in database
-            result = app.db.streams.update_one(
+            result = db.streams.update_one(
                 {"stream_id": stream_id},
                 {"$set": {"saving_video": new_saving_video_value}},
             )
@@ -2093,13 +2107,14 @@ class Stream:
     def bulk_start_streams(self, stream_ids):
         """Start multiple streams by their IDs."""
         try:
+            db = get_database()
             results = []
             failed_streams = []
 
             for stream_id in stream_ids:
                 try:
                     # Get stream from database
-                    stream_doc = app.db.streams.find_one({"stream_id": stream_id})
+                    stream_doc = db.streams.find_one({"stream_id": stream_id})
                     if not stream_doc:
                         failed_streams.append(
                             {"stream_id": stream_id, "error": "Stream not found"}
@@ -2148,13 +2163,14 @@ class Stream:
     def bulk_stop_streams(self, stream_ids):
         """Stop multiple streams by their IDs."""
         try:
+            db = get_database()
             results = []
             failed_streams = []
 
             for stream_id in stream_ids:
                 try:
                     # Check if stream exists
-                    stream_doc = app.db.streams.find_one({"stream_id": stream_id})
+                    stream_doc = db.streams.find_one({"stream_id": stream_id})
                     if not stream_doc:
                         failed_streams.append(
                             {"stream_id": stream_id, "error": "Stream not found"}
@@ -2202,7 +2218,8 @@ class Stream:
 
     @staticmethod
     def start_active_streams():
-        streams = list(app.db.streams.find())
+        db = get_database()
+        streams = list(db.streams.find())
 
         for stream in streams:
             if stream["is_active"]:
