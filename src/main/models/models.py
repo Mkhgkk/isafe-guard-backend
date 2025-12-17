@@ -39,7 +39,13 @@ class ModelsConfig:
         Get list of enabled model values from MODELS_TO_LOAD configuration.
         Format: "PPE,Scaffolding,Fire" or empty for all models.
         """
-        models_to_load = config.get("detection.models_to_load", "").strip()
+        models_to_load = config.get("detection.models_to_load", "")
+
+        # Handle both string and list (config_loader may return list for comma-separated values)
+        if isinstance(models_to_load, list):
+            models_to_load = ",".join(models_to_load) if models_to_load else ""
+
+        models_to_load = models_to_load.strip()
 
         if not models_to_load:
             return [model["value"] for model in ALL_MODELS]
