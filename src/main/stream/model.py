@@ -1194,7 +1194,8 @@ class Stream:
         **kwargs: Any,
     ) -> None:
         supports_ptz = all([cam_ip, ptz_port, ptz_username, ptz_password])
-        ptz_autotrack = all([home_pan, home_tilt, home_zoom])
+        # Enable autotrack when PTZ is supported (regardless of home position)
+        ptz_autotrack = supports_ptz
 
         # Default intrusion detection to False if not specified
         if intrusion_detection is None:
@@ -1607,7 +1608,12 @@ class Stream:
                 return {"status": "no_pattern", "patrol_started": False}
 
         elif patrol_mode == "grid":
-            video_streaming.ptz_auto_tracker.set_patrol_parameters(x_positions=10, y_positions=4)
+            video_streaming.ptz_auto_tracker.set_patrol_parameters(
+                x_positions=10,
+                y_positions=4,
+                focus_max_zoom=1.0,
+                enable_focus_during_patrol=enable_focus
+            )
             video_streaming.ptz_auto_tracker.start_patrol("horizontal", mode="grid")
             log_event(
                 logger,
@@ -1720,7 +1726,7 @@ class Stream:
                         event_type="warning",
                     )
 
-            # Load saved patrol area if available
+            # Load saved patrol area if available (MUST be done before setting focus parameters)
             if patrol_area:
                 try:
                     ptz_auto_tracker.set_patrol_area(patrol_area)
@@ -1757,6 +1763,27 @@ class Stream:
                         f"Failed to set patrol pattern for stream {stream_id}: {e}",
                         event_type="warning",
                     )
+
+            # Load and set enable_focus_during_patrol from database (MUST be done AFTER patrol area/pattern are set)
+            enable_focus = stream_doc.get("enable_focus_during_patrol", False) if stream_doc else False
+            try:
+                ptz_auto_tracker.set_patrol_parameters(
+                    focus_max_zoom=1.0,
+                    enable_focus_during_patrol=enable_focus
+                )
+                log_event(
+                    logger,
+                    "info",
+                    f"Loaded focus setting for stream {stream_id}: enable_focus={enable_focus}",
+                    event_type="ptz_focus_loaded",
+                )
+            except Exception as e:
+                log_event(
+                    logger,
+                    "warning",
+                    f"Failed to set focus parameters for stream {stream_id}: {e}",
+                    event_type="warning",
+                )
 
             log_event(
                 logger,
