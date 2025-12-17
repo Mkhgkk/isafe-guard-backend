@@ -739,8 +739,13 @@ class PatrolMixin:
                         event_type="patrol_resume_signal",
                     )
                     self.patrol_resume_event.clear()
-                    # Exit dwell early to continue patrol
-                    break
+                    # Continue dwell loop until full patrol_dwell_time is reached
+                    log_event(
+                        logger,
+                        "debug",
+                        "Continuing dwell until full dwell time reached",
+                        event_type="patrol_dwell_continue",
+                    )
                 else:
                     log_event(
                         logger,
@@ -750,7 +755,13 @@ class PatrolMixin:
                     )
                     if hasattr(self, "_force_reset_tracking_state"):
                         getattr(self, "_force_reset_tracking_state")()
-                    break
+                    # Continue dwell despite timeout for consistent behavior
+                    log_event(
+                        logger,
+                        "debug",
+                        "Continuing dwell despite timeout",
+                        event_type="patrol_dwell_continue_timeout",
+                    )
 
             time.sleep(0.1)  # Short sleep to avoid busy waiting
 
@@ -826,14 +837,14 @@ class PatrolMixin:
                     )
                     self.patrol_resume_event.clear()
 
-                    # Check if minimum dwell time has been met
-                    elapsed_dwell = time.time() - dwell_start
-                    if elapsed_dwell < min_absolute_dwell_time:
-                        # Continue dwell loop to meet minimum time
-                        pass
-                    else:
-                        # Minimum dwell met, continue to next waypoint
-                        break
+                    # Resume signal received - continue dwell loop until full patrol_dwell_time is reached
+                    # Do NOT break early, as we want to complete the full configured dwell time at each waypoint
+                    log_event(
+                        logger,
+                        "debug",
+                        f"Continuing dwell at waypoint {waypoint_index + 1} until full dwell time reached",
+                        event_type="patrol_dwell_continue",
+                    )
                 else:
                     log_event(
                         logger,
@@ -844,9 +855,14 @@ class PatrolMixin:
                     if hasattr(self, "_force_reset_tracking_state"):
                         getattr(self, "_force_reset_tracking_state")()
 
-                    # Check if minimum dwell time met before exiting
-                    if time.time() - dwell_start >= min_absolute_dwell_time:
-                        break
+                    # Even on timeout, continue dwell until full patrol_dwell_time is reached
+                    # This ensures consistent behavior and prevents premature waypoint changes
+                    log_event(
+                        logger,
+                        "debug",
+                        f"Continuing dwell at waypoint {waypoint_index + 1} despite timeout",
+                        event_type="patrol_dwell_continue_timeout",
+                    )
 
             elif self.patrol_pause_event.is_set():
                 # Focus requested but conditions not met - clear and continue
