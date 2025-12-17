@@ -220,6 +220,7 @@ class Stream:
             if not stream_id:
                 return self._create_error_response("Missing stream_id in request data")
 
+            # STATIC_DIR is already absolute from config.py
             stream_dir = os.path.join(STATIC_DIR, stream_id)
 
             # Remove stream directory if it exists

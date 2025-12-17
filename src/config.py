@@ -6,6 +6,7 @@ Example:
     from utils.config_loader import config
     frame_width = config.get('processing.frame_width')
 """
+
 import os
 from utils.config_loader import config
 
@@ -13,9 +14,21 @@ from utils.config_loader import config
 DEFAULT_PRECISION = config.get("detection.default_precision", "fp16")
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-STATIC_DIR = config.get("directories.static_dir", os.path.abspath(os.path.join(os.path.dirname(__file__), "main/static")))
-ASSETS_DIR = config.get("directories.assets_dir", os.path.abspath(os.path.join(os.path.dirname(__file__), "assets")))
-MODELS_DIR = config.get("directories.models_dir", os.path.abspath(os.path.join(os.path.dirname(__file__), "models")))
+
+
+# Helper function to resolve directory paths to absolute paths
+def _resolve_dir_path(path_from_config, fallback_relative_path):
+    """Convert a config path to absolute path."""
+    if path_from_config and os.path.isabs(path_from_config):
+        return path_from_config
+    # If relative, resolve from BASE_DIR (src directory)
+    relative_path = path_from_config or fallback_relative_path
+    return os.path.abspath(os.path.join(BASE_DIR, relative_path))
+
+
+STATIC_DIR = _resolve_dir_path(config.get("directories.static_dir"), "main/static")
+ASSETS_DIR = _resolve_dir_path(config.get("directories.assets_dir"), "assets")
+MODELS_DIR = _resolve_dir_path(config.get("directories.models_dir"), "models")
 
 FRAME_WIDTH = config.get("processing.frame_width", 1280)
 FRAME_HEIGHT = config.get("processing.frame_height", 720)
@@ -28,4 +41,6 @@ RECEIVER_EMAILS = config.get("notifications.email.receivers", [])
 SENDER_EMAIL = config.get("notifications.email.sender", "")
 EMAIL_PASSWORD = config.get("notifications.email.password", "")
 
-TRITON_SERVER_URL = config.get("detection.triton.server_url", "http://tritonserver:8000")
+TRITON_SERVER_URL = config.get(
+    "detection.triton.server_url", "http://tritonserver:8000"
+)

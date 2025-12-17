@@ -98,14 +98,11 @@ class Event:
         filename: str,
         _id: ObjectId,
     ) -> None:
-        EVENT_THUMBNAIL_DIR = os.path.join(STATIC_DIR, stream_id, "thumbnails")
-
         timestamp_str = str(int(time.time()))
         image_filename = f"thumbnail_{timestamp_str}.jpg"
 
-        image_directory = os.path.abspath(
-            os.path.join(os.path.dirname(__file__), EVENT_THUMBNAIL_DIR)
-        )
+        # STATIC_DIR is already absolute from config.py
+        image_directory = os.path.join(STATIC_DIR, stream_id, "thumbnails")
         os.makedirs(image_directory, exist_ok=True)
 
         original_height, original_width = frame.shape[:2]

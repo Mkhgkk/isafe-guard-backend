@@ -5,11 +5,11 @@ import re
 from typing import Tuple
 from utils.logging_config import get_logger, log_event
 from utils.config_loader import config
+from config import STATIC_DIR
 import numpy as np
 
 logger = get_logger(__name__)
 
-STATIC_DIR = config.get("directories.static_dir")
 FRAME_HEIGHT = config.get("processing.frame_height")
 FRAME_WIDTH = config.get("processing.frame_width")
 RTMP_MEDIA_SERVER = config.get("streaming.rtmp_server")
@@ -185,11 +185,8 @@ def create_video_writer(
     output_fps: float,
 ) -> Tuple[subprocess.Popen, str]:
     """Create FFmpeg video writer process with logging."""
-    EVENT_VIDEO_DIR = os.path.join(STATIC_DIR, stream_id, "videos")
-
-    video_directory = os.path.abspath(
-        os.path.join(os.path.dirname(__file__), EVENT_VIDEO_DIR)
-    )
+    # STATIC_DIR is already absolute from config.py
+    video_directory = os.path.join(STATIC_DIR, stream_id, "videos")
     os.makedirs(video_directory, exist_ok=True)
 
     video_name = f"video_{stream_id}_{model_name}_{timestamp}.mp4"

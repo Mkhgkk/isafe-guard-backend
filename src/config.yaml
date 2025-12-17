@@ -125,11 +125,12 @@ detection:
   default_precision: "fp16"  # fp16, fp32
 
 # Directories
+# Note: base_dir is relative to project root (/app in Docker), others are relative to src/
 directories:
-  base_dir: "src"  # Auto-detected
-  static_dir: "src/main/static"
-  assets_dir: "src/assets"
-  models_dir: "src/models"
+  base_dir: "src"  # Project base directory (relative to /app)
+  static_dir: "main/static"  # Relative to src/
+  assets_dir: "assets"  # Relative to src/
+  models_dir: "models"  # Relative to src/
 
 # Notifications
 notifications:
