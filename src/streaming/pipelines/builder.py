@@ -1,4 +1,5 @@
 import os
+import re
 import urllib.parse
 from ..types import PipelineConfig
 
@@ -12,6 +13,7 @@ class PipelineBuilder:
     def _extract_credentials(stream_url: str) -> tuple[str, str, str]:
         """
         Extract username and password from URL and return cleaned URL with credentials.
+        Handles both URL-encoded and unencoded passwords with special characters.
 
         Args:
             stream_url: RTSP or SRT URL that may contain credentials
@@ -23,19 +25,23 @@ class PipelineBuilder:
             return stream_url, "", ""
 
         try:
-            # Parse the URL
-            parsed = urllib.parse.urlparse(stream_url)
+            # Use regex to extract credentials, which handles unencoded special chars
+            # Pattern: scheme://[username[:password]@]host[:port][/path][?query]
+            pattern = r'^(rtsp|srt)://(?:([^:@]+)(?::([^@]+))?@)?(.+)$'
+            match = re.match(pattern, stream_url)
 
-            # Extract username and password
-            username = parsed.username or ""
-            password = parsed.password or ""
+            if not match:
+                return stream_url, "", ""
+
+            scheme, username, password, rest_of_url = match.groups()
+
+            # Decode if they were URL-encoded
+            username = urllib.parse.unquote(username) if username else ""
+            password = urllib.parse.unquote(password) if password else ""
 
             # Reconstruct URL without credentials
-            port_part = f":{parsed.port}" if parsed.port else ""
-            path_part = parsed.path if parsed.path else ""
-            query_part = f"?{parsed.query}" if parsed.query else ""
+            cleaned_url = f"{scheme}://{rest_of_url}"
 
-            cleaned_url = f"{parsed.scheme}://{parsed.hostname}{port_part}{path_part}{query_part}"
             return cleaned_url, username, password
 
         except Exception:
