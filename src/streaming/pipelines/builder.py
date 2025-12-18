@@ -64,12 +64,12 @@ class PipelineBuilder:
                 f"emit-signals=true sync=false"
             )
         else:
-            # RTSP pipeline - use user-id and user-pw properties
+            # RTSP pipeline - use user-id and user-pw properties (no encoding needed)
             auth_params = ""
             if username:
-                auth_params += f"user-id={username} "
+                auth_params += f'user-id="{username}" '
             if password:
-                auth_params += f"user-pw={password} "
+                auth_params += f'user-pw="{password}" '
 
             return (
                 f"rtspsrc location={cleaned_url} {auth_params}"
@@ -109,12 +109,12 @@ class PipelineBuilder:
                 f"emit-signals=true sync=false"
             )
         else:
-            # RTSP alternative pipeline - use user-id and user-pw properties
+            # RTSP alternative pipeline - use user-id and user-pw properties (no encoding needed)
             auth_params = ""
             if username:
-                auth_params += f"user-id={username} "
+                auth_params += f'user-id="{username}" '
             if password:
-                auth_params += f"user-pw={password} "
+                auth_params += f'user-pw="{password}" '
 
             return (
                 f"rtspsrc location={cleaned_url} {auth_params}"
