@@ -1195,8 +1195,8 @@ class Stream:
         **kwargs: Any,
     ) -> None:
         supports_ptz = all([cam_ip, ptz_port, ptz_username, ptz_password])
-        # Enable autotrack when PTZ is supported (regardless of home position)
-        ptz_autotrack = supports_ptz
+        # Use the configured ptz_autotrack setting from kwargs, defaulting to False
+        ptz_autotrack = kwargs.get('ptz_autotrack', False)
 
         # Default intrusion detection to False if not specified
         if intrusion_detection is None:

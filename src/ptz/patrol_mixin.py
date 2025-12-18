@@ -234,7 +234,20 @@ class PatrolMixin:
 
         self.patrol_stop_event.set()
         if self.patrol_thread:
-            self.patrol_thread.join(timeout=5.0)
+            # Wait up to 15 seconds for the thread to finish
+            self.patrol_thread.join(timeout=15.0)
+
+            # Check if thread is still alive after timeout
+            if self.patrol_thread.is_alive():
+                log_event(
+                    logger,
+                    "warning",
+                    "Patrol thread did not stop within timeout, but stop event is set. Thread will exit soon.",
+                    event_type="patrol_stop_timeout"
+                )
+                # Give it a bit more time - patrol checks stop event every 0.1-0.5 seconds
+                self.patrol_thread.join(timeout=5.0)
+
         self.is_patrolling = False
         if hasattr(self, "stop_movement"):
             self.stop_movement()
