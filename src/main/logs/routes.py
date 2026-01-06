@@ -12,22 +12,84 @@ logs_blueprint = Blueprint("logs", __name__)
 
 @logs_blueprint.route("/", methods=["GET"])
 def get_logs():
-    """
-    Get logs with optional filtering and pagination.
-    
-    Query Parameters:
-    - level: Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
-    - logger: Logger name (supports partial matching)
-    - message: Message content (supports partial matching)
-    - event_type: Event type filter
-    - stream_id: Stream ID filter
-    - camera_id: Camera ID filter
-    - detection_type: Detection type filter
-    - start_time: Start time (ISO format)
-    - end_time: End time (ISO format)
-    - limit: Number of logs to return (max 1000, default 100)
-    - offset: Number of logs to skip (default 0)
-    - sort_order: Sort order (asc/desc, default desc)
+    """Get logs with optional filtering and pagination
+    ---
+    tags:
+      - Logs
+    parameters:
+      - in: query
+        name: level
+        type: string
+        required: false
+        description: Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+      - in: query
+        name: logger
+        type: string
+        required: false
+        description: Logger name (supports partial matching)
+      - in: query
+        name: message
+        type: string
+        required: false
+        description: Message content (supports partial matching)
+      - in: query
+        name: event_type
+        type: string
+        required: false
+        description: Event type filter
+      - in: query
+        name: stream_id
+        type: string
+        required: false
+        description: Stream ID filter
+      - in: query
+        name: start_time
+        type: string
+        required: false
+        description: Start time (ISO format)
+      - in: query
+        name: end_time
+        type: string
+        required: false
+        description: End time (ISO format)
+      - in: query
+        name: limit
+        type: integer
+        required: false
+        default: 100
+        description: Number of logs to return (max 1000)
+      - in: query
+        name: offset
+        type: integer
+        required: false
+        default: 0
+        description: Number of logs to skip
+      - in: query
+        name: sort_order
+        type: string
+        required: false
+        default: desc
+        description: Sort order (asc/desc)
+    responses:
+      200:
+        description: Logs retrieved successfully
+        schema:
+          type: object
+          properties:
+            status:
+              type: string
+              example: success
+            data:
+              type: object
+              properties:
+                logs:
+                  type: array
+                  items:
+                    type: object
+                total_count:
+                  type: integer
+      400:
+        description: Invalid parameters
     """
     try:
         # Validate query parameters
@@ -85,15 +147,56 @@ def get_logs():
 
 @logs_blueprint.route("/statistics", methods=["GET"])
 def get_log_statistics():
-    """
-    Get log statistics and aggregations.
-    
-    Query Parameters:
-    - level: Filter by log level
-    - start_time: Start time for statistics (ISO format)
-    - end_time: End time for statistics (ISO format)
-    - stream_id: Filter by stream ID
-    - event_type: Filter by event type
+    """Get log statistics and aggregations
+    ---
+    tags:
+      - Logs
+    parameters:
+      - in: query
+        name: level
+        type: string
+        required: false
+        description: Filter by log level
+      - in: query
+        name: start_time
+        type: string
+        required: false
+        description: Start time for statistics (ISO format)
+      - in: query
+        name: end_time
+        type: string
+        required: false
+        description: End time for statistics (ISO format)
+      - in: query
+        name: stream_id
+        type: string
+        required: false
+        description: Filter by stream ID
+      - in: query
+        name: event_type
+        type: string
+        required: false
+        description: Filter by event type
+    responses:
+      200:
+        description: Log statistics retrieved successfully
+        schema:
+          type: object
+          properties:
+            status:
+              type: string
+              example: success
+            data:
+              type: object
+              properties:
+                total_logs:
+                  type: integer
+                by_level:
+                  type: object
+                by_event_type:
+                  type: object
+      400:
+        description: Invalid parameters
     """
     try:
         # Parse filters (reuse search schema but make everything optional)
@@ -244,7 +347,29 @@ def get_log_streams():
 
 @logs_blueprint.route("/recent", methods=["GET"])
 def get_recent_logs():
-    """Get recent logs (last 100 entries)."""
+    """Get recent logs (last 100 entries)
+    ---
+    tags:
+      - Logs
+    responses:
+      200:
+        description: Recent logs retrieved successfully
+        schema:
+          type: object
+          properties:
+            status:
+              type: string
+              example: success
+            data:
+              type: object
+              properties:
+                logs:
+                  type: array
+                  items:
+                    type: object
+                total_count:
+                  type: integer
+    """
     try:
         log_entry = LogEntry()
         result = log_entry.get_logs(
