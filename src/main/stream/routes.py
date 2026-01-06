@@ -1372,8 +1372,9 @@ def create_stream():
 
 @stream_blueprint.route("", methods=["GET"])
 def get_streams():
-    """Get stream(s) information
+    """Get stream(s) information (DEPRECATED - Use /stream/list or /stream/<stream_id> instead)
     ---
+    deprecated: true
     tags:
       - Stream
     parameters:
@@ -1385,7 +1386,12 @@ def get_streams():
         example: camera_001
     responses:
       200:
-        description: Stream(s) retrieved successfully. Returns single stream object if stream_id provided, otherwise returns array of stream objects.
+        description: |
+          DEPRECATED: This endpoint is kept for backward compatibility only.
+          - Use GET /stream/list to get all streams (returns array)
+          - Use GET /stream/<stream_id> to get a single stream (returns object)
+
+          Returns single stream object if stream_id provided, otherwise returns array of stream objects.
         schema:
           oneOf:
             - type: object
@@ -1544,6 +1550,174 @@ def get_streams():
     """
 
     stream_id = request.args.get("stream_id")
+    return Stream().get(stream_id)
+
+
+@stream_blueprint.route("/list", methods=["GET"])
+def get_all_streams():
+    """Get all streams
+    ---
+    tags:
+      - Stream
+    responses:
+      200:
+        description: List of all streams retrieved successfully
+        schema:
+          type: array
+          items:
+            type: object
+            properties:
+              _id:
+                type: string
+                description: MongoDB ObjectId
+              stream_id:
+                type: string
+                description: Unique stream identifier
+              rtsp_link:
+                type: string
+                description: RTSP URL for the camera stream
+              model_name:
+                type: string
+                description: AI model name used for detection
+              location:
+                type: string
+                description: Physical location of the camera
+              description:
+                type: string
+                description: Camera description
+              is_active:
+                type: boolean
+                description: Whether the stream is currently running
+              ptz_autotrack:
+                type: boolean
+                description: Whether PTZ auto tracking is enabled
+              unresolved_events:
+                type: integer
+                description: Count of unresolved events
+              has_unresolved:
+                type: boolean
+                description: Whether stream has unresolved events
+              has_ptz:
+                type: boolean
+                description: Whether stream has PTZ support
+    """
+    return Stream().get(None)
+
+
+@stream_blueprint.route("/<stream_id>", methods=["GET"])
+def get_stream_by_id(stream_id):
+    """Get a single stream by ID
+    ---
+    tags:
+      - Stream
+    parameters:
+      - in: path
+        name: stream_id
+        type: string
+        required: true
+        description: ID of the stream to retrieve
+        example: camera_001
+    responses:
+      200:
+        description: Stream retrieved successfully
+        schema:
+          type: object
+          properties:
+            _id:
+              type: string
+              description: MongoDB ObjectId
+            stream_id:
+              type: string
+              description: Unique stream identifier
+            rtsp_link:
+              type: string
+              description: RTSP URL for the camera stream
+            model_name:
+              type: string
+              description: AI model name used for detection
+            location:
+              type: string
+              description: Physical location of the camera
+            description:
+              type: string
+              description: Camera description
+            is_active:
+              type: boolean
+              description: Whether the stream is currently running
+            ptz_autotrack:
+              type: boolean
+              description: Whether PTZ auto tracking is enabled
+            cam_ip:
+              type: string
+              description: Camera IP address (for PTZ control)
+            ptz_password:
+              type: string
+              description: PTZ control password
+            profile_name:
+              type: string
+              description: ONVIF profile name
+            ptz_port:
+              type: integer
+              description: PTZ control port
+            ptz_username:
+              type: string
+              description: PTZ control username
+            patrol_area:
+              type: object
+              nullable: true
+              description: Grid patrol area configuration
+            patrol_pattern:
+              type: object
+              nullable: true
+              description: Custom patrol pattern with waypoints
+            safe_area:
+              type: object
+              nullable: true
+              description: Hazard/safe area configuration
+            intrusion_detection:
+              type: boolean
+              description: Whether intrusion detection is enabled
+            saving_video:
+              type: boolean
+              description: Whether video recording is enabled
+            patrol_home_position:
+              type: object
+              nullable: true
+              description: Home position for patrol return
+            patrol_enabled:
+              type: boolean
+              description: Whether patrol is enabled
+            patrol_mode:
+              type: string
+              enum: [pattern, grid, off]
+              description: Current patrol mode
+            enable_focus_during_patrol:
+              type: boolean
+              description: Whether auto-focus is enabled during patrol
+            unresolved_events:
+              type: integer
+              description: Count of unresolved events
+            has_unresolved:
+              type: boolean
+              description: Whether stream has unresolved events
+            focus_enabled:
+              type: boolean
+              description: Whether focus is enabled
+            is_hazard_area_configured:
+              type: boolean
+              description: Whether hazard area is configured
+            has_ptz:
+              type: boolean
+              description: Whether stream has PTZ support
+            is_grid_patrol_configured:
+              type: boolean
+              description: Whether grid patrol is configured
+            is_pattern_patrol_configured:
+              type: boolean
+              description: Whether pattern patrol is configured
+      404:
+        description: Stream not found
+    """
     return Stream().get(stream_id)
 
 
