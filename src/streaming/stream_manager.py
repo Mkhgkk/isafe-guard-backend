@@ -198,6 +198,19 @@ class StreamManager:
         # Cache for detection results to reuse on frames without inference
         self.cached_detection_results = None
 
+        # Store last raw frame for frame retrieval
+        self.last_raw_frame = None
+
+    def get_frame(self):
+        """Get the current unprocessed frame from the stream.
+
+        Returns:
+            np.ndarray: The last raw unprocessed frame, or None if no frame has been captured yet.
+        """
+        if self.last_raw_frame is not None:
+            return self.last_raw_frame.copy()
+        return None
+
     def start_stream(self):
         """Start the stream processing."""
         self.running = True
@@ -279,6 +292,9 @@ class StreamManager:
 
     def _process_single_frame(self, frame: np.ndarray):
         """Process a single frame through the complete pipeline."""
+        # Store the raw frame for retrieval
+        self.last_raw_frame = frame
+
         current_time = time.time()
         fps = self._calculate_fps()
 
