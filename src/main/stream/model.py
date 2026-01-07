@@ -1,112 +1,20 @@
+
 import json
+import time
 import os
-import shutil
-from utils.logging_config import get_logger, log_event
-import threading
-from typing import Optional, Any
+import cv2
+import traceback
+from datetime import datetime, timezone
+from flask import request, current_app as app
 
-from database import get_database
-from flask import request  # pyright: ignore[reportMissingImports]
-from marshmallow import (
-    Schema,
-    ValidationError,
-    fields,
-    validate,
-)  # pyright: ignore[reportMissingImports]
-
-from config import STATIC_DIR
 from main import tools
-from main.shared import streams  # pyright: ignore[reportMissingImports]
-from ptz import CameraController, PTZAutoTracker
-from streaming import StreamManager
+from main.stream.validation import StreamSchema, stream_schema
+from main.stream.services import HazardService, PatrolService, StreamService, PTZService
+from utils.logging_config import get_logger, log_event
+from events import emit_event, EventType
+from main.shared import streams 
 
 logger = get_logger(__name__)
-
-
-class PatrolAreaSchema(Schema):
-    """Schema for patrol area coordinates."""
-
-    xMin = fields.Float(required=True)
-    xMax = fields.Float(required=True)
-    yMin = fields.Float(required=True)
-    yMax = fields.Float(required=True)
-    zoom_level = fields.Float(required=True, validate=validate.Range(min=0.0, max=1.0))
-
-
-class PatrolCoordinateSchema(Schema):
-    """Schema for a single patrol coordinate."""
-
-    x = fields.Float(required=True)
-    y = fields.Float(required=True)
-    z = fields.Float(required=True, validate=validate.Range(min=0.0, max=1.0))
-
-
-class PatrolPatternSchema(Schema):
-    """Schema for patrol pattern with multiple coordinates."""
-
-    coordinates = fields.List(
-        fields.Nested(PatrolCoordinateSchema),
-        required=True,
-        validate=validate.Length(min=2),  # At least 2 points for a pattern
-    )
-
-
-class SafeAreaSchema(Schema):
-    """Schema for safe/hazard area configuration."""
-
-    coords = fields.List(
-        fields.List(fields.Float(), validate=validate.Length(equal=2)),
-        required=True,
-        validate=validate.Length(min=3),  # At least 3 points for a polygon
-    )
-    static_mode = fields.Boolean(load_default=True)
-    reference_image = fields.String()
-    created_at = fields.DateTime()
-    updated_at = fields.DateTime()
-
-
-class StreamSchema(Schema):
-    stream_id = fields.String(required=True)
-    rtsp_link = fields.String(required=True)
-    model_name = fields.String(
-        required=True,
-        validate=validate.OneOf(
-            [
-                "PPE",
-                "PPEAerial",
-                "Ladder",
-                "Scaffolding",
-                "MobileScaffolding",
-                "CuttingWelding",
-                "Fire",
-                "HeavyEquipment",
-                "Proximity",
-                "Approtium",
-                "NexilisProximity",
-            ]
-        ),
-    )
-    location = fields.String(required=True)
-    description = fields.String(required=True)
-    is_active = fields.Boolean(load_default=False)
-    ptz_autotrack = fields.Boolean(load_default=False)
-    supports_ptz = fields.Boolean()
-    cam_ip = fields.String()
-    ptz_password = fields.String()
-    profile_name = fields.String()
-    ptz_port = fields.Integer()
-    ptz_username = fields.String()
-    patrol_area = fields.Nested(PatrolAreaSchema, missing=None, allow_none=True)
-    safe_area = fields.Nested(SafeAreaSchema, missing=None, allow_none=True)
-    intrusion_detection = fields.Boolean(load_default=False)
-    saving_video = fields.Boolean(load_default=True)
-
-    # class Meta:
-    #     unknown = INCLUDE
-
-
-stream_schema = StreamSchema()
-
 
 class Stream:
 
@@ -126,23 +34,6 @@ class Stream:
             raise ValueError(f"Validation failed: {validation_errors}")
         return data["stream_id"]
 
-    def _get_stream_from_db(self, stream_id, projection=None):
-        """Get stream from database by stream_id."""
-        try:
-            db = get_database()
-            stream = db.streams.find_one({"stream_id": stream_id}, projection)
-            if not stream:
-                raise ValueError(f"Stream with ID '{stream_id}' not found.")
-            return stream
-        except Exception as e:
-            log_event(
-                logger,
-                "error",
-                f"Database error fetching stream {stream_id}: {e}",
-                event_type="error",
-            )
-            raise ValueError("Database error occurred.")
-
     def _create_error_response(self, message, error_code=None, status_code=400):
         """Create standardized error response."""
         response_data = {"message": message}
@@ -160,2706 +51,434 @@ class Stream:
 
     def create_stream(self):
         try:
-            db = get_database()
             payload = self._parse_request_data()
             data = payload.get("stream")
             start_stream = payload.get("start_stream", False)
 
             validation_errors = stream_schema.validate(data)
-
-            # Validate data
             if validation_errors:
-                return self._create_error_response(
-                    "Validation failed!", validation_errors
-                )
+                return self._create_error_response("Validation failed!", validation_errors)
 
-            # Check if stream id is unique
-            stream_id = data["stream_id"]
-            existing_stream_id = db.streams.find_one({"stream_id": stream_id})
-            if existing_stream_id:
-                return self._create_error_response(
-                    "There is already a stream with the stream ID.", "stream_id_exists"
-                )
-
-            # Create the stream
             data = stream_schema.load(data)
-            stream = db.streams.insert_one(data)
-            inserted_id = str(stream.inserted_id)
-            data["_id"] = inserted_id
-
-            if start_stream:
-                # Start the stream immediately if requested
-                Stream.start_stream(**data)
-                log_event(
-                    logger,
-                    "info",
-                    f"Stream {stream_id} started immediately after creation.",
-                    event_type="stream_start",
-                )
-
-            return self._create_success_response(
-                "Stream has been successfully created.", data
-            )
+            
+            result = StreamService.create_stream(data, start_stream)
+            
+            if result["status"] == "error":
+                return self._create_error_response(result["message"], result.get("error_code"))
+            
+            return self._create_success_response(result["message"], result["data"])
 
         except ValueError as e:
             return self._create_error_response(str(e))
         except Exception as e:
-            log_event(
-                logger, "error", f"Error creating stream: {e}", event_type="error"
-            )
-            return self._create_error_response(
-                "Stream could not be created", "creating_stream_failed"
-            )
+            log_event(logger, "error", f"Error creating stream: {e}", event_type="error")
+            return self._create_error_response("Stream could not be created", "creating_stream_failed")
 
     def delete_stream(self):
         try:
-            db = get_database()
             data = self._parse_request_data()
             stream_id = data.get("stream_id")
 
             if not stream_id:
                 return self._create_error_response("Missing stream_id in request data")
 
-            # STATIC_DIR is already absolute from config.py
-            stream_dir = os.path.join(STATIC_DIR, stream_id)
-
-            # Remove stream directory if it exists
-            if os.path.exists(stream_dir):
-                shutil.rmtree(stream_dir)
-
-            # Check if stream is running and stop it
-            stream_manager = streams.get(stream_id, None)
-            is_stream_running = stream_manager and stream_manager.running
-
-            if is_stream_running:
-                Stream.stop_stream(stream_id)
-
-            # Delete event videos and stream from database
-            db.events.delete_many({"stream_id": stream_id})
-            db.streams.delete_one({"stream_id": stream_id})
-
-            return self._create_success_response("Stream deleted successfully.", "ok")
+            result = StreamService.delete_stream(stream_id)
+            
+            if result["status"] == "error":
+                return self._create_error_response(result["message"]) 
+                
+            return self._create_success_response(result["message"], "ok")
 
         except ValueError as e:
             return self._create_error_response(str(e))
         except Exception as e:
-            log_event(
-                logger, "error", f"Error deleting stream: {e}", event_type="error"
-            )
-            return self._create_error_response(
-                "Deletion failed!", "stream_deletion_failed"
-            )
+            log_event(logger, "error", f"Error deleting stream: {e}", event_type="error")
+            return self._create_error_response("Deletion failed!", "stream_deletion_failed")
 
     def stop(self):
         try:
             data = self._parse_request_data()
             stream_id = self._validate_stream_id_only(data)
-            stream = self._get_stream_from_db(stream_id, {"_id": 0})
-
-            Stream.stop_stream(stream_id)
-
+            
+            StreamService.stop_stream(stream_id)
+            
             return self._create_success_response("Stream stopped successfully.", "ok")
 
         except ValueError as e:
             return self._create_error_response(str(e))
         except Exception as e:
-            log_event(
-                logger, "error", f"Unexpected error in stop: {e}", event_type="error"
-            )
-            return self._create_error_response(
-                "Something went wrong", "internal_error", 500
-            )
+            log_event(logger, "error", f"Unexpected error in stop: {e}", event_type="error")
+            return self._create_error_response("Something went wrong", "internal_error", 500)
 
     def restart(self):
-        """
-        Restart a stream by stopping it and then starting it again.
-        Expects JSON data with stream_id.
-        """
         try:
             data = self._parse_request_data()
             stream_id = self._validate_stream_id_only(data)
 
-            # Check if stream exists in active streams
-            video_streaming = streams.get(stream_id)
+            result = StreamService.restart_stream(stream_id)
+            
+            if result["status"] == "error":
+                return self._create_error_response(result["message"], result.get("error_code"), 500)
 
-            log_event(
-                logger,
-                "info",
-                f"Restarting stream: {stream_id}",
-                event_type="stream_restart",
-            )
-
-            # Get stream configuration from database
-            stream_config = self._get_stream_from_db(stream_id)
-
-            # Stop the stream first if stream is active
-            if video_streaming and video_streaming.running:
-                try:
-                    Stream.stop_stream(stream_id)
-                    log_event(
-                        logger,
-                        "info",
-                        f"Successfully stopped stream: {stream_id}",
-                        event_type="stream_stop",
-                    )
-                except Exception as e:
-                    log_event(
-                        logger,
-                        "error",
-                        f"Error stopping stream {stream_id}: {e}",
-                        event_type="error",
-                    )
-                    return self._create_error_response(
-                        f"Failed to stop stream: {str(e)}", "stop_failed", 500
-                    )
-
-            # Start the stream with the configuration
-            try:
-                Stream.start_stream(**stream_config)
-
-                log_event(
-                    logger,
-                    "info",
-                    f"Successfully restarted stream: {stream_id}",
-                    event_type="stream_restart",
-                )
-
-                return self._create_success_response(
-                    f"Stream '{stream_id}' restarted successfully.",
-                    {"stream_id": stream_id},
-                )
-
-            except Exception as e:
-                log_event(
-                    logger,
-                    "error",
-                    f"Error starting stream {stream_id}: {e}",
-                    event_type="error",
-                )
-                return self._create_error_response(
-                    f"Failed to start stream after stop: {str(e)}", "start_failed", 500
-                )
+            return self._create_success_response(result["message"], result["data"])
 
         except ValueError as e:
             return self._create_error_response(str(e))
         except Exception as e:
-            log_event(
-                logger, "error", f"Unexpected error in restart: {e}", event_type="error"
-            )
-            return self._create_error_response(
-                f"An unexpected error occurred: {str(e)}", "internal_error", 500
-            )
+            log_event(logger, "error", f"Unexpected error in restart: {e}", event_type="error")
+            return self._create_error_response(f"An unexpected error occurred: {str(e)}", "internal_error", 500)
 
     def start(self):
         try:
             data = self._parse_request_data()
             stream_id = self._validate_stream_id_only(data)
-            stream = self._get_stream_from_db(stream_id, {"_id": 0})
-
-            Stream.start_stream(**stream)
+            
+            result = StreamService.get_stream(stream_id)
+            if result["status"] == "error":
+                 return self._create_error_response(result["message"])
+            
+            stream_data = result["data"]
+            StreamService.start_stream(**stream_data)
 
             return self._create_success_response("Stream started successfully.", "ok")
 
         except ValueError as e:
             return self._create_error_response(str(e))
         except Exception as e:
-            log_event(
-                logger, "error", f"Unexpected error in start: {e}", event_type="error"
-            )
-            return self._create_error_response(
-                "Something went wrong", "internal_error", 500
-            )
+            log_event(logger, "error", f"Unexpected error in start: {e}", event_type="error")
+            return self._create_error_response("Something went wrong", "internal_error", 500)
 
     def update_stream(self):
         try:
-            db = get_database()
-            data = self._parse_request_data()
+            payload = self._parse_request_data()
+            data = payload
             validation_errors = stream_schema.validate(data)
 
             if validation_errors:
-                return self._create_error_response(
-                    "Validation failed!", validation_errors
-                )
+                return self._create_error_response("Validation failed!", validation_errors)
 
-            stream_id = data["stream_id"]
-            current_stream = self._get_stream_from_db(stream_id)
-
-            # Check if stream is running and stop it
-            stream_manager = streams.get(stream_id, None)
-            is_stream_running = stream_manager and stream_manager.running
-
-            if is_stream_running:
-                Stream.stop_stream(stream_id)
-
+            stream_id = data.get("stream_id")
+            
             try:
                 _stream = stream_schema.load(data)
-                db.streams.replace_one({"stream_id": stream_id}, _stream)
+                result = StreamService.update_stream(stream_id, _stream) 
+                
+                if result["status"] == "error":
+                     return self._create_error_response(result["message"], result.get("error_code"))
 
-                return self._create_success_response(
-                    "Stream has been successfully updated.", data
-                )
+                return self._create_success_response(result["message"], result["data"])
 
             except Exception as e:
-                log_event(
-                    logger,
-                    "error",
-                    f"Error updating stream {stream_id}: {e}",
-                    event_type="error",
-                )
-                return self._create_error_response(
-                    "Stream could not be updated", "updating_stream_failed"
-                )
-            finally:
-                if is_stream_running:
-                    Stream.start_stream(**data)
+                 raise e
 
         except ValueError as e:
-            return self._create_error_response(
-                str(e), status_code=404 if "not found" in str(e) else 400
-            )
+            return self._create_error_response(str(e), status_code=404 if "not found" in str(e) else 400)
         except Exception as e:
-            log_event(
-                logger,
-                "error",
-                f"Unexpected error in update_stream: {e}",
-                event_type="error",
-            )
-            return self._create_error_response(
-                "Stream could not be updated", "updating_stream_failed"
-            )
-
-    def _add_derived_fields(self, stream):
-        """Add derived boolean fields to a stream object."""
-        # Direct fields from database
-        stream["saving_video"] = stream.get("saving_video", True)
-        stream["intrusion_detection"] = stream.get("intrusion_detection", False)
-        stream["patrol_mode"] = stream.get("patrol_mode", "off")
-
-        # Focus enabled during patrol
-        stream["focus_enabled"] = stream.get("enable_focus_during_patrol", False)
-
-        # Hazard area configured (based on safe_area being set)
-        stream["is_hazard_area_configured"] = stream.get("safe_area") is not None
-
-        # PTZ support (based on having all required PTZ credentials)
-        has_ptz = all([
-            stream.get("cam_ip"),
-            stream.get("ptz_port"),
-            stream.get("ptz_username"),
-            stream.get("ptz_password")
-        ])
-        stream["has_ptz"] = has_ptz
-
-        # Grid patrol configured (based on patrol_area being set)
-        stream["is_grid_patrol_configured"] = stream.get("patrol_area") is not None
-
-        # Pattern patrol configured (based on patrol_pattern being set and having coordinates)
-        patrol_pattern = stream.get("patrol_pattern")
-        stream["is_pattern_patrol_configured"] = (
-            patrol_pattern is not None and
-            patrol_pattern.get("coordinates") is not None and
-            len(patrol_pattern.get("coordinates", [])) >= 2
-        )
-
-        return stream
+            log_event(logger, "error", f"Unexpected error in update_stream: {e}", event_type="error")
+            return self._create_error_response("Stream could not be updated", "updating_stream_failed")
 
     def get(self, stream_id):
-        db = get_database()
-        resp = tools.JsonResp({"message": "Stream(s) not found!"}, 404)
-
-        if stream_id:
-            stream = db.streams.find_one({"stream_id": stream_id})
-            if stream:
-                # Add unresolved event count for single stream
-                unresolved_count = db.events.count_documents(
-                    {"stream_id": stream_id, "is_resolved": {"$ne": True}}
-                )
-                stream["unresolved_events"] = unresolved_count
-                stream["has_unresolved"] = unresolved_count > 0
-
-                # Add derived fields
-                stream = self._add_derived_fields(stream)
-
-                resp = tools.JsonResp(stream, 200)
-
-        else:
-            streams = list(db.streams.find())
-            if streams:
-                # Get unresolved event counts for all streams
-                pipeline = [
-                    {"$match": {"is_resolved": {"$ne": True}}},
-                    {"$group": {"_id": "$stream_id", "unresolved_count": {"$sum": 1}}},
-                ]
-                event_counts = list(db.events.aggregate(pipeline))
-                count_dict = {
-                    item["_id"]: item["unresolved_count"] for item in event_counts
-                }
-
-                # Add event counts and derived fields to each stream
-                for stream in streams:
-                    unresolved_count = count_dict.get(stream["stream_id"], 0)
-                    stream["unresolved_events"] = unresolved_count
-                    stream["has_unresolved"] = unresolved_count > 0
-
-                    # Add derived fields
-                    stream = self._add_derived_fields(stream)
-
-                resp = tools.JsonResp(streams, 200)
-
-        return resp
+        result = StreamService.get_stream(stream_id)
+        if result["status"] == "error":
+             return tools.JsonResp({"message": "Stream(s) not found!"}, 404)
+        
+        return tools.JsonResp(result["data"], 200)
 
     def save_patrol_area(self):
         """Save patrol area to database and update active stream."""
-        try:
-            db = get_database()
-            data = self._parse_request_data()
-            stream_id = data.get("stream_id")
-            patrol_area = data.get("patrol_area")
+        data = self._parse_request_data()
+        stream_id = data.get("stream_id")
+        patrol_area = data.get("patrol_area")
 
-            # Validate required fields
-            if not stream_id:
-                return tools.JsonResp(
-                    {"status": "error", "message": "Missing stream_id in request data"},
-                    400,
-                )
+        if not stream_id:
+            return tools.JsonResp({"status": "error", "message": "Missing stream_id in request data"}, 400)
 
-            if not patrol_area:
-                return tools.JsonResp(
-                    {
-                        "status": "error",
-                        "message": "Missing patrol_area in request data",
-                    },
-                    400,
-                )
+        if not patrol_area:
+            return tools.JsonResp({"status": "error", "message": "Missing patrol_area in request data"}, 400)
 
-            # Validate patrol area structure
-            patrol_area_schema = PatrolAreaSchema()
-
-            try:
-                validated_patrol_area = patrol_area_schema.load(patrol_area)
-            except ValidationError as e:
-                return tools.JsonResp(
-                    {
-                        "status": "error",
-                        "message": "Invalid patrol area data",
-                        "errors": e.messages,
-                    },
-                    400,
-                )
-
-            # Normalize coordinates according to specific rules
-            validated_patrol_area = self._normalize_patrol_coordinates(
-                validated_patrol_area
-            )
-
-            # Check if stream exists in database
-            self._get_stream_from_db(stream_id)
-
-            # Update patrol area in database
-            result = db.streams.update_one(
-                {"stream_id": stream_id},
-                {"$set": {"patrol_area": validated_patrol_area}},
-            )
-
-            if result.modified_count == 0:
-                log_event(
-                    logger,
-                    "warning",
-                    f"No document was modified for stream_id: {stream_id}",
-                    event_type="warning",
-                )
-
-            # Update in-memory stream if it's active
-            video_streaming = streams.get(stream_id)
-            if video_streaming and video_streaming.ptz_auto_tracker:
-                video_streaming.ptz_auto_tracker.set_patrol_area(validated_patrol_area)
-                log_event(
-                    logger,
-                    "info",
-                    f"Updated patrol area for active stream: {stream_id}",
-                    event_type="info",
-                )
-
-            log_event(
-                logger,
-                "info",
-                f"Patrol area saved successfully for stream: {stream_id}",
-                event_type="info",
-            )
-
-            return tools.JsonResp(
-                {
-                    "status": "success",
-                    "message": "Patrol area saved successfully",
-                    "data": {
-                        "stream_id": stream_id,
-                        "patrol_area": validated_patrol_area,
-                    },
-                },
-                200,
-            )
-
-        except ValueError as e:
-            return tools.JsonResp(
-                {"status": "error", "message": str(e)},
-                404 if "not found" in str(e) else 400,
-            )
-        except Exception as e:
-            log_event(
-                logger, "error", f"Error saving patrol area: {e}", event_type="error"
-            )
-            return tools.JsonResp(
-                {"status": "error", "message": f"Failed to save patrol area: {str(e)}"},
-                500,
-            )
-
-    def _normalize_patrol_coordinates(self, patrol_area: dict) -> dict:
-        """
-        Normalize patrol area coordinates according to specific rules:
-        - Ensure xMax is not less than xMin (swap if xMax < xMin)
-        - Ensure yMax is not greater than yMin (swap if yMax > yMin)
-        - zoom_level is validated by schema and not normalized here
-
-        Args:
-            patrol_area: Dictionary containing patrol coordinates and zoom_level
-
-        Returns:
-            dict: Normalized patrol area with corrected coordinate values
-        """
-        normalized_area = patrol_area.copy()
-
-        # Normalize X coordinates: ensure xMax >= xMin
-        x_min = patrol_area.get("xMin")
-        x_max = patrol_area.get("xMax")
-        if x_min is not None and x_max is not None and x_max < x_min:
-            normalized_area["xMin"] = x_max
-            normalized_area["xMax"] = x_min
-            log_event(
-                logger,
-                "info",
-                f"Swapped xMin ({x_min}) and xMax ({x_max}) because xMax was less than xMin",
-                event_type="info",
-            )
-
-        # Normalize Y coordinates: ensure yMax <= yMin
-        y_min = patrol_area.get("yMin")
-        y_max = patrol_area.get("yMax")
-        if y_min is not None and y_max is not None and y_max > y_min:
-            normalized_area["yMin"] = y_max
-            normalized_area["yMax"] = y_min
-            log_event(
-                logger,
-                "info",
-                f"Swapped yMin ({y_min}) and yMax ({y_max}) because yMax was greater than yMin",
-                event_type="info",
-            )
-
-        # zoom_level is handled by schema validation (0.0-1.0 range)
-
-        return normalized_area
+        result = PatrolService.save_patrol_area(stream_id=stream_id, patrol_area=patrol_area)
+        status_code = 200 if result["status"] == "success" else 400
+        if result["status"] == "error" and "not found" in result.get("message", ""):
+            status_code = 404
+        return tools.JsonResp(result, status_code)
 
     def get_patrol_area(self):
-        """Get saved patrol area from database."""
-        try:
-            data = self._parse_request_data()
-            stream_id = data.get("stream_id")
-
-            # Validate required fields
-            if not stream_id:
-                return tools.JsonResp(
-                    {"status": "error", "message": "Missing stream_id in request data"},
-                    400,
-                )
-
-            # Get stream from database
-            stream = self._get_stream_from_db(stream_id)
-
-            # Get patrol area from stream data
-            patrol_area = stream.get("patrol_area")
-
-            if patrol_area is None:
-                return tools.JsonResp(
-                    {
-                        "status": "success",
-                        "message": "No patrol area configured for this stream",
-                        "data": {"stream_id": stream_id, "patrol_area": None},
-                    },
-                    200,
-                )
-
-            log_event(
-                logger,
-                "info",
-                f"Retrieved patrol area for stream: {stream_id}",
-                event_type="info",
-            )
-
-            return tools.JsonResp(
-                {
-                    "status": "success",
-                    "message": "Patrol area retrieved successfully",
-                    "data": {"stream_id": stream_id, "patrol_area": patrol_area},
-                },
-                200,
-            )
-
-        except ValueError as e:
-            return tools.JsonResp(
-                {"status": "error", "message": str(e)},
-                404 if "not found" in str(e) else 400,
-            )
-        except Exception as e:
-            log_event(
-                logger,
-                "error",
-                f"Error retrieving patrol area: {e}",
-                event_type="error",
-            )
-            return tools.JsonResp(
-                {
-                    "status": "error",
-                    "message": f"Failed to retrieve patrol area: {str(e)}",
-                },
-                500,
-            )
+        data = self._parse_request_data()
+        stream_id = data.get("stream_id")
+        if not stream_id:
+            return tools.JsonResp({"status": "error", "message": "Missing stream_id in request data"}, 400)
+        
+        result = PatrolService.get_patrol_area(stream_id=stream_id)
+        status_code = 200 if result["status"] == "success" else 400
+        if result["status"] == "error" and "not found" in result.get("message", ""):
+            status_code = 404
+        return tools.JsonResp(result, status_code)
 
     def save_patrol_pattern(self):
-        """Save patrol pattern to database and update active stream."""
-        try:
-            db = get_database()
-            data = self._parse_request_data()
-            stream_id = data.get("stream_id")
-            patrol_pattern = data.get("patrol_pattern")
+        data = self._parse_request_data()
+        stream_id = data.get("stream_id")
+        patrol_pattern = data.get("patrol_pattern")
 
-            # Validate required fields
-            if not stream_id:
-                return tools.JsonResp(
-                    {"status": "error", "message": "Missing stream_id in request data"},
-                    400,
-                )
+        if not stream_id:
+             return tools.JsonResp({"status": "error", "message": "Missing stream_id in request data"}, 400)
+        if not patrol_pattern:
+             return tools.JsonResp({"status": "error", "message": "Missing patrol_pattern in request data"}, 400)
 
-            if not patrol_pattern:
-                return tools.JsonResp(
-                    {
-                        "status": "error",
-                        "message": "Missing patrol_pattern in request data",
-                    },
-                    400,
-                )
-
-            # Validate patrol pattern structure
-            patrol_pattern_schema = PatrolPatternSchema()
-
-            try:
-                validated_patrol_pattern = patrol_pattern_schema.load(patrol_pattern)
-            except ValidationError as e:
-                return tools.JsonResp(
-                    {
-                        "status": "error",
-                        "message": "Invalid patrol pattern data",
-                        "errors": e.messages,
-                    },
-                    400,
-                )
-
-            # Check if stream exists in database
-            self._get_stream_from_db(stream_id)
-
-            # Update patrol pattern in database
-            result = db.streams.update_one(
-                {"stream_id": stream_id},
-                {"$set": {"patrol_pattern": validated_patrol_pattern}},
-            )
-
-            if result.modified_count == 0:
-                log_event(
-                    logger,
-                    "warning",
-                    f"No document was modified for stream_id: {stream_id}",
-                    event_type="warning",
-                )
-
-            # Update in-memory stream if it's active
-            video_streaming = streams.get(stream_id)
-            if video_streaming and video_streaming.ptz_auto_tracker:
-                # Set the custom patrol pattern
-                video_streaming.ptz_auto_tracker.set_custom_patrol_pattern(
-                    validated_patrol_pattern["coordinates"]
-                )
-                log_event(
-                    logger,
-                    "info",
-                    f"Updated patrol pattern for active stream: {stream_id}",
-                    event_type="info",
-                )
-
-            log_event(
-                logger,
-                "info",
-                f"Patrol pattern saved successfully for stream: {stream_id}",
-                event_type="info",
-            )
-
-            return tools.JsonResp(
-                {
-                    "status": "success",
-                    "message": "Patrol pattern saved successfully",
-                    "data": {
-                        "stream_id": stream_id,
-                        "patrol_pattern": validated_patrol_pattern,
-                    },
-                },
-                200,
-            )
-
-        except ValueError as e:
-            return tools.JsonResp(
-                {"status": "error", "message": str(e)},
-                404 if "not found" in str(e) else 400,
-            )
-        except Exception as e:
-            log_event(
-                logger, "error", f"Error saving patrol pattern: {e}", event_type="error"
-            )
-            return tools.JsonResp(
-                {
-                    "status": "error",
-                    "message": f"Failed to save patrol pattern: {str(e)}",
-                },
-                500,
-            )
+        result = PatrolService.save_patrol_pattern(stream_id=stream_id, patrol_pattern=patrol_pattern)
+        status_code = 200 if result["status"] == "success" else 400
+        if result["status"] == "error" and "not found" in result.get("message", ""):
+            status_code = 404
+        return tools.JsonResp(result, status_code)
 
     def preview_patrol_pattern(self):
-        """Preview a patrol pattern by executing it once on the camera."""
-        try:
-            data = self._parse_request_data()
-            stream_id = data.get("stream_id")
-            patrol_pattern = data.get("patrol_pattern")
-
-            # Validate required fields
-            if not stream_id:
-                return tools.JsonResp(
-                    {"status": "error", "message": "Missing stream_id in request data"},
-                    400,
-                )
-
-            if not patrol_pattern:
-                return tools.JsonResp(
-                    {
-                        "status": "error",
-                        "message": "Missing patrol_pattern in request data",
-                    },
-                    400,
-                )
-
-            # Validate patrol pattern structure
-            patrol_pattern_schema = PatrolPatternSchema()
-
-            try:
-                validated_patrol_pattern = patrol_pattern_schema.load(patrol_pattern)
-            except ValidationError as e:
-                return tools.JsonResp(
-                    {
-                        "status": "error",
-                        "message": "Invalid patrol pattern data",
-                        "errors": e.messages,
-                    },
-                    400,
-                )
-
-            # Get active stream
-            video_streaming = streams.get(stream_id)
-            if not video_streaming:
-                return tools.JsonResp(
-                    {
-                        "status": "error",
-                        "message": "Stream is not active. Please start the stream first.",
-                    },
-                    400,
-                )
-
-            if not video_streaming.ptz_auto_tracker:
-                return tools.JsonResp(
-                    {
-                        "status": "error",
-                        "message": "This stream does not support PTZ control.",
-                    },
-                    400,
-                )
-
-            # Preview the patrol pattern (execute once)
-            coordinates = validated_patrol_pattern["coordinates"]
-            video_streaming.ptz_auto_tracker.preview_custom_patrol_pattern(coordinates, stream_id)
-
-            log_event(
-                logger,
-                "info",
-                f"Previewing patrol pattern for stream: {stream_id} with {len(coordinates)} points",
-                event_type="info",
-            )
-
-            return tools.JsonResp(
-                {
-                    "status": "success",
-                    "message": f"Patrol pattern preview started with {len(coordinates)} waypoints",
-                    "data": {
-                        "stream_id": stream_id,
-                        "waypoint_count": len(coordinates),
-                    },
-                },
-                200,
-            )
-
-        except ValueError as e:
-            return tools.JsonResp(
-                {"status": "error", "message": str(e)},
-                404 if "not found" in str(e) else 400,
-            )
-        except Exception as e:
-            log_event(
-                logger,
-                "error",
-                f"Error previewing patrol pattern: {e}",
-                event_type="error",
-            )
-            return tools.JsonResp(
-                {
-                    "status": "error",
-                    "message": f"Failed to preview patrol pattern: {str(e)}",
-                },
-                500,
-            )
+        data = self._parse_request_data()
+        stream_id = data.get("stream_id")
+        patrol_pattern = data.get("patrol_pattern")
+        if not stream_id:
+             return tools.JsonResp({"status": "error", "message": "Missing stream_id in request data"}, 400)
+        if not patrol_pattern:
+             return tools.JsonResp({"status": "error", "message": "Missing patrol_pattern in request data"}, 400)
+        
+        result = PatrolService.preview_patrol_pattern(stream_id=stream_id, patrol_pattern=patrol_pattern)
+        status_code = 200 if result["status"] == "success" else 400
+        return tools.JsonResp(result, status_code)
 
     def get_patrol_pattern(self):
-        """Get saved patrol pattern from database."""
-        try:
-            data = self._parse_request_data()
-            stream_id = data.get("stream_id")
-
-            # Validate required fields
-            if not stream_id:
-                return tools.JsonResp(
-                    {"status": "error", "message": "Missing stream_id in request data"},
-                    400,
-                )
-
-            # Get stream from database
-            stream = self._get_stream_from_db(stream_id)
-
-            # Get patrol pattern from stream data
-            patrol_pattern = stream.get("patrol_pattern")
-
-            if patrol_pattern is None:
-                return tools.JsonResp(
-                    {
-                        "status": "success",
-                        "message": "No patrol pattern configured for this stream",
-                        "data": {"stream_id": stream_id, "patrol_pattern": None},
-                    },
-                    200,
-                )
-
-            log_event(
-                logger,
-                "info",
-                f"Retrieved patrol pattern for stream: {stream_id}",
-                event_type="info",
-            )
-
-            return tools.JsonResp(
-                {
-                    "status": "success",
-                    "message": "Patrol pattern retrieved successfully",
-                    "data": {"stream_id": stream_id, "patrol_pattern": patrol_pattern},
-                },
-                200,
-            )
-
-        except ValueError as e:
-            return tools.JsonResp(
-                {"status": "error", "message": str(e)},
-                404 if "not found" in str(e) else 400,
-            )
-        except Exception as e:
-            log_event(
-                logger,
-                "error",
-                f"Error retrieving patrol pattern: {e}",
-                event_type="error",
-            )
-            return tools.JsonResp(
-                {
-                    "status": "error",
-                    "message": f"Failed to retrieve patrol pattern: {str(e)}",
-                },
-                500,
-            )
+        data = self._parse_request_data()
+        stream_id = data.get("stream_id")
+        if not stream_id:
+             return tools.JsonResp({"status": "error", "message": "Missing stream_id in request data"}, 400)
+        
+        result = PatrolService.get_patrol_pattern(stream_id=stream_id)
+        status_code = 200 if result["status"] == "success" else 400
+        if result["status"] == "error" and "not found" in result.get("message", ""):
+            status_code = 404
+        return tools.JsonResp(result, status_code)
 
     def save_safe_area(self):
-        """Save safe area configuration to database and update active stream."""
-        try:
-            db = get_database()
-            data = self._parse_request_data()
-            stream_id = data.get("streamId")
-            coords = data.get("coords")
-            static_mode = data.get("static", True)
-            reference_image = data.get("image")
+        data = self._parse_request_data()
+        stream_id = data.get("streamId") or data.get("stream_id")
+        coords = data.get("coords")
+        static_mode = data.get("static", True)
+        reference_image = data.get("image")
 
-            # Validate required fields
-            if not stream_id:
-                return tools.JsonResp(
-                    {"status": "error", "message": "Missing streamId in request data"},
-                    400,
-                )
+        if not stream_id:
+             return tools.JsonResp({"status": "error", "message": "Missing streamId in request data"}, 400)
+        if not coords:
+             return tools.JsonResp({"status": "error", "message": "Missing coords in request data"}, 400)
 
-            if not coords:
-                return tools.JsonResp(
-                    {"status": "error", "message": "Missing coords in request data"},
-                    400,
-                )
-
-            # Create safe area data structure
-            from datetime import datetime
-
-            safe_area_data = {
-                "coords": coords,
-                "static_mode": static_mode,
-                "reference_image": reference_image,
-                "updated_at": datetime.utcnow(),
-            }
-
-            # If no existing safe area, add created_at
-            existing_stream = self._get_stream_from_db(stream_id)
-            if not existing_stream.get("safe_area"):
-                safe_area_data["created_at"] = datetime.utcnow()
-
-            # Validate safe area structure
-            safe_area_schema = SafeAreaSchema()
-
-            try:
-                validated_safe_area = safe_area_schema.load(safe_area_data)
-            except ValidationError as e:
-                return tools.JsonResp(
-                    {
-                        "status": "error",
-                        "message": "Invalid safe area data",
-                        "errors": e.messages,
-                    },
-                    400,
-                )
-
-            # Update safe area in database
-            result = db.streams.update_one(
-                {"stream_id": stream_id}, {"$set": {"safe_area": validated_safe_area}}
-            )
-
-            if result.modified_count == 0:
-                log_event(
-                    logger,
-                    "warning",
-                    f"No document was modified for stream_id: {stream_id}",
-                    event_type="warning",
-                )
-
-            # Update the SafeAreaTracker for active stream
-            from main.shared import safe_area_trackers
-
-            if stream_id in safe_area_trackers:
-                safe_area_tracker = safe_area_trackers[stream_id]
-                safe_area_tracker.set_static_mode(static_mode)
-                log_event(
-                    logger,
-                    "info",
-                    f"Updated SafeAreaTracker static mode for active stream: {stream_id}",
-                    event_type="info",
-                )
-
-            log_event(
-                logger,
-                "info",
-                f"Safe area saved successfully for stream: {stream_id}",
-                event_type="info",
-            )
-
-            return tools.JsonResp(
-                {
-                    "status": "success",
-                    "message": "Safe area saved successfully",
-                    "data": {"stream_id": stream_id, "safe_area": validated_safe_area},
-                },
-                200,
-            )
-
-        except ValueError as e:
-            return tools.JsonResp(
-                {"status": "error", "message": str(e)},
-                404 if "not found" in str(e) else 400,
-            )
-        except Exception as e:
-            log_event(
-                logger, "error", f"Error saving safe area: {e}", event_type="error"
-            )
-            return tools.JsonResp(
-                {"status": "error", "message": f"Failed to save safe area: {str(e)}"},
-                500,
-            )
+        result = HazardService.save_safe_area(stream_id=stream_id, coords=coords, static_mode=static_mode, reference_image=reference_image)
+        status_code = 200 if result["status"] == "success" else 400
+        if result["status"] == "error" and "not found" in result.get("message", ""):
+            status_code = 404
+        return tools.JsonResp(result, status_code)
 
     def get_safe_area(self):
-        """Get saved safe area configuration from database."""
-        try:
-            data = self._parse_request_data()
-            stream_id = data.get("streamId")
-
-            # Validate required fields
-            if not stream_id:
-                return tools.JsonResp(
-                    {"status": "error", "message": "Missing streamId in request data"},
-                    400,
-                )
-
-            # Get stream from database
-            stream = self._get_stream_from_db(stream_id)
-
-            # Get safe area from stream data
-            safe_area = stream.get("safe_area")
-
-            if safe_area is None:
-                return tools.JsonResp(
-                    {
-                        "status": "success",
-                        "message": "No safe area configured for this stream",
-                        "data": {
-                            "stream_id": stream_id,
-                            "safe_area": None,
-                            "static_mode": True,  # Default to static
-                        },
-                    },
-                    200,
-                )
-
-            log_event(
-                logger,
-                "info",
-                f"Retrieved safe area for stream: {stream_id}",
-                event_type="info",
-            )
-
-            return tools.JsonResp(
-                {
-                    "status": "success",
-                    "message": "Safe area retrieved successfully",
-                    "data": {
-                        "stream_id": stream_id,
-                        "safe_area": safe_area,
-                        "static_mode": safe_area.get("static_mode", True),
-                    },
-                },
-                200,
-            )
-
-        except ValueError as e:
-            return tools.JsonResp(
-                {"status": "error", "message": str(e)},
-                404 if "not found" in str(e) else 400,
-            )
-        except Exception as e:
-            log_event(
-                logger, "error", f"Error retrieving safe area: {e}", event_type="error"
-            )
-            return tools.JsonResp(
-                {
-                    "status": "error",
-                    "message": f"Failed to retrieve safe area: {str(e)}",
-                },
-                500,
-            )
+        data = self._parse_request_data()
+        stream_id = data.get("streamId") or data.get("stream_id")
+        if not stream_id:
+             return tools.JsonResp({"status": "error", "message": "Missing streamId in request data"}, 400)
+        
+        result = HazardService.get_safe_area(stream_id=stream_id)
+        status_code = 200 if result["status"] == "success" else 400
+        if result["status"] == "error" and "not found" in result.get("message", ""):
+            status_code = 404
+        return tools.JsonResp(result, status_code)
 
     @staticmethod
-    def start_stream(
-        rtsp_link: str,
-        model_name: str,
-        stream_id: str,
-        cam_ip: Optional[str] = None,
-        ptz_port: Optional[int] = None,
-        ptz_username: Optional[str] = None,
-        ptz_password: Optional[str] = None,
-        profile_name: Optional[str] = None,
-        home_pan: Optional[float] = None,
-        home_tilt: Optional[float] = None,
-        home_zoom: Optional[float] = None,
-        patrol_area: Optional[dict] = None,
-        patrol_pattern: Optional[dict] = None,
-        safe_area: Optional[dict] = None,
-        intrusion_detection: Optional[bool] = None,
-        saving_video: Optional[bool] = None,
-        **kwargs: Any,
-    ) -> None:
-        supports_ptz = all([cam_ip, ptz_port, ptz_username, ptz_password])
-        # Use the configured ptz_autotrack setting from kwargs, defaulting to False
-        ptz_autotrack = kwargs.get('ptz_autotrack', False)
-
-        # Default intrusion detection to False if not specified
-        if intrusion_detection is None:
-            intrusion_detection = False
-
-        # Default saving video to True if not specified
-        if saving_video is None:
-            saving_video = True
-
-        if stream_id in streams:
-            log_event(
-                logger,
-                "info",
-                f"Stream {stream_id} is already running!",
-                event_type="info",
-            )
-            return
-
-        # Start the video stream immediately
-        video_streaming = StreamManager(
-            rtsp_link,
-            model_name,
-            stream_id,
-            ptz_autotrack,
-            intrusion_detection,
-            saving_video,
-        )
-        video_streaming.start_stream()
-        streams[stream_id] = video_streaming
-
-        # Initialize SafeAreaTracker with saved data if available
-        # The SafeAreaTracker is now guaranteed to be in the dictionary since StreamManager is created
-        from main.shared import safe_area_trackers
-
-        # Debug logging
-        log_event(
-            logger,
-            "info",
-            f"Stream startup debug for {stream_id}: safe_area={'exists' if safe_area else 'None'}, tracker_in_dict={stream_id in safe_area_trackers}",
-            event_type="info",
-        )
-        if safe_area:
-            log_event(
-                logger,
-                "info",
-                f"Safe area data: static_mode={safe_area.get('static_mode', 'missing')}, coords_count={len(safe_area.get('coords', []))}, ref_image={safe_area.get('reference_image', 'missing')}",
-                event_type="info",
-            )
-
-        if safe_area and stream_id in safe_area_trackers:
-            safe_area_tracker = safe_area_trackers[stream_id]
-            try:
-                # Set static mode from database
-                static_mode = safe_area.get("static_mode", True)
-                safe_area_tracker.set_static_mode(static_mode)
-
-                # Load safe area coordinates if they exist
-                coords = safe_area.get("coords")
-                reference_image = safe_area.get("reference_image")
-
-                if coords and len(coords) > 0:
-                    # Try to load reference frame and set up safe area
-                    if reference_image:
-                        try:
-                            import cv2
-                            import os
-                            from urllib.parse import urlparse
-
-                            # Parse the reference image path using same logic as routes.py
-                            parsed_url = urlparse(reference_image)
-                            file_name = os.path.basename(parsed_url.path)
-
-                            # Use same path construction as in routes.py
-                            REFERENCE_FRAME_DIR = "../static/frame_refs"
-                            image_path = os.path.join(
-                                os.path.dirname(__file__),
-                                REFERENCE_FRAME_DIR,
-                                file_name,
-                            )
-
-                            log_event(
-                                logger,
-                                "info",
-                                f"Attempting to load reference image for {stream_id}: {image_path} (from {reference_image})",
-                                event_type="info",
-                            )
-
-                            # Load the reference frame
-                            reference_frame = cv2.imread(image_path)
-                            if reference_frame is not None:
-                                safe_area_tracker.update_safe_area(
-                                    reference_frame, coords
-                                )
-                                log_event(
-                                    logger,
-                                    "info",
-                                    f"Loaded safe area with {len(coords)} zones and reference frame for stream {stream_id}",
-                                    event_type="info",
-                                )
-                            else:
-                                log_event(
-                                    logger,
-                                    "warning",
-                                    f"Could not load reference frame for stream {stream_id}: {image_path}",
-                                    event_type="warning",
-                                )
-                        except Exception as img_e:
-                            log_event(
-                                logger,
-                                "warning",
-                                f"Failed to load reference frame for stream {stream_id}: {img_e}",
-                                event_type="warning",
-                            )
-
-                    log_event(
-                        logger,
-                        "info",
-                        f"Loaded safe area static mode ({static_mode}) with {len(coords)} coordinate zones for stream {stream_id}",
-                        event_type="info",
-                    )
-                else:
-                    log_event(
-                        logger,
-                        "info",
-                        f"Loaded safe area static mode ({static_mode}) for stream {stream_id} (no coordinates)",
-                        event_type="info",
-                    )
-
-            except Exception as e:
-                log_event(
-                    logger,
-                    "warning",
-                    f"Failed to initialize safe area for stream {stream_id}: {e}",
-                    event_type="warning",
-                )
-        elif safe_area:
-            log_event(
-                logger,
-                "warning",
-                f"Safe area data exists for stream {stream_id} but SafeAreaTracker not found in registry",
-                event_type="warning",
-            )
-        elif stream_id in safe_area_trackers:
-            log_event(
-                logger,
-                "info",
-                f"SafeAreaTracker exists for stream {stream_id} but no safe area data in database",
-                event_type="info",
-            )
-        else:
-            log_event(
-                logger,
-                "info",
-                f"No safe area configuration found for stream {stream_id} and no tracker registered",
-                event_type="info",
-            )
-
-        # Update the database to mark stream as active
-        try:
-            db = get_database()
-            db.streams.update_one(
-                {"stream_id": stream_id}, {"$set": {"is_active": True}}
-            )
-            log_event(
-                logger,
-                "info",
-                f"Updated stream {stream_id} status to active in database",
-                event_type="info",
-            )
-        except Exception as e:
-            log_event(
-                logger,
-                "error",
-                f"Failed to update stream {stream_id} active status in database: {e}",
-                event_type="error",
-            )
-
-        # Schedule stop stream
-        # stop_time = datetime.datetime.fromtimestamp(end_timestamp)
-        # scheduler.add_job(Stream.stop_stream, 'date', run_date=stop_time, args=[stream_id])
-        # print(f"Stream {stream_id} scheduled to stop at {stop_time}.")
-
-        if supports_ptz:
-            ptz_thread = threading.Thread(
-                target=Stream.initialize_camera_controller,
-                args=(
-                    cam_ip,
-                    ptz_port,
-                    ptz_username,
-                    ptz_password,
-                    stream_id,
-                    profile_name,
-                    patrol_area,
-                    patrol_pattern,
-                ),
-                daemon=True,
-            )
-            ptz_thread.start()
-
-    @staticmethod
-    def handle_patrol_toggle(stream_id, mode, stream_doc):
-        """Handle patrol toggle operation including stopping, starting, and configuration.
-
-        Args:
-            stream_id: Stream identifier
-            mode: Patrol mode ('pattern', 'grid', or 'off')
-            stream_doc: Stream document from database
-
-        Returns:
-            dict: Result with status, messages, and patrol information
-        """
-        from main.shared import streams
-        from datetime import datetime, timezone
-
-        db = get_database()
-        video_streaming = streams.get(stream_id)
-        home_position = None
-        can_start_patrol = False
-        patrol_result = {"patrol_started": False, "status": "not_attempted"}
-
-        # Handle turning off patrol
-        if mode == "off":
-            if video_streaming and video_streaming.ptz_auto_tracker:
-                # Stop any currently running patrol
-                if video_streaming.ptz_auto_tracker.is_patrol_active():
-                    video_streaming.ptz_auto_tracker.stop_patrol()
-                    log_event(
-                        logger,
-                        "info",
-                        f"Stopped patrol for stream {stream_id}",
-                        event_type="patrol_stopped",
-                    )
-
-                # Reset camera to home position
-                video_streaming.ptz_auto_tracker.reset_camera_position()
-                log_event(
-                    logger,
-                    "info",
-                    f"Patrol disabled for stream {stream_id}",
-                    event_type="patrol_disabled",
-                )
-
-            return {
-                "status": "success",
-                "message": "Patrol disabled successfully",
-                "patrol_enabled": False,
-                "patrol_mode": "off",
-                "home_position_saved": False,
-                "patrol_started": False,
-            }
-
-        # Handle enabling patrol (pattern or grid)
-        if video_streaming and video_streaming.ptz_auto_tracker:
-            can_start_patrol = True
-
-            # Save current camera position as home
-            if video_streaming.camera_controller:
-                try:
-                    pan, tilt, zoom = video_streaming.camera_controller.get_current_position()
-                    home_position = {
-                        "pan": pan,
-                        "tilt": tilt,
-                        "zoom": zoom,
-                        "saved_at": datetime.now(timezone.utc),
-                    }
-
-                    # Update database with home position
-                    db.streams.update_one(
-                        {"stream_id": stream_id},
-                        {"$set": {"patrol_home_position": home_position}},
-                    )
-
-                    log_event(
-                        logger,
-                        "info",
-                        f"Saved patrol home position for stream {stream_id}: pan={pan:.3f}, tilt={tilt:.3f}, zoom={zoom:.3f}",
-                        event_type="patrol_home_saved",
-                    )
-                except Exception as e:
-                    log_event(
-                        logger,
-                        "warning",
-                        f"Failed to get current camera position: {e}",
-                        event_type="warning",
-                    )
-
-            # Stop any currently running patrol first
-            if video_streaming.ptz_auto_tracker.is_patrol_active():
-                video_streaming.ptz_auto_tracker.stop_patrol()
-                log_event(
-                    logger,
-                    "info",
-                    f"Stopped existing patrol for stream {stream_id}",
-                    event_type="patrol_stopped",
-                )
-
-            # Update home position in tracker if we captured it
-            if home_position:
-                video_streaming.ptz_auto_tracker.update_default_position(
-                    home_position["pan"], home_position["tilt"], home_position["zoom"]
-                )
-
-            # Start patrol using centralized method
-            patrol_result = Stream.start_patrol_if_enabled(stream_id, video_streaming, stream_doc)
-
-            if not patrol_result["patrol_started"]:
-                log_event(
-                    logger,
-                    "warning",
-                    f"Failed to start patrol for stream {stream_id}: {patrol_result.get('status')}",
-                    event_type="patrol_start_failed",
-                )
-
-        # Prepare response
-        if can_start_patrol:
-            patrol_started = patrol_result.get("patrol_started", False)
-            focus_enabled = patrol_result.get("focus_enabled", False)
-
-            if patrol_started:
-                message = f"{mode.capitalize()} patrol enabled and started successfully"
-            else:
-                message = f"{mode.capitalize()} patrol settings saved but failed to start: {patrol_result.get('status')}"
-
-            return {
-                "status": "success",
-                "message": message,
-                "patrol_enabled": True,
-                "patrol_mode": mode,
-                "home_position_saved": home_position is not None,
-                "patrol_started": patrol_started,
-                "focus_enabled": focus_enabled,
-                "autotrack_enabled": video_streaming.ptz_autotrack if video_streaming else None,
-            }
-        else:
-            return {
-                "status": "success",
-                "message": f"{mode.capitalize()} patrol settings saved. Patrol will start when stream is active.",
-                "patrol_enabled": True,
-                "patrol_mode": mode,
-                "home_position_saved": False,
-                "patrol_started": False,
-            }
-
-    @staticmethod
-    def start_patrol_if_enabled(stream_id, video_streaming, stream_doc):
-        """Start patrol for a stream if enabled in database.
-
-        Args:
-            stream_id: Stream identifier
-            video_streaming: Active StreamManager instance
-            stream_doc: Stream document from database
-
-        Returns:
-            dict: Result with status, patrol_started, and patrol_mode
-        """
-        if not stream_doc:
-            return {"status": "no_stream_doc", "patrol_started": False}
-
-        if not stream_doc.get("patrol_enabled", False):
-            return {"status": "patrol_disabled", "patrol_started": False}
-
-        if not video_streaming or not video_streaming.ptz_auto_tracker:
-            return {"status": "no_ptz_tracker", "patrol_started": False}
-
-        patrol_mode = stream_doc.get("patrol_mode", "grid")
-        patrol_pattern = stream_doc.get("patrol_pattern")
-        enable_focus = stream_doc.get("enable_focus_during_patrol", False)
-
-        # Configure patrol parameters
-        video_streaming.ptz_auto_tracker.set_patrol_parameters(
-            focus_max_zoom=1.0,
-            enable_focus_during_patrol=enable_focus
-        )
-
-        # Start patrol based on mode
-        if patrol_mode == "pattern":
-            if patrol_pattern and patrol_pattern.get("coordinates"):
-                coordinates = patrol_pattern.get("coordinates", [])
-                if len(coordinates) >= 2:
-                    video_streaming.ptz_auto_tracker.set_custom_patrol_pattern(coordinates)
-                    video_streaming.ptz_auto_tracker.start_patrol(mode="pattern")
-                    log_event(
-                        logger,
-                        "info",
-                        f"Started pattern patrol for stream {stream_id} with {len(coordinates)} waypoints (enable_focus={enable_focus})",
-                        event_type="patrol_started",
-                    )
-                    return {
-                        "status": "success",
-                        "patrol_started": True,
-                        "patrol_mode": "pattern",
-                        "waypoint_count": len(coordinates),
-                        "focus_enabled": enable_focus
-                    }
-                else:
-                    log_event(
-                        logger,
-                        "warning",
-                        f"Pattern patrol enabled but insufficient waypoints for stream {stream_id}",
-                        event_type="warning",
-                    )
-                    return {"status": "insufficient_waypoints", "patrol_started": False}
-            else:
-                log_event(
-                    logger,
-                    "warning",
-                    f"Pattern patrol enabled but no pattern configured for stream {stream_id}",
-                    event_type="warning",
-                )
-                return {"status": "no_pattern", "patrol_started": False}
-
-        elif patrol_mode == "grid":
-            video_streaming.ptz_auto_tracker.set_patrol_parameters(
-                x_positions=10,
-                y_positions=4,
-                focus_max_zoom=1.0,
-                enable_focus_during_patrol=enable_focus
-            )
-            video_streaming.ptz_auto_tracker.start_patrol("horizontal", mode="grid")
-            log_event(
-                logger,
-                "info",
-                f"Started grid patrol for stream {stream_id} (enable_focus={enable_focus})",
-                event_type="patrol_started",
-            )
-            return {
-                "status": "success",
-                "patrol_started": True,
-                "patrol_mode": "grid",
-                "focus_enabled": enable_focus
-            }
-        else:
-            log_event(
-                logger,
-                "warning",
-                f"Invalid patrol mode '{patrol_mode}' for stream {stream_id}",
-                event_type="warning",
-            )
-            return {"status": "invalid_mode", "patrol_started": False}
-
-    @staticmethod
-    def initialize_camera_controller(
-        cam_ip,
-        ptz_port,
-        ptz_username,
-        ptz_password,
-        stream_id,
-        profile_name=None,
-        patrol_area=None,
-        patrol_pattern=None,
-    ):
-        """This function will be executed in a background thread to avoid blocking the loop."""
-        try:
-            stream = streams[stream_id]
-            camera_controller = CameraController(
-                cam_ip, ptz_port, ptz_username, ptz_password, profile_name
-            )
-            stream.camera_controller = camera_controller
-
-            # if camera controller is initialized successfully, then we initialize auto tracker
-            ptz_auto_tracker = PTZAutoTracker(
-                cam_ip, ptz_port, ptz_username, ptz_password, profile_name
-            )
-            stream.ptz_auto_tracker = ptz_auto_tracker
-
-            # Get database connection for saving/loading home position
-            from database import get_database
-            from datetime import datetime, timezone
-            db = get_database()
-            stream_doc = db.streams.find_one({"stream_id": stream_id})
-
-            # Handle default home position
-            saved_home_position = stream_doc.get("patrol_home_position") if stream_doc else None
-
-            if saved_home_position:
-                # Update autotracker with saved home position
-                try:
-                    pan = saved_home_position.get("pan")
-                    tilt = saved_home_position.get("tilt")
-                    zoom = saved_home_position.get("zoom")
-
-                    if pan is not None and tilt is not None and zoom is not None:
-                        ptz_auto_tracker.update_default_position(pan, tilt, zoom)
-                        log_event(
-                            logger,
-                            "info",
-                            f"Updated autotracker with saved home position for stream {stream_id}: pan={pan:.3f}, tilt={tilt:.3f}, zoom={zoom:.3f}",
-                            event_type="ptz_home_loaded",
-                        )
-                except Exception as e:
-                    log_event(
-                        logger,
-                        "warning",
-                        f"Failed to update autotracker with saved home position for stream {stream_id}: {e}",
-                        event_type="warning",
-                    )
-            else:
-                # No saved home position, capture current position as default
-                try:
-                    pan, tilt, zoom = camera_controller.get_current_position()
-                    default_home_position = {
-                        "pan": pan,
-                        "tilt": tilt,
-                        "zoom": zoom,
-                        "saved_at": datetime.now(timezone.utc),
-                    }
-
-                    # Save to database
-                    db.streams.update_one(
-                        {"stream_id": stream_id},
-                        {"$set": {"patrol_home_position": default_home_position}},
-                    )
-
-                    # Update autotracker with the captured position
-                    ptz_auto_tracker.update_default_position(pan, tilt, zoom)
-
-                    log_event(
-                        logger,
-                        "info",
-                        f"Saved and set default home position for stream {stream_id}: pan={pan:.3f}, tilt={tilt:.3f}, zoom={zoom:.3f}",
-                        event_type="ptz_default_home_saved",
-                    )
-                except Exception as e:
-                    log_event(
-                        logger,
-                        "warning",
-                        f"Failed to save default home position for stream {stream_id}: {e}",
-                        event_type="warning",
-                    )
-
-            # Load saved patrol area if available (MUST be done before setting focus parameters)
-            if patrol_area:
-                try:
-                    ptz_auto_tracker.set_patrol_area(patrol_area)
-                    log_event(
-                        logger,
-                        "info",
-                        f"Loaded saved patrol area for stream {stream_id}: {patrol_area}",
-                        event_type="info",
-                    )
-                except Exception as e:
-                    log_event(
-                        logger,
-                        "warning",
-                        f"Failed to set patrol area for stream {stream_id}: {e}",
-                        event_type="warning",
-                    )
-
-            # Load saved patrol pattern if available
-            if patrol_pattern and patrol_pattern.get("coordinates"):
-                try:
-                    coordinates = patrol_pattern.get("coordinates", [])
-                    if len(coordinates) >= 2:
-                        ptz_auto_tracker.set_custom_patrol_pattern(coordinates)
-                        log_event(
-                            logger,
-                            "info",
-                            f"Loaded saved patrol pattern for stream {stream_id} with {len(coordinates)} waypoints",
-                            event_type="info",
-                        )
-                except Exception as e:
-                    log_event(
-                        logger,
-                        "warning",
-                        f"Failed to set patrol pattern for stream {stream_id}: {e}",
-                        event_type="warning",
-                    )
-
-            # Load and set enable_focus_during_patrol from database (MUST be done AFTER patrol area/pattern are set)
-            enable_focus = stream_doc.get("enable_focus_during_patrol", False) if stream_doc else False
-            try:
-                ptz_auto_tracker.set_patrol_parameters(
-                    focus_max_zoom=1.0,
-                    enable_focus_during_patrol=enable_focus
-                )
-                log_event(
-                    logger,
-                    "info",
-                    f"Loaded focus setting for stream {stream_id}: enable_focus={enable_focus}",
-                    event_type="ptz_focus_loaded",
-                )
-            except Exception as e:
-                log_event(
-                    logger,
-                    "warning",
-                    f"Failed to set focus parameters for stream {stream_id}: {e}",
-                    event_type="warning",
-                )
-
-            log_event(
-                logger,
-                "info",
-                f"PTZ configured for stream {stream_id}.",
-                event_type="info",
-            )
-
-            # Auto-start patrol if enabled in database
-            # Note: stream_doc already fetched above when handling home position
-            result = Stream.start_patrol_if_enabled(stream_id, stream, stream_doc)
-            if result["patrol_started"]:
-                log_event(
-                    logger,
-                    "info",
-                    f"Auto-started {result['patrol_mode']} patrol on system restart for stream {stream_id}",
-                    event_type="patrol_auto_started",
-                )
-
-        except Exception as e:
-            # Send notification when this fails
-            log_event(
-                logger,
-                "error",
-                f"Error initializing PTZ for stream {stream_id}: {e}",
-                event_type="error",
-            )
+    def start_stream(*args, **kwargs):
+        return StreamService.start_stream(*args, **kwargs)
 
     @staticmethod
     def stop_stream(stream_id):
-        db = get_database()
-        if stream_id not in streams:
-            # Stream not in memory, but still update database status if needed
-            try:
-                db.streams.update_one(
-                    {"stream_id": stream_id}, {"$set": {"is_active": False}}
-                )
-                log_event(
-                    logger,
-                    "info",
-                    f"Updated stream {stream_id} status to inactive in database (not in memory)",
-                    event_type="info",
-                )
-            except Exception as e:
-                log_event(
-                    logger,
-                    "error",
-                    f"Failed to update stream {stream_id} inactive status in database: {e}",
-                    event_type="error",
-                )
-            return
-
-        try:
-            video_streaming = streams.get(stream_id)
-            if video_streaming:
-                video_streaming.stop_streaming()
-                video_streaming.camera_controller = None
-            else:
-                return
-
-            del streams[stream_id]
-
-            # Update the database to mark stream as inactive
-            try:
-                db.streams.update_one(
-                    {"stream_id": stream_id}, {"$set": {"is_active": False}}
-                )
-                log_event(
-                    logger,
-                    "info",
-                    f"Updated stream {stream_id} status to inactive in database",
-                    event_type="info",
-                )
-            except Exception as e:
-                log_event(
-                    logger,
-                    "error",
-                    f"Failed to update stream {stream_id} inactive status in database: {e}",
-                    event_type="error",
-                )
-
-            # if stream_id in camera_controllers:
-            #     del camera_controllers[stream_id]
-        except Exception as e:
-            # Still try to update database even if stopping failed
-            try:
-                db.streams.update_one(
-                    {"stream_id": stream_id}, {"$set": {"is_active": False}}
-                )
-            except Exception:
-                pass
-            raise RuntimeError(f"Failed to stop stream {stream_id}: {e}")
-
-    @staticmethod
-    def update_rtsp_link(stream_id, rtsp_link):
-        stream = streams.get(stream_id)
-        if stream is None:
-            raise ValueError(f"Stream ID {stream_id} does not exist.")
-
-        if not rtsp_link:
-            raise ValueError("Invalid RTSP link provided.")
-
-        try:
-            if stream.running:
-                stream.stop_streaming()
-                stream.rtsp_link = rtsp_link
-                # stream.start_stream()
-            else:
-                stream.rtsp_link = rtsp_link
-
-        except Exception as e:
-            raise RuntimeError(
-                f"Failed to update RTSP link for stream {stream_id}: {e}"
-            )
-
-    def toggle_intrusion_detection(self):
-        """Toggle intrusion detection for a stream."""
-        try:
-            db = get_database()
-            data = self._parse_request_data()
-            stream_id = data.get("stream_id")
-
-            if not stream_id:
-                return self._create_error_response("Missing stream_id in request data")
-
-            # Get current stream from database
-            current_stream = self._get_stream_from_db(stream_id)
-
-            # Check if safe area is configured when trying to enable intrusion detection
-            current_intrusion = current_stream.get("intrusion_detection", False)
-            new_intrusion_value = not current_intrusion
-
-            # If trying to enable intrusion detection, check if safe area is configured
-            if new_intrusion_value and not current_stream.get("safe_area"):
-                return self._create_error_response(
-                    "Please configure a hazard area before enabling intrusion detection",
-                    "hazard_area_required",
-                )
-
-            # Update in database
-            result = db.streams.update_one(
-                {"stream_id": stream_id},
-                {"$set": {"intrusion_detection": new_intrusion_value}},
-            )
-
-            if result.modified_count == 0:
-                log_event(
-                    logger,
-                    "warning",
-                    f"No document was modified for stream_id: {stream_id}",
-                    event_type="warning",
-                )
-
-            # Update running stream if it exists
-            stream_manager = streams.get(stream_id)
-            if stream_manager and stream_manager.running:
-                stream_manager.set_intrusion_detection(new_intrusion_value)
-                log_event(
-                    logger,
-                    "info",
-                    f"Updated running stream intrusion detection for {stream_id}",
-                    event_type="info",
-                )
-
-            log_event(
-                logger,
-                "info",
-                f"Intrusion detection toggled for stream {stream_id}: {current_intrusion} -> {new_intrusion_value}",
-                event_type="info",
-            )
-
-            return self._create_success_response(
-                f"Intrusion detection {'enabled' if new_intrusion_value else 'disabled'} for stream {stream_id}",
-                {"stream_id": stream_id, "intrusion_detection": new_intrusion_value},
-            )
-
-        except ValueError as e:
-            return self._create_error_response(
-                str(e), status_code=404 if "not found" in str(e) else 400
-            )
-        except Exception as e:
-            log_event(
-                logger,
-                "error",
-                f"Error toggling intrusion detection: {e}",
-                event_type="error",
-            )
-            return self._create_error_response(
-                "Failed to toggle intrusion detection", "toggle_intrusion_failed"
-            )
-
-    def toggle_patrol(self):
-        """Toggle patrol mode for a stream."""
-        try:
-            db = get_database()
-            data = self._parse_request_data()
-            stream_id = data.get("stream_id")
-            mode = data.get("mode")  # 'pattern', 'grid', or 'off'
-
-            if not stream_id:
-                return self._create_error_response("Missing 'stream_id' in request data.")
-
-            if not mode:
-                return self._create_error_response(
-                    "Missing 'mode' in request data. Must be 'pattern', 'grid', or 'off'."
-                )
-
-            # Validate mode
-            valid_modes = ["pattern", "grid", "off"]
-            if mode not in valid_modes:
-                return self._create_error_response(
-                    f"Invalid mode '{mode}'. Must be one of: {', '.join(valid_modes)}"
-                )
-
-            from datetime import datetime, timezone
-
-            # Get stream from database
-            stream_doc = self._get_stream_from_db(stream_id)
-
-            # Validate required configuration for each mode
-            if mode == "pattern":
-                patrol_pattern = stream_doc.get("patrol_pattern")
-                if not patrol_pattern or not patrol_pattern.get("coordinates"):
-                    return self._create_error_response(
-                        "Cannot enable pattern patrol: no patrol pattern configured. Please save a patrol pattern first."
-                    )
-                if len(patrol_pattern.get("coordinates", [])) < 2:
-                    return self._create_error_response(
-                        "Cannot enable pattern patrol: patrol pattern must have at least 2 waypoints."
-                    )
-            elif mode == "grid":
-                patrol_area = stream_doc.get("patrol_area")
-                if not patrol_area:
-                    return self._create_error_response(
-                        "Cannot enable grid patrol: no patrol area configured. Please save a patrol area first."
-                    )
-
-            # Update database
-            db.streams.update_one(
-                {"stream_id": stream_id},
-                {
-                    "$set": {
-                        "patrol_enabled": mode != "off",
-                        "patrol_mode": mode,
-                        "updated_at": datetime.now(timezone.utc),
-                    }
-                },
-            )
-
-            # Refresh stream_doc after database update
-            stream_doc = self._get_stream_from_db(stream_id)
-
-            # Handle patrol toggle using static method
-            result = Stream.handle_patrol_toggle(stream_id, mode, stream_doc)
-
-            return tools.JsonResp(
-                {
-                    "status": "Success",
-                    "message": result.get("message", "Patrol operation completed"),
-                    "data": {
-                        "patrol_enabled": result.get("patrol_enabled"),
-                        "patrol_mode": result.get("patrol_mode"),
-                        "home_position_saved": result.get("home_position_saved", False),
-                        "patrol_started": result.get("patrol_started", False),
-                        "focus_enabled": result.get("focus_enabled"),
-                        "autotrack_enabled": result.get("autotrack_enabled"),
-                    },
-                },
-                200,
-            )
-
-        except ValueError as e:
-            return self._create_error_response(
-                str(e), status_code=404 if "not found" in str(e) else 400
-            )
-        except Exception as e:
-            log_event(
-                logger, "error", f"Error toggling patrol: {e}", event_type="error"
-            )
-            return self._create_error_response(
-                "Failed to toggle patrol", "toggle_patrol_failed", 500
-            )
-
-    def toggle_patrol_focus(self):
-        """Toggle enable_focus_during_patrol status in database."""
-        try:
-            db = get_database()
-            data = self._parse_request_data()
-            stream_id = data.get("stream_id")
-
-            if not stream_id:
-                return self._create_error_response("Missing 'stream_id' in request data.")
-
-            from datetime import datetime, timezone
-            from main.shared import streams
-
-            # Get current status from database
-            stream_doc = self._get_stream_from_db(stream_id)
-
-            # Toggle enable_focus_during_patrol (default to False if not set)
-            current_status = stream_doc.get("enable_focus_during_patrol", False)
-            new_status = not current_status
-
-            # Update database
-            db.streams.update_one(
-                {"stream_id": stream_id},
-                {
-                    "$set": {
-                        "enable_focus_during_patrol": new_status,
-                        "updated_at": datetime.now(timezone.utc),
-                    }
-                },
-            )
-
-            # If stream is active and has ptz_auto_tracker, update the setting immediately
-            video_streaming = streams.get(stream_id)
-            if video_streaming and video_streaming.ptz_auto_tracker:
-                video_streaming.ptz_auto_tracker.set_patrol_parameters(
-                    enable_focus_during_patrol=new_status
-                )
-                log_event(
-                    logger,
-                    "info",
-                    f"Updated patrol focus setting for active stream {stream_id}: {new_status}",
-                    event_type="patrol_focus_updated",
-                )
-
-            return self._create_success_response(
-                f"Patrol focus {'enabled' if new_status else 'disabled'} successfully",
-                {"enable_focus_during_patrol": new_status},
-            )
-
-        except ValueError as e:
-            return self._create_error_response(
-                str(e), status_code=404 if "not found" in str(e) else 400
-            )
-        except Exception as e:
-            log_event(
-                logger, "error", f"Error toggling patrol focus: {e}", event_type="error"
-            )
-            return self._create_error_response(
-                "Failed to toggle patrol focus", "toggle_patrol_focus_failed", 500
-            )
-
-    def toggle_saving_video(self):
-        """Toggle saving video for a stream."""
-        try:
-            db = get_database()
-            data = self._parse_request_data()
-            stream_id = data.get("stream_id")
-
-            if not stream_id:
-                return self._create_error_response("Missing stream_id in request data")
-
-            # Get current stream from database
-            current_stream = self._get_stream_from_db(stream_id)
-
-            # Toggle saving video state
-            current_saving_video = current_stream.get("saving_video", True)
-            new_saving_video_value = not current_saving_video
-
-            # Update in database
-            result = db.streams.update_one(
-                {"stream_id": stream_id},
-                {"$set": {"saving_video": new_saving_video_value}},
-            )
-
-            if result.modified_count == 0:
-                log_event(
-                    logger,
-                    "warning",
-                    f"No document was modified for stream_id: {stream_id}",
-                    event_type="warning",
-                )
-
-            # Update running stream if it exists
-            stream_manager = streams.get(stream_id)
-            if stream_manager and stream_manager.running:
-                stream_manager.set_saving_video(new_saving_video_value)
-                log_event(
-                    logger,
-                    "info",
-                    f"Updated running stream saving video for {stream_id}",
-                    event_type="info",
-                )
-
-            log_event(
-                logger,
-                "info",
-                f"Saving video toggled for stream {stream_id}: {current_saving_video} -> {new_saving_video_value}",
-                event_type="info",
-            )
-
-            return self._create_success_response(
-                f"Saving video {'enabled' if new_saving_video_value else 'disabled'} for stream {stream_id}",
-                {"stream_id": stream_id, "saving_video": new_saving_video_value},
-            )
-
-        except ValueError as e:
-            return self._create_error_response(
-                str(e), status_code=404 if "not found" in str(e) else 400
-            )
-        except Exception as e:
-            log_event(
-                logger, "error", f"Error toggling saving video: {e}", event_type="error"
-            )
-            return self._create_error_response(
-                "Failed to toggle saving video", "toggle_saving_video_failed"
-            )
-
-    def bulk_start_streams(self, stream_ids):
-        """Start multiple streams by their IDs."""
-        try:
-            db = get_database()
-            results = []
-            failed_streams = []
-
-            for stream_id in stream_ids:
-                try:
-                    # Get stream from database
-                    stream_doc = db.streams.find_one({"stream_id": stream_id})
-                    if not stream_doc:
-                        failed_streams.append(
-                            {"stream_id": stream_id, "error": "Stream not found"}
-                        )
-                        continue
-
-                    # Start the stream
-                    Stream.start_stream(**stream_doc)
-                    results.append({"stream_id": stream_id, "status": "started"})
-
-                except Exception as e:
-                    failed_streams.append({"stream_id": stream_id, "error": str(e)})
-
-            response_data = {
-                "started_streams": results,
-                "failed_streams": failed_streams,
-                "total_requested": len(stream_ids),
-                "successful_starts": len(results),
-            }
-
-            if failed_streams:
-                return tools.JsonResp(
-                    {
-                        "message": f"Bulk start completed with {len(failed_streams)} failures",
-                        "data": response_data,
-                    },
-                    207,
-                )  # Multi-status
-            else:
-                return tools.JsonResp(
-                    {
-                        "message": "All streams started successfully",
-                        "data": response_data,
-                    },
-                    200,
-                )
-
-        except Exception as e:
-            log_event(
-                logger, "error", f"Error in bulk start streams: {e}", event_type="error"
-            )
-            return tools.JsonResp(
-                {"message": "Failed to start streams", "error": str(e)}, 500
-            )
-
-    def bulk_stop_streams(self, stream_ids):
-        """Stop multiple streams by their IDs."""
-        try:
-            db = get_database()
-            results = []
-            failed_streams = []
-
-            for stream_id in stream_ids:
-                try:
-                    # Check if stream exists
-                    stream_doc = db.streams.find_one({"stream_id": stream_id})
-                    if not stream_doc:
-                        failed_streams.append(
-                            {"stream_id": stream_id, "error": "Stream not found"}
-                        )
-                        continue
-
-                    # Stop the stream
-                    Stream.stop_stream(stream_id)
-                    results.append({"stream_id": stream_id, "status": "stopped"})
-
-                except Exception as e:
-                    failed_streams.append({"stream_id": stream_id, "error": str(e)})
-
-            response_data = {
-                "stopped_streams": results,
-                "failed_streams": failed_streams,
-                "total_requested": len(stream_ids),
-                "successful_stops": len(results),
-            }
-
-            if failed_streams:
-                return tools.JsonResp(
-                    {
-                        "message": f"Bulk stop completed with {len(failed_streams)} failures",
-                        "data": response_data,
-                    },
-                    207,
-                )  # Multi-status
-            else:
-                return tools.JsonResp(
-                    {
-                        "message": "All streams stopped successfully",
-                        "data": response_data,
-                    },
-                    200,
-                )
-
-        except Exception as e:
-            log_event(
-                logger, "error", f"Error in bulk stop streams: {e}", event_type="error"
-            )
-            return tools.JsonResp(
-                {"message": "Failed to stop streams", "error": str(e)}, 500
-            )
+        return StreamService.stop_stream(stream_id)
 
     @staticmethod
     def start_active_streams():
-        db = get_database()
-        streams = list(db.streams.find())
+        return StreamService.start_active_streams()
 
-        for stream in streams:
-            if stream["is_active"]:
-                log_event(logger, "info", stream, event_type="info")
-                try:
-                    Stream.start_stream(**stream)
-                except Exception as e:
-                    log_event(
-                        logger,
-                        "error",
-                        f"Error starting stream {stream.stream_id}",
-                        event_type="error",
-                    )
+    @staticmethod
+    def handle_patrol_toggle(stream_id, mode, stream_doc):
+        return PatrolService.handle_patrol_toggle(stream_id, mode, stream_doc)
+    
+    @staticmethod
+    def start_patrol_if_enabled(stream_id, video_streaming, stream_doc):
+        return PatrolService.start_patrol_if_enabled(stream_id, video_streaming, stream_doc)
+
+    @staticmethod
+    def initialize_camera_controller(*args, **kwargs):
+        return StreamService.initialize_camera_controller(*args, **kwargs)
+        
+    def bulk_start_streams(self, stream_ids):
+        result = StreamService.bulk_start_streams(stream_ids)
+        if result["failed_streams"]:
+             return tools.JsonResp({"message": f"Bulk start completed with {len(result['failed_streams'])} failures", "data": result}, 207)
+        return tools.JsonResp({"message": "All streams started successfully", "data": result}, 200)
+
+    def bulk_stop_streams(self, stream_ids):
+        result = StreamService.bulk_stop_streams(stream_ids)
+        if result["failed_streams"]:
+             return tools.JsonResp({"message": f"Bulk stop completed with {len(result['failed_streams'])} failures", "data": result}, 207)
+        return tools.JsonResp({"message": "All streams stopped successfully", "data": result}, 200)
+
+    @staticmethod
+    def update_rtsp_link(stream_id, rtsp_link):
+        return StreamService.update_rtsp_link(stream_id, rtsp_link)
+
+    def toggle_intrusion_detection(self):
+        data = self._parse_request_data()
+        stream_id = data.get("stream_id")
+        if not stream_id:
+             return self._create_error_response("Missing stream_id in request data")
+        
+        result = HazardService.toggle_intrusion_detection(stream_id=stream_id)
+        if result["status"] == "success":
+             return self._create_success_response(result["message"], result.get("data"))
+        else:
+             status_code = 404 if "not found" in result.get("message", "") else 400
+             return self._create_error_response(result["message"], status_code=status_code)
+
+    def toggle_patrol(self):
+        try:
+            data = self._parse_request_data()
+            stream_id = data.get("stream_id")
+            mode = data.get("mode")
+
+            if not stream_id or not mode:
+                return self._create_error_response("Missing stream_id or mode")
+            
+            result = PatrolService.toggle_patrol(stream_id, mode)
+            
+            if result["status"] == "success":
+                return self._create_success_response(result["message"], result.get("data"))
+            else:
+                 status_code = 404 if "not_found" == result.get("error_code") else 400
+                 if result.get("error_code") == "toggle_failed": status_code=500
+                 return self._create_error_response(result["message"], status_code=status_code)
+
+        except Exception as e:
+            log_event(logger, "error", f"Error toggling patrol: {e}")
+            return self._create_error_response("Failed to toggle patrol", "toggle_failed", 500)
+    
+    def toggle_patrol_focus(self):
+        data = self._parse_request_data()
+        stream_id = data.get("stream_id")
+        if not stream_id: return self._create_error_response("Missing stream_id")
+        result = PatrolService.toggle_patrol_focus(stream_id=stream_id)
+        if result["status"] == "success":
+             return self._create_success_response(result["message"], result.get("data"))
+        return self._create_error_response(result["message"], status_code=404 if "not found" in result.get("message") else 400)
+
+    def toggle_saving_video(self):
+        try:
+             data = self._parse_request_data()
+             stream_id = data.get("stream_id")
+             if not stream_id: return self._create_error_response("Missing stream_id")
+             
+             result = StreamService.toggle_saving_video(stream_id)
+             if result["status"] == "success":
+                 return self._create_success_response(result["message"], result["data"])
+             
+             return self._create_error_response(result["message"], status_code=404 if "not found" in result.get("message") else 400)
+        except Exception as e:
+             log_event(logger, "error", f"Error toggling saving: {e}")
+             return self._create_error_response("Failed to toggle saving video")
 
     def change_autotrack(self):
-        """Toggle PTZ auto tracking for a stream"""
-        import json
-        import traceback
-        from flask import request
-        from events import emit_event, EventType
-        from main.shared import streams
-        from utils.logging_config import log_event
-        
         try:
-            data = json.loads(request.data)
-            stream_id = data["stream_id"]
-
-            video_streaming = streams.get(stream_id)
-            if video_streaming is None:
-                return tools.JsonResp(
-                    {
-                        "status": "error",
-                        "message": "Stream with the give ID is not active!",
-                    },
-                    400,
-                )
-
-            if not video_streaming.ptz_auto_tracker:
-                return tools.JsonResp(
-                    {
-                        "status": "error",
-                        "message": "This stream does not support ptz auto tracking!",
-                    },
-                    400,
-                )
-
-            video_streaming.ptz_autotrack = not video_streaming.ptz_autotrack
-
-            if video_streaming.ptz_autotrack:
-                if video_streaming.camera_controller and video_streaming.ptz_auto_tracker:
-                    # obtain current ptz coordinates
-                    camera_controller = video_streaming.camera_controller
-                    pan, tilt, zoom = camera_controller.get_current_position()
-
-                    # set these coordinates and default position
-                    video_streaming.ptz_auto_tracker.update_default_position(
-                        pan, tilt, zoom
-                    )
-
-                    # Check if patrol_enabled is true in database, if true start patrol
-                    from flask import current_app as app
-
-                    stream_doc = app.db.streams.find_one({"stream_id": stream_id})
-                    if stream_doc and stream_doc.get("patrol_enabled", False):
-                        # Get enable_focus_during_patrol setting from database (default: False)
-                        enable_focus = stream_doc.get("enable_focus_during_patrol", False)
-
-                        video_streaming.ptz_auto_tracker.set_patrol_parameters(
-                            focus_max_zoom=1.0, enable_focus_during_patrol=enable_focus
-                        )
-
-                        # Check if there's a custom patrol pattern
-                        patrol_pattern = stream_doc.get("patrol_pattern")
-                        if patrol_pattern and patrol_pattern.get("coordinates"):
-                            # Start pattern patrol
-                            coordinates = patrol_pattern.get("coordinates", [])
-                            if len(coordinates) >= 2:
-                                video_streaming.ptz_auto_tracker.set_custom_patrol_pattern(
-                                    coordinates
-                                )
-                                video_streaming.ptz_auto_tracker.start_patrol(
-                                    mode="pattern"
-                                )
-                                log_event(
-                                    logger,
-                                    "info",
-                                    f"Started custom pattern patrol for stream {stream_id} with {len(coordinates)} waypoints",
-                                    event_type="info",
-                                )
-                            else:
-                                # Fall back to grid patrol
-                                video_streaming.ptz_auto_tracker.set_patrol_parameters(
-                                    x_positions=10, y_positions=4
-                                )
-                                video_streaming.ptz_auto_tracker.start_patrol(
-                                    "horizontal", mode="grid"
-                                )
-                        else:
-                            # No pattern, use grid patrol
-                            video_streaming.ptz_auto_tracker.set_patrol_parameters(
-                                x_positions=10, y_positions=4
-                            )
-                            video_streaming.ptz_auto_tracker.start_patrol(
-                                "horizontal", mode="grid"
-                            )
-            else:
-                # Stop tracking
-                if video_streaming.ptz_auto_tracker:
-                    video_streaming.ptz_auto_tracker.reset_camera_position()
-
-            # emit change autotrack change
-            room = f"ptz-{stream_id}"
-            data = {"ptz_autotrack": video_streaming.ptz_autotrack}
-            emit_event(event_type=EventType.PTZ_AUTOTRACK, data=data, room=room)
-
-            return tools.JsonResp(
-                {
-                    "status": "Success",
-                    "message": "Autotrack changed successfully",
-                    "data": {"ptz_autotrack": video_streaming.ptz_autotrack},
-                },
-                200,
-            )
-
+             data = self._parse_request_data()
+             stream_id = data.get("stream_id")
+             if not stream_id: return self._create_error_response("Missing stream_id")
+             
+             result = PatrolService.change_autotrack(stream_id)
+             if result["status"] == "success":
+                 return self._create_success_response(result["message"], result["data"])
+             return self._create_error_response(result["message"], status_code=400)
         except Exception as e:
-            print("An error occurred:", e)
-            traceback.print_exc()
-            return tools.JsonResp({"status": "error", "message": "wrong data format!"}, 400)
-
+             log_event(logger, "error", f"Error toggling autotrack: {e}")
+             return self._create_error_response(str(e))
 
     def get_current_ptz_values(self):
-        """Get current PTZ (Pan-Tilt-Zoom) values"""
-        import json
-        from flask import request
-        from main.shared import streams
-        from utils.logging_config import log_event
-        
         try:
-            data = json.loads(request.data)
-            stream_id = data.get("stream_id")
-
-            if not stream_id:
-                return tools.JsonResp(
-                    {
-                        "status": "error",
-                        "message": "Missing 'streamId' in request data.",
-                    },
-                    400,
-                )
-
-            stream = streams.get(stream_id)
-            if stream is None:
-                log_event(
-                    logger,
-                    "warning",
-                    f"Attempted to get PTZ for non-existent or inactive stream_id: {stream_id}",
-                    event_type="warning",
-                )
-                return tools.JsonResp(
-                    {
-                        "status": "error",
-                        "message": f"Stream with ID '{stream_id}' not found or is not active.",
-                    },
-                    404,
-                )
-
-            camera_controller = stream.camera_controller
-
-            if camera_controller is None:
-                log_event(
-                    logger,
-                    "warning",
-                    f"Camera controller is missing for active stream_id: {stream_id}",
-                    event_type="warning",
-                )
-                return tools.JsonResp(
-                    {
-                        "status": "error",
-                        "message": f"Camera controller not available for stream '{stream_id}'. PTZ control might not be enabled.",
-                    },
-                    400,
-                )
-
-            try:
-                pan, tilt, zoom = camera_controller.get_current_position()
-                return tools.JsonResp(
-                    {
-                        "status": "Success",
-                        "message": "ok",
-                        "data": {"x": pan, "y": tilt, "z": zoom},
-                    },
-                    200,
-                )
-            except Exception as e:
-                log_event(
-                    logger,
-                    "error",
-                    f"Error retrieving PTZ position for stream_id '{stream_id}': {e}",
-                    event_type="error",
-                )
-                return tools.JsonResp(
-                    {
-                        "status": "error",
-                        "message": f"Failed to get PTZ position: {str(e)}",
-                    },
-                    500,
-                )
-
-        except Exception as e:
-            print("An unexpected error occurred:", e)
-            return tools.JsonResp(
-                {"status": "error", "message": "Invalid request format."},
-                400,
-            )
+             data = self._parse_request_data()
+             stream_id = data.get("stream_id")
+             result = PTZService.get_current_ptz_values(stream_id)
+             if result["status"] == "success":
+                  return tools.JsonResp(result, 200)
+             
+             status_code = 404 if "not found" in result.get("message") else 400 # Or 500 based on message
+             return tools.JsonResp(result, status_code)
+        except Exception:
+             return tools.JsonResp({"status": "error", "message": "Invalid format"}, 400)
 
     def ptz_controls(self):
-        """Control PTZ camera movements"""
-        import json
-        from flask import request
-        from main.shared import streams
-        
         try:
-            data = json.loads(request.data)
-            stream_id = data.get("stream_id")
-            command = data.get("command")
-            speed = data.get("speed", 0.5)
-
-            if not stream_id or not command:
-                return tools.JsonResp(
-                    {"status": "error", "message": "Missing stream_id or command"},
-                    400,
-                )
-
-            stream = streams.get(stream_id)
-            if stream is None:
-                return tools.JsonResp(
-                    {"status": "error", "message": f"Stream '{stream_id}' not found or not active"},
-                    404,
-                )
-
-            camera_controller = stream.camera_controller
-            if camera_controller is None:
-                return tools.JsonResp(
-                    {"status": "error", "message": f"PTZ not available for stream '{stream_id}'"},
-                    404,
-                )
-
-            # Execute PTZ command
-            command_map = {
-                "up": lambda: camera_controller.move_continuous(0, speed, 0),
-                "down": lambda: camera_controller.move_continuous(0, -speed, 0),
-                "left": lambda: camera_controller.move_continuous(-speed, 0, 0),
-                "right": lambda: camera_controller.move_continuous(speed, 0, 0),
-                "zoom_in": lambda: camera_controller.move_continuous(0, 0, speed),
-                "zoom_out": lambda: camera_controller.move_continuous(0, 0, -speed),
-                "stop": lambda: camera_controller.stop(),
-                "home": lambda: camera_controller.go_to_home_position(),
-            }
-
-            if command in command_map:
-                command_map[command]()
-                return tools.JsonResp(
-                    {"status": "success", "message": f"PTZ command '{command}' executed"},
-                    200,
-                )
-            else:
-                return tools.JsonResp(
-                    {"status": "error", "message": f"Unknown command '{command}'"},
-                    400,
-                )
-
+             data = self._parse_request_data()
+             stream_id = data.get("stream_id")
+             command = data.get("command")
+             speed = data.get("speed", 0.5)
+             
+             if not stream_id or not command: return self._create_error_response("Missing stream_id or command")
+             
+             result = PTZService.ptz_controls(stream_id, command, speed)
+             if result["status"] == "success":
+                  return tools.JsonResp(result, 200)
+             return tools.JsonResp(result, 400 if result.get("error_code") == "not_found" else 500)
         except Exception as e:
-            return tools.JsonResp(
-                {"status": "error", "message": str(e)},
-                500,
-            )
+             return tools.JsonResp({"status": "error", "message": str(e)}, 500)
+
 
     def set_danger_zone(self):
-        """Configure safe/danger zone for intrusion detection"""
-        import json
-        import cv2
-        import os
-        import traceback
-        from datetime import datetime, timezone
-        from flask import request, current_app as app
-        from urllib.parse import urlparse
-        from main.shared import safe_area_trackers
-        
-        REFERENCE_FRAME_DIR = "../static/frame_refs"
-        
-        try:
-            data = json.loads(request.data)
-            image = data.get("image")
-            coords = data.get("coords")
-            stream_id = data.get("streamId")
-            static_mode = data.get("static", True)
+        data = json.loads(request.data)
+        image = data.get("image")
+        coords = data.get("coords")
+        stream_id = data.get("streamId") or data.get("stream_id")
+        static_mode = data.get("static", True)
 
-            # Validate required fields
-            if not stream_id or not coords:
-                return tools.JsonResp(
-                    {
-                        "status": "error",
-                        "message": "Missing required fields: streamId or coords",
-                    },
-                    400,
-                )
-
-            # Check if stream exists
-            existing_stream = app.db.streams.find_one({"stream_id": stream_id})
-            if not existing_stream:
-                return tools.JsonResp(
-                    {"status": "error", "message": "Stream not found"}, 404
-                )
-
-            safe_area_data = {
-                "coords": coords,
-                "static_mode": static_mode,
-                "reference_image": image,
-                "updated_at": datetime.now(timezone.utc),
-            }
-
-            # If no existing safe area, add created_at
-            if not existing_stream.get("safe_area"):
-                safe_area_data["created_at"] = datetime.now(timezone.utc)
-
-            # Update safe area in database
-            result = app.db.streams.update_one(
-                {"stream_id": stream_id}, {"$set": {"safe_area": safe_area_data}}
-            )
-
-            if result.modified_count == 0:
-                logger.warning(f"No document was modified for stream_id: {stream_id}")
-
-            logger.info(f"Safe area saved successfully for stream: {stream_id}")
-
-            parsed_url = urlparse(image)
-            path = parsed_url.path
-            file_name = os.path.basename(path)
-
-            image_path = os.path.join(
-                os.path.dirname(__file__), REFERENCE_FRAME_DIR, file_name
-            )
-            reference_frame = cv2.imread(image_path)
-            safe_area_box = coords
-
-            # Update in-memory tracker if stream is active
-            if stream_id in safe_area_trackers:
-                safe_area_tracker = safe_area_trackers[stream_id]
-                safe_area_tracker.update_safe_area(reference_frame, safe_area_box)
-                safe_area_tracker.set_static_mode(static_mode)
-
-            # Send response
-            return tools.JsonResp(
-                {
-                    "status": "Success",
-                    "message": "Danger zone updated successfully",
-                    "data": {
-                        "static_mode": static_mode,
-                        "message": "Camera mode set to {} processing".format(
-                            "static" if static_mode else "dynamic"
-                        ),
-                    },
-                },
-                200,
-            )
-
-        except Exception as e:
-            print("An error occurred: ", e)
-            traceback.print_exc()
-            return tools.JsonResp({"status": "error", "message": str(e)}, 400)
+        result = HazardService.set_danger_zone(
+            stream_id=stream_id,
+            coords=coords,
+            image=image,
+            static_mode=static_mode
+        )
+        status_code = 200 if result["status"] == "success" else 400
+        if result["status"] == "error" and "not found" in result.get("message", ""):
+            status_code = 404
+        return tools.JsonResp(result, status_code)
 
     def set_camera_mode(self):
-        """Set camera mode for hazard area tracking"""
-        import json
-        import traceback
-        from flask import request, current_app as app
-        from main.shared import safe_area_trackers
-        
-        try:
-            data = json.loads(request.data)
-            stream_id = data.get("streamId")
-            static_mode = data.get("static", True)
+        data = json.loads(request.data)
+        stream_id = data.get("streamId") or data.get("stream_id")
+        static_mode = data.get("static", True)
+        if not stream_id: return tools.JsonResp({"status":"error", "message":"Missing streamId"}, 400)
 
-            # Validate required fields
-            if not stream_id:
-                return tools.JsonResp(
-                    {"status": "error", "message": "Missing required field: streamId"},
-                    400,
-                )
-
-            # Check if stream exists
-            existing_stream = app.db.streams.find_one({"stream_id": stream_id})
-            if not existing_stream:
-                return tools.JsonResp(
-                    {"status": "error", "message": "Stream not found"}, 404
-                )
-
-            # Update static mode in safe_area
-            result = app.db.streams.update_one(
-                {"stream_id": stream_id},
-                {"$set": {"safe_area.static_mode": static_mode}},
-            )
-
-            if result.modified_count == 0:
-                logger.warning(
-                    f"No document was modified for stream_id: {stream_id}. "
-                    f"Stream may not have a safe_area configured yet."
-                )
-
-            logger.info(
-                f"Camera mode updated to {'static' if static_mode else 'dynamic'} for stream: {stream_id}"
-            )
-
-            # Update in-memory tracker if stream is active
-            if stream_id in safe_area_trackers:
-                safe_area_tracker = safe_area_trackers[stream_id]
-                safe_area_tracker.set_static_mode(static_mode)
-                logger.info(f"Updated in-memory safe area tracker for stream: {stream_id}")
-
-            return tools.JsonResp(
-                {
-                    "status": "Success",
-                    "message": "Camera mode updated successfully",
-                    "data": {
-                        "static_mode": static_mode,
-                        "message": f"Camera mode set to {'static' if static_mode else 'dynamic'} processing",
-                    },
-                },
-                200,
-            )
-
-        except Exception as e:
-            print("An error occurred: ", e)
-            traceback.print_exc()
-            return tools.JsonResp({"status": "error", "message": str(e)}, 400)
+        result = HazardService.set_camera_mode(stream_id=stream_id, static_mode=static_mode)
+        status_code = 200 if result["status"] == "success" else 400
+        if result["status"] == "error" and "not found" in result.get("message", ""):
+            status_code = 404
+        return tools.JsonResp(result, status_code)
 
     def get_camera_mode(self):
-        """Get current camera mode for hazard area tracking"""
-        import json
-        import traceback
-        from flask import request, current_app as app
-        
-        try:
-            data = json.loads(request.data)
-            stream_id = data.get("streamId")
+        data = json.loads(request.data)
+        stream_id = data.get("streamId") or data.get("stream_id")
+        if not stream_id: return tools.JsonResp({"status":"error", "message":"Missing streamId"}, 400)
 
-            # Validate required fields
-            if not stream_id:
-                return tools.JsonResp(
-                    {"status": "error", "message": "Missing required field: streamId"},
-                    400,
-                )
-
-            # Check if stream exists
-            existing_stream = app.db.streams.find_one({"stream_id": stream_id})
-            if not existing_stream:
-                return tools.JsonResp(
-                    {"status": "error", "message": "Stream not found"}, 404
-                )
-
-            # Get static mode from safe_area
-            safe_area = existing_stream.get("safe_area", {})
-            static_mode = safe_area.get("static_mode", True)  # Default to True
-
-            logger.info(f"Camera mode retrieved for stream: {stream_id}")
-
-            return tools.JsonResp(
-                {
-                    "status": "Success",
-                    "message": "Camera mode retrieved successfully",
-                    "data": {
-                        "static_mode": static_mode,
-                        "message": f"Camera is in {'static' if static_mode else 'dynamic'} mode",
-                    },
-                },
-                200,
-            )
-
-        except Exception as e:
-            print("An error occurred: ", e)
-            traceback.print_exc()
-            return tools.JsonResp({"status": "error", "message": str(e)}, 400)
+        result = HazardService.get_camera_mode(stream_id=stream_id)
+        status_code = 200 if result["status"] == "success" else 400
+        if result["status"] == "error" and "not found" in result.get("message", ""):
+            status_code = 404
+        return tools.JsonResp(result, status_code)
 
     def get_current_frame(self):
-        """Get current frame from an active stream"""
-        import json
-        import os
-        import time
-        import traceback
-        from flask import request
-        from main.shared import streams
-        
-        REFERENCE_FRAME_DIR = "../static/frame_refs"
-        
         try:
-            data = json.loads(request.data)
-            stream_id = data.get("stream_id")
+             data = json.loads(request.data)
+             stream_id = data.get("stream_id")
+             if not stream_id: return tools.JsonResp({"status":"error", "message":"Missing stream_id"}, 400)
+             
+             result = StreamService.get_current_frame(stream_id)
+             if result["status"] == "success":
+                  return tools.JsonResp(result, 200)
+             return tools.JsonResp(result, 400)
+        except Exception:
+             return tools.JsonResp({"status":"error", "message":"Invalid request"}, 400)
 
-            if not stream_id:
-                return tools.JsonResp(
-                    {"status": "error", "message": "stream_id is required"}, 400
-                )
-
-            video_streaming = streams.get(stream_id)
-            if video_streaming is None:
-                return tools.JsonResp(
-                    {
-                        "status": "error",
-                        "message": "Stream with the given ID is not active!",
-                    },
-                    400,
-                )
-
-            try:
-                frame = video_streaming.get_frame()
-                if frame is None:
-                    return tools.JsonResp(
-                        {"status": "error", "message": "Failed to get frame"}, 400
-                    )
-
-                timestamp = int(time.time())
-                filename = f"frame_{timestamp}_{stream_id}.jpg"
-
-                file_directory = os.path.abspath(
-                    os.path.join(os.path.dirname(__file__), REFERENCE_FRAME_DIR)
-                )
-
-                if not os.path.exists(file_directory):
-                    os.makedirs(file_directory)
-
-                file_path = os.path.join(file_directory, filename)
-
-                import cv2
-                cv2.imwrite(file_path, frame)
-
-                return tools.JsonResp(
-                    {"status": "Success", "message": "ok", "data": filename}, 200
-                )
-
-            except Exception as e:
-                logger.error(f"Error getting frame for stream {stream_id}: {e}")
-                traceback.print_exc()
-                return tools.JsonResp(
-                    {"status": "error", "message": f"Error getting frame: {str(e)}"}, 500
-                )
-
-        except Exception as e:
-            logger.error(f"Error in get_current_frame: {e}")
-            traceback.print_exc()
-            return tools.JsonResp(
-                {"status": "error", "message": "Invalid request format"}, 400
-            )
