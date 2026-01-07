@@ -121,7 +121,9 @@ class PTZAutoTracker(ONVIFCameraBase, PatrolMixin):
         
     def _init_movement_queue(self) -> None:
         """Initialize movement queue and processing thread."""
-        self.move_queue: queue.Queue[Tuple[float, float, float, float]] = queue.Queue()
+        # Queue now stores: (move_type, pan, tilt, zoom, frame_time)
+        # move_type can be "continuous" or "absolute"
+        self.move_queue: queue.Queue[Tuple[str, float, float, float, float]] = queue.Queue()
         self.move_queue_lock: threading.Lock = threading.Lock()
         self.move_thread: threading.Thread = threading.Thread(target=self._process_move_queue)
         self.move_thread.daemon = True
@@ -682,8 +684,8 @@ class PTZAutoTracker(ONVIFCameraBase, PatrolMixin):
             zoom, zoom_diff = split_value(zoom, False)
 
             if pan != 0 or tilt != 0 or zoom != 0:
-                logger.debug(f"Enqueue movement: pan={pan}, tilt={tilt}, zoom={zoom}")
-                move_data = (pan, tilt, zoom, frame_time or time.time())
+                logger.debug(f"Enqueue continuous movement: pan={pan}, tilt={tilt}, zoom={zoom}")
+                move_data = ("continuous", pan, tilt, zoom, frame_time or time.time())
                 self.move_queue.put(move_data)
 
             # Continue with remainder
@@ -691,15 +693,32 @@ class PTZAutoTracker(ONVIFCameraBase, PatrolMixin):
             tilt = tilt_diff
             zoom = zoom_diff
 
+    def _enqueue_absolute_move(self, pan: float, tilt: float, zoom: float) -> None:
+        """
+        Add absolute movement to queue for non-blocking execution.
+
+        Args:
+            pan: Absolute pan position (-1 to 1)
+            tilt: Absolute tilt position (-1 to 1)
+            zoom: Absolute zoom position (0 to 1)
+        """
+        if self.move_queue_lock.locked():
+            logger.debug("Move queue locked, skipping absolute move enqueue")
+            return
+
+        logger.debug(f"Enqueue absolute movement: pan={pan:.6f}, tilt={tilt:.6f}, zoom={zoom:.6f}")
+        move_data = ("absolute", pan, tilt, zoom, time.time())
+        self.move_queue.put(move_data)
+
     def _process_move_queue(self) -> None:
         """Process movement queue in separate thread with proper locking."""
         while True:
             try:
-                pan, tilt, zoom, frame_time = self.move_queue.get(timeout=1)
+                move_type, pan, tilt, zoom, frame_time = self.move_queue.get(timeout=1)
 
                 with self.move_queue_lock:
-                    # Double check PTZ isn't moving
-                    if self.ptz_moving_at_frame_time(frame_time):
+                    # For continuous moves, check if PTZ is already moving
+                    if move_type == "continuous" and self.ptz_moving_at_frame_time(frame_time):
                         logger.debug(
                             f"PTZ moving during dequeue (frame_time: {frame_time}), skipping move"
                         )
@@ -711,8 +730,16 @@ class PTZAutoTracker(ONVIFCameraBase, PatrolMixin):
                     self.ptz_start_time = movement_start
                     self.motor_stopped = False
 
-                    # Execute movement
-                    self.continuous_move(pan, tilt, zoom)
+                    # Execute movement based on type
+                    if move_type == "absolute":
+                        logger.debug(f"Executing absolute move: pan={pan:.6f}, tilt={tilt:.6f}, zoom={zoom:.6f}")
+                        self.absolute_move(pan, tilt, zoom)
+                    elif move_type == "continuous":
+                        self.continuous_move(pan, tilt, zoom)
+                    else:
+                        logger.warning(f"Unknown move type: {move_type}")
+                        self.move_queue.task_done()
+                        continue
 
                     # Wait briefly for movement to complete
                     time.sleep(0.1)
@@ -722,9 +749,10 @@ class PTZAutoTracker(ONVIFCameraBase, PatrolMixin):
                     self.ptz_stop_time = movement_end
                     self.motor_stopped = True
 
-                    # Save metrics for calibration if intercept exists and we have room
+                    # Save metrics for calibration (continuous moves only)
                     if (
-                        self.intercept is not None
+                        move_type == "continuous"
+                        and self.intercept is not None
                         and len(self.move_metrics) < AUTOTRACKING_MAX_MOVE_METRICS
                         and (pan != 0 or tilt != 0)
                     ):
@@ -739,8 +767,8 @@ class PTZAutoTracker(ONVIFCameraBase, PatrolMixin):
                         # Calculate new coefficients if we have enough data
                         self._calculate_move_coefficients()
 
-                    # Log predicted vs actual if we have coefficients
-                    if self.move_coefficients:
+                    # Log predicted vs actual if we have coefficients (continuous moves only)
+                    if move_type == "continuous" and self.move_coefficients:
                         predicted_time = self._predict_movement_time(pan, tilt)
                         actual_time = movement_end - movement_start
                         logger.debug(

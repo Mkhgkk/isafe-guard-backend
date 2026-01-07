@@ -526,7 +526,10 @@ class PatrolMixin:
                         f"Horizontal patrol moving to: ({current_x:.6f}, {current_y:.6f})",
                         event_type="patrol_movement",
                     )
-                    if hasattr(self, "absolute_move"):
+                    if hasattr(self, "_enqueue_absolute_move"):
+                        self._enqueue_absolute_move(current_x, current_y, zoom_level)
+                    elif hasattr(self, "absolute_move"):
+                        # Fallback for backward compatibility
                         self.absolute_move(current_x, current_y, zoom_level)
 
                     # Advance patrol step (for compatibility)
@@ -588,7 +591,10 @@ class PatrolMixin:
                         f"Vertical patrol moving to: ({current_x:.6f}, {current_y:.6f})",
                         event_type="patrol_movement",
                     )
-                    if hasattr(self, "absolute_move"):
+                    if hasattr(self, "_enqueue_absolute_move"):
+                        self._enqueue_absolute_move(current_x, current_y, zoom_level)
+                    elif hasattr(self, "absolute_move"):
+                        # Fallback for backward compatibility
                         self.absolute_move(current_x, current_y, zoom_level)
 
                     # Advance patrol step (for compatibility)
@@ -667,8 +673,11 @@ class PatrolMixin:
                     event_type="patrol_movement",
                 )
 
-                # Move to waypoint
-                if hasattr(self, "absolute_move"):
+                # Move to waypoint (use queued movement for non-blocking execution)
+                if hasattr(self, "_enqueue_absolute_move"):
+                    self._enqueue_absolute_move(current_x, current_y, current_zoom)
+                elif hasattr(self, "absolute_move"):
+                    # Fallback for backward compatibility
                     self.absolute_move(current_x, current_y, current_zoom)
 
                 # Update current waypoint index for tracking
