@@ -292,8 +292,8 @@ class StreamManager:
 
     def _process_single_frame(self, frame: np.ndarray):
         """Process a single frame through the complete pipeline."""
-        # Store the raw frame for retrieval
-        self.last_raw_frame = frame
+        # Store a copy of the raw frame for retrieval
+        self.last_raw_frame = frame.copy()
 
         current_time = time.time()
         fps = self._calculate_fps()
