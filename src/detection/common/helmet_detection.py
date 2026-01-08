@@ -11,12 +11,13 @@ from typing import Dict, List
 
 # Helmet detection constants
 HELMET_TRACKING_WINDOW = 90  # Number of recent frames to consider
-HELMET_CONFIDENCE_THRESHOLD = 0.7  # Ratio of frames with helmet needed to be considered "safe"
-MAX_MISSING_FRAMES = 5  # Allow up to 5 consecutive frames without detection before considering violation
+HELMET_CONFIDENCE_THRESHOLD = 0.2  # Ratio of frames with helmet needed to be considered "safe"
+MAX_MISSING_FRAMES = 50  # Allow up to 5 consecutive frames without detection before considering violation
+GRACE_PERIOD_SECONDS = 5.0  # Time in seconds to suppress violation if previously safe
 
 # Minimum person box size for reliable helmet detection
-MIN_PERSON_BOX_WIDTH = 30  # Minimum width in pixels
-MIN_PERSON_BOX_HEIGHT = 60  # Minimum height in pixels
+MIN_PERSON_BOX_WIDTH = 15  # Minimum width in pixels
+MIN_PERSON_BOX_HEIGHT = 30  # Minimum height in pixels
 MIN_PERSON_BOX_AREA = MIN_PERSON_BOX_WIDTH * MIN_PERSON_BOX_HEIGHT
 
 # Helmet detection offset (pixels above person box to search for helmet)
@@ -42,6 +43,7 @@ class HelmetTracker:
         tracking_window: int = HELMET_TRACKING_WINDOW,
         confidence_threshold: float = HELMET_CONFIDENCE_THRESHOLD,
         max_missing_frames: int = MAX_MISSING_FRAMES,
+        grace_period_seconds: float = GRACE_PERIOD_SECONDS,
     ):
         """Initialize the helmet tracker.
 
@@ -49,11 +51,14 @@ class HelmetTracker:
             tracking_window: Number of recent frames to consider (default: 90)
             confidence_threshold: Minimum helmet detection ratio (default: 0.7)
             max_missing_frames: Max consecutive missing frames (default: 5)
+            grace_period_seconds: Grace period in seconds (default: 5.0)
         """
         self._helmet_tracking: Dict[str, Dict[int, Dict[str, List]]] = {}
+        self._last_safe_time: Dict[str, Dict[int, float]] = {}
         self.tracking_window = tracking_window
         self.confidence_threshold = confidence_threshold
         self.max_missing_frames = max_missing_frames
+        self.grace_period_seconds = grace_period_seconds
 
     def update(self, stream_id: str, worker_id: int, has_helmet: bool) -> None:
         """Update helmet detection history for a worker.
@@ -129,10 +134,27 @@ class HelmetTracker:
                 break
 
         # Return violation if helmet rate is below threshold AND there are consecutive missing detections
-        return (
+        is_raw_violation = (
             helmet_rate < self.confidence_threshold
             and consecutive_missing >= self.max_missing_frames
         )
+
+        if not is_raw_violation:
+            # Worker is considered safe, update last safe time
+            if stream_id not in self._last_safe_time:
+                self._last_safe_time[stream_id] = {}
+            self._last_safe_time[stream_id][worker_id] = time.time()
+            return False
+        
+        # If violation detected, check for grace period
+        if stream_id in self._last_safe_time and worker_id in self._last_safe_time[stream_id]:
+            last_safe = self._last_safe_time[stream_id][worker_id]
+            time_since_safe = time.time() - last_safe
+            if time_since_safe < self.grace_period_seconds:
+                # Suppress violation during grace period
+                return False
+
+        return True
 
     def cleanup(self, stream_id: str) -> None:
         """Clean up helmet tracking data for a given stream.
@@ -144,6 +166,8 @@ class HelmetTracker:
         """
         if stream_id in self._helmet_tracking:
             del self._helmet_tracking[stream_id]
+        if stream_id in self._last_safe_time:
+            del self._last_safe_time[stream_id]
 
 
 def is_person_box_large_enough(
