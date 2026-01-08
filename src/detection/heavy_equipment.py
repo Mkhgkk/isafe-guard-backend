@@ -2,13 +2,36 @@ import cv2
 import numpy as np
 import time
 from pathlib import Path
-from typing import List, Tuple, Dict
+from typing import List, Tuple, Dict, Optional
 from collections import deque
 from detection import draw_text_with_background
 from ultralytics.engine.results import Results
 from config import FRAME_HEIGHT, FRAME_WIDTH
 
+# Import common modules
+from detection.common.tracking import TrackingManager, is_vehicle_moving
+from detection.common.helmet_detection import (
+    HelmetTracker,
+    is_person_box_large_enough,
+    HELMET_TRACKING_WINDOW,
+    HELMET_CONFIDENCE_THRESHOLD,
+    MAX_MISSING_FRAMES,
+    MIN_PERSON_BOX_WIDTH,
+    MIN_PERSON_BOX_HEIGHT,
+    MIN_PERSON_BOX_AREA,
+)
+from detection.common.face_blurring import blur_face_region, should_blur_person
+from detection.common.geometry import (
+    get_bottom_center,
+    get_worker_center,
+    transform_to_world,
+    get_vehicle_ground_edges,
+)
+from detection.common.scaffold_utils import (
+    process_scaffolding_safety,
+)
 
+# Constants
 CONFIDENCE_THRESHOLD = 0.4
 DETECTION_COLOR = (255, 0, 255)
 SAFE_COLOR = (0, 180, 0)
@@ -19,26 +42,6 @@ HELMET_DETECTION_OFFSET = 20
 # Proximity detection constants
 DANGER_DIST_METERS = 2  # in meters
 VEHICLE_MOVING_THRESH = 10
-
-# CLASS_NAMES = {
-#     0: "backhoe_loader",
-#     1: "cement_truck",
-#     2: "compactor",
-#     3: "dozer",
-#     4: "dump_truck",
-#     5: "excavator",
-#     6: "grader",
-#     7: "mobile_crane",
-#     8: "tower_crane",
-#     9: "wheel_loader",
-#     10: "worker",
-#     11: "hard_hat",
-#     12: "red_hard_hat",
-#     13: "scaffolding",
-#     14: "lifted_load",
-#     15: "crane_hook",
-#     16: "hook",
-# }
 
 CLASS_NAMES = {
     0: "cement_truck",
@@ -56,27 +59,6 @@ CLASS_NAMES = {
     12: "lifted_load",
     13: "hook",
 }
-
-
-# CLS_NAMES = [
-#     "Backhoe loader",
-#     "Cement truck",
-#     "Compactor",
-#     "Dozer",
-#     "Dump truck",
-#     "Excavator",
-#     "Grader",
-#     "Mobile crane",
-#     "Tower crane",
-#     "Wheel loader",
-#     "Worker",
-#     "Hard hat",
-#     "Red hardhat",
-#     "Scaffolds",
-#     "Lifted load",
-#     "Crane hook",
-#     "Hook",
-# ]
 
 # Class name lists for proximity detection
 CLS_NAMES = [
@@ -111,193 +93,16 @@ VEHICLE_CLASSES = [
     # "wheel_loader",
 ]
 
-# Global tracking history per stream (for movement detection)
-# Format: {stream_id: {track_id: deque([bbox1, bbox2, ...])}}
-_track_history: Dict[str, Dict[int, deque]] = {}
+TRACKABLE_CLASSES = set(VEHICLE_CLASSES + WORKER_CLASSES)
 
-# Helmet tracking system - stores helmet detection history for each worker
-# Format: {stream_id: {worker_id: {'helmet_detections': [True/False], 'timestamps': [float]}}}
-_helmet_tracking: Dict[str, Dict[int, Dict[str, List]]] = {}
-
-# Helmet tracking constants
-HELMET_TRACKING_WINDOW = 90  # Number of recent frames to consider
-HELMET_CONFIDENCE_THRESHOLD = (
-    0.7  # Ratio of frames with helmet needed to be considered "safe"
-)
-MAX_MISSING_FRAMES = (
-    5  # Allow up to 5 consecutive frames without detection before considering violation
-)
-
-# Minimum person box size for reliable helmet detection
-MIN_PERSON_BOX_WIDTH = 30  # Minimum width in pixels
-MIN_PERSON_BOX_HEIGHT = 60  # Minimum height in pixels
-MIN_PERSON_BOX_AREA = MIN_PERSON_BOX_WIDTH * MIN_PERSON_BOX_HEIGHT
-
-
-def update_track_history(stream_id: str, track_id: int, bbox: List[int]) -> None:
-    """Update tracking history for a tracked object."""
-    if stream_id not in _track_history:
-        _track_history[stream_id] = {}
-
-    if track_id not in _track_history[stream_id]:
-        _track_history[stream_id][track_id] = deque(maxlen=30)  # Keep last 30 frames
-
-    _track_history[stream_id][track_id].append(bbox)
-
-
-def get_track_history(stream_id: str, track_id: int) -> deque:
-    """Get tracking history for a specific track."""
-    if stream_id in _track_history and track_id in _track_history[stream_id]:
-        return _track_history[stream_id][track_id]
-    return deque()
-
+# Initialize global managers
+tracking_manager = TrackingManager()
+helmet_tracker = HelmetTracker()
 
 def cleanup_tracker(stream_id: str) -> None:
     """Clean up tracking data for the given stream."""
-    if stream_id in _track_history:
-        del _track_history[stream_id]
-    if stream_id in _helmet_tracking:
-        del _helmet_tracking[stream_id]
-
-
-def is_vehicle_moving(history: deque, threshold: float = VEHICLE_MOVING_THRESH) -> bool:
-    """Fast vehicle movement detection using displacement calculation.
-
-    Args:
-        history: Deque of bounding boxes [x1, y1, x2, y2]
-        threshold: Movement threshold in pixels
-
-    Returns:
-        True if vehicle is moving, False otherwise
-    """
-    if len(history) < 10:
-        return False
-
-    first_box = history[0]
-    last_box = history[-1]
-
-    # Calculate center points
-    first_center = np.array(
-        [float(first_box[0] + first_box[2]) / 2, float(first_box[1] + first_box[3]) / 2]
-    )
-    last_center = np.array(
-        [float(last_box[0] + last_box[2]) / 2, float(last_box[1] + last_box[3]) / 2]
-    )
-
-    # Calculate displacement
-    displacement = np.linalg.norm(last_center - first_center)
-
-    return displacement > threshold
-
-
-def update_helmet_tracking(stream_id: str, worker_id: int, has_helmet: bool) -> None:
-    """Update helmet detection history for a worker."""
-    current_time = time.time()
-
-    if stream_id not in _helmet_tracking:
-        _helmet_tracking[stream_id] = {}
-
-    if worker_id not in _helmet_tracking[stream_id]:
-        _helmet_tracking[stream_id][worker_id] = {
-            "helmet_detections": [],
-            "timestamps": [],
-        }
-
-    worker_history = _helmet_tracking[stream_id][worker_id]
-
-    # Add current detection
-    worker_history["helmet_detections"].append(has_helmet)
-    worker_history["timestamps"].append(current_time)
-
-    # Keep only recent detections within the tracking window
-    if len(worker_history["helmet_detections"]) > HELMET_TRACKING_WINDOW:
-        worker_history["helmet_detections"].pop(0)
-        worker_history["timestamps"].pop(0)
-
-
-def is_person_box_large_enough(box: List[int]) -> bool:
-    """Check if person bounding box is large enough for reliable helmet detection."""
-    width = box[2] - box[0]
-    height = box[3] - box[1]
-    area = width * height
-
-    return (
-        width >= MIN_PERSON_BOX_WIDTH
-        and height >= MIN_PERSON_BOX_HEIGHT
-        and area >= MIN_PERSON_BOX_AREA
-    )
-
-
-def is_helmet_violation(stream_id: str, worker_id: int) -> bool:
-    """Check if worker has a consistent helmet violation based on tracking history."""
-    if (
-        stream_id not in _helmet_tracking
-        or worker_id not in _helmet_tracking[stream_id]
-    ):
-        return False
-
-    worker_history = _helmet_tracking[stream_id][worker_id]
-    detections = worker_history["helmet_detections"]
-
-    if len(detections) < MAX_MISSING_FRAMES:
-        return False  # Not enough data yet
-
-    # Calculate recent helmet detection rate
-    recent_detections = (
-        detections[-HELMET_TRACKING_WINDOW:]
-        if len(detections) >= HELMET_TRACKING_WINDOW
-        else detections
-    )
-    helmet_rate = sum(recent_detections) / len(recent_detections)
-
-    # Check for consecutive missing helmet detections
-    consecutive_missing = 0
-    for detection in reversed(recent_detections):
-        if not detection:
-            consecutive_missing += 1
-        else:
-            break
-
-    # Return violation if helmet rate is below threshold AND there are consecutive missing detections
-    return (
-        helmet_rate < HELMET_CONFIDENCE_THRESHOLD
-        and consecutive_missing >= MAX_MISSING_FRAMES
-    )
-
-
-# Default homography transformation points
-clicked_pts = [(500, 300), (700, 300), (750, 500), (560, 600)]
-image_coords = np.float32(clicked_pts)
-real_world_coords = np.float32([[0, 0], [2, 0], [2, 4.5], [0, 4.5]])
-homography_matrix = cv2.getPerspectiveTransform(image_coords, real_world_coords)
-
-
-def get_bottom_center(box):
-    """Get bottom center point of bounding box."""
-    x1, y1, x2, y2 = box
-    return np.array([[[(x1 + x2) / 2, y2]]], dtype=np.float32)
-
-
-def get_worker_center(box):
-    """Get center point of worker bounding box."""
-    x1, y1, x2, y2 = box
-    return np.array([(x1 + x2) / 2, (y1 + y2) / 2], dtype=np.float32)
-
-
-def transform_to_world(pt):
-    """Transform image coordinates to world coordinates."""
-    return cv2.perspectiveTransform(pt, homography_matrix)[0][0]
-
-
-def get_vehicle_ground_edges(box):
-    """Get vehicle ground edge points for proximity calculation."""
-    x1, y1, x2, y2 = box
-    return [
-        np.array([[[(x1 + x2) / 2, y2]]], dtype=np.float32),
-        np.array([[[x1, y2]]], dtype=np.float32),
-        np.array([[[x2, y2]]], dtype=np.float32),
-    ]
-
+    tracking_manager.cleanup(stream_id)
+    helmet_tracker.cleanup(stream_id)
 
 def draw_detection_box_and_label(
     image: np.ndarray,
@@ -319,7 +124,6 @@ def draw_detection_box_and_label(
         (coords[0], coords[1] - 10),
         color,
     )
-
 
 def detect_heavy_equipment(
     image: np.ndarray,
@@ -369,18 +173,13 @@ def detect_heavy_equipment(
             box_list = box_data.tolist()
 
             # Handle both detection and tracking formats
-            # Detection format: [x1, y1, x2, y2, conf, cls]
-            # Tracking format: [x1, y1, x2, y2, track_id, conf, cls] or similar
             if len(box_list) == 6:
                 x1, y1, x2, y2, conf, cls = box_list
-                # Get track ID from boxes.id if available
                 track_id = int(boxes.id[idx].item()) if has_track_ids else -1
             elif len(box_list) == 7:
-                # Track format with ID in data
                 x1, y1, x2, y2, track_id_data, conf, cls = box_list
                 track_id = int(track_id_data)
             else:
-                # Fallback for unexpected formats
                 x1, y1, x2, y2 = box_list[:4]
                 conf = box_list[-2] if len(box_list) >= 6 else 0.5
                 cls = box_list[-1] if len(box_list) >= 5 else 0
@@ -389,17 +188,22 @@ def detect_heavy_equipment(
             cls_name = CLASS_NAMES.get(int(cls), f"unknown_{int(cls)}")
             box = [int(x1), int(y1), int(x2), int(y2)]
 
-            # Update tracking history for this object
-            if track_id >= 0:
-                update_track_history(stream_id, track_id, box)
+            # Only track specific classes to save resources
+            is_trackable = cls_name in TRACKABLE_CLASSES
+            
+            if is_trackable and track_id >= 0:
+                tracking_manager.update(stream_id, track_id, box)
 
-            # Get tracking history for movement detection
+            # Get tracking history for movement detection if applicable
             history = (
-                get_track_history(stream_id, track_id) if track_id >= 0 else deque()
+                tracking_manager.get_history(stream_id, track_id) 
+                if is_trackable and track_id >= 0 
+                else deque()
             )
 
-            # Skip objects with insufficient tracking history
-            if track_id >= 0 and len(history) < 3:
+            # For trackable objects, require minimum history to reduce noise
+            # For non-trackable objects (like scaffolding), process immediately
+            if is_trackable and track_id >= 0 and len(history) < 3:
                 continue
 
             if cls_name in VEHICLE_CLASSES:
@@ -492,10 +296,10 @@ def detect_heavy_equipment(
             )
 
             # Update helmet tracking for this worker
-            update_helmet_tracking(stream_id, worker_track_id, has_helmet)
+            helmet_tracker.update(stream_id, worker_track_id, has_helmet)
 
             # Check if this worker has a consistent helmet violation
-            has_helmet_violation = is_helmet_violation(stream_id, worker_track_id)
+            has_helmet_violation = helmet_tracker.is_violation(stream_id, worker_track_id)
         else:
             # Box too small for reliable helmet detection - skip helmet checking
             has_helmet = None  # Unknown helmet status
@@ -562,19 +366,8 @@ def detect_heavy_equipment(
 
         if should_draw:
             # Face blurring for privacy (top 40%)
-            if enable_face_blurring and any(
-                label.startswith(role) for role in ["Worker", "Driver", "Signaler"]
-            ):
-                x1, y1, x2, y2 = box
-                blur_height = int(0.4 * (y2 - y1))
-                y1_blur = y1
-                y2_blur = y1 + blur_height
-
-                if y2_blur > y1_blur and x2 > x1:
-                    face_region = image[y1_blur:y2_blur, x1:x2]
-                    if face_region.size > 0:
-                        blurred = cv2.blur(face_region, (7, 7))
-                        image[y1_blur:y2_blur, x1:x2] = blurred
+            if enable_face_blurring and should_blur_person(label):
+                blur_face_region(image, box)
 
             # Draw label and box
             cv2.rectangle(
@@ -608,86 +401,18 @@ def detect_heavy_equipment(
                 final_status = "UnSafe"
 
     # Scaffolding safety checks (when scaffolding is detected)
-    if scaffolding_box:
-        # Check for vertical area violations (workers in same vertical space within scaffolding)
-        vertical_groups = []
-
-        # First, identify workers that are within scaffolding bounds
-        workers_in_scaffolding = []
-        for i, (_, w_box) in enumerate(worker_positions):
-            for scaff_box in scaffolding_box:
-                # Check if worker box is fully within scaffolding box
-                if (
-                    w_box[0] >= scaff_box[0]
-                    and w_box[1] >= scaff_box[1]
-                    and w_box[2] <= scaff_box[2]
-                    and w_box[3] <= scaff_box[3]
-                ):
-                    workers_in_scaffolding.append(i)
-                    break
-
-        # Only check vertical area violations for workers within scaffolding
-        for i in workers_in_scaffolding:
-            for j in workers_in_scaffolding:
-                if i != j:
-                    w_box1 = worker_positions[i][1]
-                    w_box2 = worker_positions[j][1]
-                    # Check if workers are in same vertical area
-                    if ((w_box1[1] + w_box1[3]) / 2) > w_box2[3] or (
-                        (w_box2[1] + w_box2[3]) / 2
-                    ) > w_box1[3]:
-                        # Check horizontal overlap with expanded range
-                        if (w_box1[0] - (w_box1[2] - w_box1[0]) / 2) < w_box2[2] and (
-                            w_box1[2] + (w_box1[2] - w_box1[0]) / 2
-                        ) > w_box2[0]:
-                            # Find or create group for these workers
-                            group_found = False
-                            for group in vertical_groups:
-                                if i in group or j in group:
-                                    group.add(i)
-                                    group.add(j)
-                                    group_found = True
-                                    break
-                            if not group_found:
-                                vertical_groups.append({i, j})
-
-        if vertical_groups:
-            final_status = "UnSafe"
-            if "same_vertical_area" not in reasons:
-                reasons.append("same_vertical_area")
-
-            # Draw warning boxes around groups
-            for group in vertical_groups:
-                if len(group) > 1:
-                    group_boxes = [worker_positions[i][1] for i in group]
-                    min_x = min(box[0] for box in group_boxes)
-                    min_y = min(box[1] for box in group_boxes)
-                    max_x = max(box[2] for box in group_boxes)
-                    max_y = max(box[3] for box in group_boxes)
-
-                    padding = 20
-                    min_x = max(0, min_x - padding)
-                    min_y = max(0, min_y - padding)
-                    max_x = min(FRAME_WIDTH, max_x + padding)
-                    max_y = min(FRAME_HEIGHT, max_y + padding)
-
-                    cv2.rectangle(image, (min_x, min_y), (max_x, max_y), (0, 0, 255), 4)
-                    draw_text_with_background(
-                        image,
-                        "VERTICAL AREA VIOLATION",
-                        (min_x, min_y - 10),
-                        (0, 0, 255),
-                    )
-
-        # Check for missing hooks (safety harness connections) only for workers in scaffolding
-        workers_in_scaffolding_count = len(workers_in_scaffolding)
-        hook_count = len(hook_box)
-        missing_hooks = max(0, workers_in_scaffolding_count - hook_count)
-
-        if missing_hooks > 0:
-            final_status = "UnSafe"
-            if "missing_hook" not in reasons:
-                reasons.append("missing_hook")
+    is_scaffold_unsafe, scaffold_reasons = process_scaffolding_safety(
+        image,
+        scaffolding_box,
+        worker_positions,
+        hook_box,
+        FRAME_WIDTH,
+        FRAME_HEIGHT
+    )
+    
+    if is_scaffold_unsafe:
+        final_status = "UnSafe"
+        reasons.extend(scaffold_reasons)
 
     # Vehicle proximity check (only when heavy vehicles are detected)
     vehicles_detected = len(vehicle_positions) > 0
