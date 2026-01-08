@@ -130,7 +130,7 @@ def detect_heavy_equipment(
     results: List[Results],
     stream_id: str = "default",
     draw_violations_only: bool = False,
-    enable_face_blurring: bool = True,
+    enable_face_blurring: bool = False,
 ) -> Tuple[str, List[str], List[Tuple[int, int, int, int]]]:
     """Detect heavy equipment and workers with proximity and helmet compliance checks.
 
