@@ -228,3 +228,63 @@ def check_helmet_in_box(
         and hat_box[1] >= person_box[1] - offset
         for hat_box in helmet_boxes
     )
+
+
+def check_worker_helmet_status(
+    helmet_tracker: "HelmetTracker",
+    stream_id: str,
+    worker_id: int,
+    person_box: List[int],
+    helmet_boxes: List[List[int]],
+    offset: int = HELMET_DETECTION_OFFSET,
+) -> tuple[bool, bool, bool]:
+    """Check worker helmet status with size validation and tracking.
+
+    This function encapsulates the complete helmet checking workflow:
+    1. Validates person box is large enough for reliable detection
+    2. Checks for helmet presence using spatial matching
+    3. Updates helmet tracking history
+    4. Determines if there's a consistent violation
+
+    Args:
+        helmet_tracker: HelmetTracker instance for temporal tracking
+        stream_id: Identifier for the video stream
+        worker_id: Unique tracking ID for the worker
+        person_box: Person bounding box [x1, y1, x2, y2]
+        helmet_boxes: List of helmet bounding boxes [[x1, y1, x2, y2], ...]
+        offset: Vertical offset above person box to search for helmet (default: 20)
+
+    Returns:
+        Tuple containing:
+        - box_large_enough: True if person box meets minimum size requirements
+        - has_helmet: True if helmet detected (None if box too small)
+        - has_helmet_violation: True if consistent violation detected
+
+    Example:
+        >>> tracker = HelmetTracker()
+        >>> person_box = [100, 100, 200, 300]
+        >>> helmet_boxes = [[120, 80, 180, 120]]
+        >>> large_enough, has_helmet, violation = check_worker_helmet_status(
+        ...     tracker, "stream1", 42, person_box, helmet_boxes
+        ... )
+        >>> print(large_enough, has_helmet, violation)
+        True True False
+    """
+    # Check if person box is large enough for reliable helmet detection
+    box_large_enough = is_person_box_large_enough(person_box)
+
+    if box_large_enough:
+        # Check for helmet using spatial matching
+        has_helmet = check_helmet_in_box(person_box, helmet_boxes, offset)
+
+        # Update helmet tracking for this worker
+        helmet_tracker.update(stream_id, worker_id, has_helmet)
+
+        # Check if this worker has a consistent helmet violation
+        has_helmet_violation = helmet_tracker.is_violation(stream_id, worker_id)
+    else:
+        # Box too small for reliable helmet detection - skip helmet checking
+        has_helmet = None  # Unknown helmet status
+        has_helmet_violation = False  # Don't flag violations for small boxes
+
+    return box_large_enough, has_helmet, has_helmet_violation
