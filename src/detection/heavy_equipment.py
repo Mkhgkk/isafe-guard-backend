@@ -1,6 +1,8 @@
 import cv2
 import numpy as np
-from typing import List, Tuple
+import time
+from pathlib import Path
+from typing import List, Tuple, Dict, Optional
 from collections import deque
 from detection import draw_text_with_background
 from ultralytics.engine.results import Results
@@ -10,7 +12,13 @@ from config import FRAME_HEIGHT, FRAME_WIDTH
 from detection.common.tracking import TrackingManager, is_vehicle_moving
 from detection.common.helmet_detection import (
     HelmetTracker,
-    check_worker_helmet_status,
+    is_person_box_large_enough,
+    HELMET_TRACKING_WINDOW,
+    HELMET_CONFIDENCE_THRESHOLD,
+    MAX_MISSING_FRAMES,
+    MIN_PERSON_BOX_WIDTH,
+    MIN_PERSON_BOX_HEIGHT,
+    MIN_PERSON_BOX_AREA,
 )
 from detection.common.face_blurring import blur_face_region, should_blur_person
 from detection.common.geometry import (
@@ -24,11 +32,16 @@ from detection.common.scaffold_utils import (
 )
 
 # Constants
+CONFIDENCE_THRESHOLD = 0.4
 DETECTION_COLOR = (255, 0, 255)
+SAFE_COLOR = (0, 180, 0)
+UNSAFE_COLOR = (0, 0, 255)
 BOX_THICKNESS = 2
+HELMET_DETECTION_OFFSET = 20
 
 # Proximity detection constants
 DANGER_DIST_METERS = 2  # in meters
+VEHICLE_MOVING_THRESH = 10
 
 CLASS_NAMES = {
     0: "cement_truck",
@@ -47,16 +60,37 @@ CLASS_NAMES = {
     13: "hook",
 }
 
+# Class name lists for proximity detection
+CLS_NAMES = [
+    "Cement truck",
+    "Compactor",
+    "Dump truck",
+    "Excavator",
+    "Grader",
+    "Mobile crane",
+    "Tower crane",
+    "Crane hook",
+    "Worker",
+    "Hard hat",
+    "Red hardhat",
+    "Scaffolds",
+    "Lifted load",
+    "Hook",
+]
+
 WORKER_CLASSES = ["worker"]
 
 VEHICLE_CLASSES = [
+    # "backhoe_loader",
     "cement_truck",
     "compactor",
+    # "dozer",
     "dump_truck",
     "excavator",
     "grader",
     "mobile_crane",
     "tower_crane",
+    # "wheel_loader",
 ]
 
 TRACKABLE_CLASSES = set(VEHICLE_CLASSES + WORKER_CLASSES)
@@ -70,6 +104,26 @@ def cleanup_tracker(stream_id: str) -> None:
     tracking_manager.cleanup(stream_id)
     helmet_tracker.cleanup(stream_id)
 
+def draw_detection_box_and_label(
+    image: np.ndarray,
+    coords: List[int],
+    label: str,
+    color: Tuple[int, int, int] = DETECTION_COLOR,
+) -> None:
+    """Draw detection box and label on image."""
+    cv2.rectangle(
+        image,
+        (coords[0], coords[1]),
+        (coords[2], coords[3]),
+        color,
+        BOX_THICKNESS,
+    )
+    draw_text_with_background(
+        image,
+        label,
+        (coords[0], coords[1] - 10),
+        color,
+    )
 
 def detect_heavy_equipment(
     image: np.ndarray,
@@ -101,6 +155,7 @@ def detect_heavy_equipment(
 
     worker_positions = []
     vehicle_positions = []
+    scaffolding_positions = []
     Grab_crane_box, cran_arm_box, forklift_box = [], [], []
     worker_box, hat_box, signaler_box, scaffolding_box = [], [], [], []
     hook_box = []
@@ -230,10 +285,25 @@ def detect_heavy_equipment(
             for g_box in Grab_crane_box
         )
 
-        # Check worker helmet status with size validation and tracking
-        box_large_enough, has_helmet, has_helmet_violation = check_worker_helmet_status(
-            helmet_tracker, stream_id, worker_track_id, box, hat_box
-        )
+        # Check if person box is large enough for reliable helmet detection
+        box_large_enough = is_person_box_large_enough(box)
+
+        if box_large_enough:
+            has_helmet = any(
+                box[0] <= (hatBox[0] + hatBox[2]) / 2 < box[2]
+                and hatBox[1] >= box[1] - 20
+                for hatBox in hat_box
+            )
+
+            # Update helmet tracking for this worker
+            helmet_tracker.update(stream_id, worker_track_id, has_helmet)
+
+            # Check if this worker has a consistent helmet violation
+            has_helmet_violation = helmet_tracker.is_violation(stream_id, worker_track_id)
+        else:
+            # Box too small for reliable helmet detection - skip helmet checking
+            has_helmet = None  # Unknown helmet status
+            has_helmet_violation = False  # Don't flag violations for small boxes
 
         add_id = f"_id:{worker_track_id}"
         if is_signaler:
@@ -242,29 +312,49 @@ def detect_heavy_equipment(
         elif is_driver:
             if not box_large_enough:
                 label = "Driver (too distant)" + add_id
-                color = (128, 128, 128)
+                color = (128, 128, 128)  # Gray color for too small/distant
             elif has_helmet_violation:
-                label = "Driver without helmet" + add_id
-                color = (0, 0, 255)
+                # Double-check if driver is actually too distant before flagging helmet violation
+                if not box_large_enough:
+                    label = "Driver (too distant for helmet detection)" + add_id
+                    color = (128, 128, 128)  # Gray color for too small/distant
+                else:
+                    label = "Driver without helmet" + add_id
+                    color = (0, 0, 255)
             elif has_helmet:
                 label = "Driver with helmet" + add_id
                 color = (0, 180, 255)
             else:
-                label = "Driver (helmet checking...)" + add_id
-                color = (0, 165, 255)
+                # Temporary no helmet detection - check if it's due to distance
+                if not box_large_enough:
+                    label = "Driver (too distant for helmet detection)" + add_id
+                    color = (128, 128, 128)  # Gray color for too small/distant
+                else:
+                    label = "Driver (helmet checking...)" + add_id
+                    color = (0, 165, 255)  # Orange color for uncertain status
         else:
             if not box_large_enough:
                 label = "Worker (too distant)" + add_id
-                color = (128, 128, 128)
+                color = (128, 128, 128)  # Gray color for too small/distant
             elif has_helmet_violation:
-                label = "Worker without helmet" + add_id
-                color = (0, 0, 255)
+                # Double-check if worker is actually too distant before flagging helmet violation
+                if not box_large_enough:
+                    label = "Worker (too distant for helmet detection)" + add_id
+                    color = (128, 128, 128)  # Gray color for too small/distant
+                else:
+                    label = "Worker without helmet" + add_id
+                    color = (0, 0, 255)
             elif has_helmet:
                 label = "Worker with helmet" + add_id
                 color = (0, 180, 0)
             else:
-                label = "Worker (helmet checking...)" + add_id
-                color = (0, 165, 255)
+                # Temporary no helmet detection - check if it's due to distance
+                if not box_large_enough:
+                    label = "Worker (too distant for helmet detection)" + add_id
+                    color = (128, 128, 128)  # Gray color for too small/distant
+                else:
+                    label = "Worker (helmet checking...)" + add_id
+                    color = (0, 165, 255)  # Orange color for uncertain status
 
         # Determine if this worker should be drawn based on violation status
         has_violation = (
