@@ -274,7 +274,8 @@ def start_ffmpeg_process(stream_id: str) -> subprocess.Popen:
         "ultrafast",
         "-f",
         "flv",
-        f"{RTMP_MEDIA_SERVER}/live/{stream_id}",
+        # f"{RTMP_MEDIA_SERVER}/live/{stream_id}",
+        f"{RTMP_MEDIA_SERVER}/{stream_id}",
     ]
 
     log_event(
@@ -337,7 +338,8 @@ def start_gstreamer_process(stream_id: str) -> subprocess.Popen:
         "streamable=true",
         "!",
         "rtmpsink",
-        f"location={RTMP_MEDIA_SERVER}/live/{stream_id}",
+        # f"location={RTMP_MEDIA_SERVER}/live/{stream_id}",
+        f"location={RTMP_MEDIA_SERVER}/{stream_id}",
     ]
 
     log_event(

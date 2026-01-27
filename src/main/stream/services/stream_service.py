@@ -15,6 +15,7 @@ from main.shared import streams, safe_area_trackers
 from ptz import CameraController, PTZAutoTracker
 from streaming import StreamManager
 from utils.logging_config import get_logger, log_event
+from utils.go2rtc_sync import remove_stream_from_go2rtc, sync_streams_to_go2rtc
 from .patrol_service import PatrolService
 
 logger = get_logger(__name__)
@@ -126,6 +127,30 @@ class StreamService:
         inserted_id = str(stream.inserted_id)
         data["_id"] = inserted_id
 
+        # Add stream to go2rtc configuration
+        go2rtc_result = sync_streams_to_go2rtc()
+        if go2rtc_result["status"] == "success":
+            log_event(
+                logger,
+                "info",
+                f"Added stream '{stream_id}' to go2rtc config",
+                event_type="go2rtc_sync"
+            )
+        elif go2rtc_result["status"] == "skipped":
+            log_event(
+                logger,
+                "debug",
+                f"go2rtc sync skipped for stream '{stream_id}'",
+                event_type="go2rtc_sync"
+            )
+        else:
+            log_event(
+                logger,
+                "warning",
+                f"Failed to add stream '{stream_id}' to go2rtc: {go2rtc_result['message']}",
+                event_type="go2rtc_sync"
+            )
+
         if start_stream_flag:
             # Start the stream immediately if requested
             StreamService.start_stream(**data)
@@ -167,6 +192,30 @@ class StreamService:
 
         if result.deleted_count == 0:
             return {"status": "error", "message": "Stream not found"}
+
+        # Remove stream from go2rtc configuration
+        go2rtc_result = remove_stream_from_go2rtc(stream_id)
+        if go2rtc_result["status"] == "success":
+            log_event(
+                logger,
+                "info",
+                f"Removed stream '{stream_id}' from go2rtc config",
+                event_type="go2rtc_sync"
+            )
+        elif go2rtc_result["status"] == "skipped":
+            log_event(
+                logger,
+                "debug",
+                f"go2rtc removal skipped for stream '{stream_id}'",
+                event_type="go2rtc_sync"
+            )
+        else:
+            log_event(
+                logger,
+                "warning",
+                f"Failed to remove stream '{stream_id}' from go2rtc: {go2rtc_result['message']}",
+                event_type="go2rtc_sync"
+            )
 
         return {"status": "success", "message": "Stream deleted successfully."}
 
