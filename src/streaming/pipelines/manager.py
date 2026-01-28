@@ -1,4 +1,5 @@
 from utils.logging_config import get_logger, log_event
+from utils.config_loader import config
 
 logger = get_logger(__name__)
 import time
@@ -9,8 +10,8 @@ from gi.repository import Gst # pyright: ignore[reportMissingImports]
 import os
 
 # Set GStreamer debug level and redirect to Python logging
-os.environ.setdefault('GST_DEBUG', '2')
-os.environ.setdefault('GST_DEBUG_NO_COLOR', '1')
+os.environ.setdefault('GST_DEBUG', str(config.get("gstreamer.debug_level", 2)))
+os.environ.setdefault('GST_DEBUG_NO_COLOR', str(int(config.get("gstreamer.debug_no_color", True))))
 
 # Global flag to track if debug handler is installed
 _debug_handler_installed = False
@@ -62,7 +63,6 @@ class GStreamerPipeline:
         self.stream_id = stream_id
         self.pipeline: Optional[Gst.Pipeline] = None
         self.use_alternative = False
-        self.connection_trials = 0
         self.last_frame_time = 0
         self.frame_callback = None
 
@@ -70,72 +70,126 @@ class GStreamerPipeline:
         self.frame_request_time = 0  # Time when frame was requested
         self.frame_latency = 0  # Latency of last frame in milliseconds
 
+        # Bitrate tracking
+        self.bitrate_bytes_transferred = 0  # Total bytes transferred
+        self.bitrate_start_time = 0  # Start time for bitrate calculation
+        self.bitrate_window = 1.0  # Calculate bitrate over 1 second window
+        self.current_bitrate = 0.0  # Current bitrate in bits per second
+
         # Install GStreamer debug handler
         _install_gst_debug_handler()
         
     def create_and_start(self, frame_callback) -> bool:
         """Create and start the GStreamer pipeline."""
         self.frame_callback = frame_callback
-        
+
         # Choose pipeline type based on previous failures
         if self.use_alternative:
             pipeline_str = PipelineBuilder.create_alternative_pipeline(self.config)
             log_event(logger, "info", f"Using alternative pipeline for {self.stream_id}", event_type="info")
         else:
             pipeline_str = PipelineBuilder.create_primary_pipeline(self.config)
-            
+
         log_event(logger, "info", f"Creating pipeline: {pipeline_str}", event_type="info")
-        
+
         try:
             self.pipeline = Gst.parse_launch(pipeline_str)
-            return self._configure_pipeline()
+            success = self._configure_pipeline()
+            if not success:
+                # Configuration failed, ensure pipeline is cleaned up
+                if self.pipeline:
+                    self.pipeline.set_state(Gst.State.NULL)
+                    self.pipeline = None
+            return success
         except Exception as e:
             log_event(logger, "error", f"Error creating pipeline: {e}", event_type="error")
-            self.connection_trials += 1
-            
-            # Switch to alternative after multiple failures
-            if self.connection_trials >= 2 and not self.use_alternative:
-                self.use_alternative = True
-                log_event(logger, "info", "Switching to alternative pipeline on next attempt", event_type="info")
-                
+            if self.pipeline:
+                self.pipeline.set_state(Gst.State.NULL)
+                self.pipeline = None
             return False
     
     def _configure_pipeline(self) -> bool:
         """Configure the pipeline elements and start it."""
-        appsink = self.pipeline.get_by_name(self.config.sink_name) # pyright: ignore[reportOptionalMemberAccess]
-        if not appsink:
-            log_event(logger, "error", f"Failed to get appsink element '{self.config.sink_name}'", event_type="error")
-            return False
-            
-        # Configure appsink
-        appsink.set_property("emit-signals", True)
-        appsink.set_property("max-buffers", self.config.max_buffers)
-        appsink.set_property("drop", True)
-        appsink.set_property("sync", False)
-        appsink.connect("new-sample", self._on_new_sample)
-        
-        # Connect bus messages
-        bus = self.pipeline.get_bus() # pyright: ignore[reportOptionalMemberAccess]
-        bus.add_signal_watch()
-        bus.connect("message", self._on_bus_message)
-        
-        # Start pipeline
-        ret = self.pipeline.set_state(Gst.State.PLAYING) # pyright: ignore[reportOptionalMemberAccess]
-        if ret == Gst.StateChangeReturn.FAILURE:
-            log_event(logger, "error", f"Failed to start pipeline for stream {self.stream_id}", event_type="error")
-            return False
-            
-        if ret == Gst.StateChangeReturn.ASYNC:
-            ret = self.pipeline.get_state(Gst.CLOCK_TIME_NONE) # pyright: ignore[reportOptionalMemberAccess]
-            if ret[0] != Gst.StateChangeReturn.SUCCESS:
-                log_event(logger, "error", f"Pipeline state change failed for stream {self.stream_id}", event_type="error")
+        bus = None
+        try:
+            appsink = self.pipeline.get_by_name(self.config.sink_name) # pyright: ignore[reportOptionalMemberAccess]
+            if not appsink:
+                log_event(logger, "error", f"Failed to get appsink element '{self.config.sink_name}'", event_type="error")
                 return False
-                
-        log_event(logger, "info", f"Successfully started GStreamer pipeline for {self.stream_id}", event_type="info")
-        self.connection_trials = 0
-        self.last_frame_time = time.time()
-        return True
+
+            # Configure appsink
+            appsink.set_property("emit-signals", True)
+            appsink.set_property("max-buffers", self.config.max_buffers)
+            appsink.set_property("drop", True)
+            appsink.set_property("sync", False)
+            appsink.connect("new-sample", self._on_new_sample)
+
+            # Configure bitrate monitor (identity element)
+            bitrate_monitor = self.pipeline.get_by_name(f"bitrate_monitor_{self.config.sink_name}") # pyright: ignore[reportOptionalMemberAccess]
+            if bitrate_monitor:
+                bitrate_monitor.set_property("signal-handoffs", True)
+                bitrate_monitor.connect("handoff", self._on_buffer_handoff)
+                self.bitrate_start_time = time.time()
+
+            # Connect bus messages
+            bus = self.pipeline.get_bus() # pyright: ignore[reportOptionalMemberAccess]
+            bus.add_signal_watch()
+            bus.connect("message", self._on_bus_message)
+
+            # Start pipeline
+            ret = self.pipeline.set_state(Gst.State.PLAYING) # pyright: ignore[reportOptionalMemberAccess]
+            if ret == Gst.StateChangeReturn.FAILURE:
+                log_event(logger, "error", f"Failed to start pipeline for stream {self.stream_id}", event_type="error")
+                self._cleanup_failed_pipeline(bus)
+                return False
+
+            if ret == Gst.StateChangeReturn.ASYNC:
+                ret = self.pipeline.get_state(Gst.CLOCK_TIME_NONE) # pyright: ignore[reportOptionalMemberAccess]
+                if ret[0] != Gst.StateChangeReturn.SUCCESS:
+                    log_event(logger, "error", f"Pipeline state change failed for stream {self.stream_id}", event_type="error")
+                    self._cleanup_failed_pipeline(bus)
+                    return False
+
+            log_event(logger, "info", f"Successfully started GStreamer pipeline for {self.stream_id}", event_type="info")
+            self.last_frame_time = time.time()
+            return True
+        except Exception as e:
+            log_event(logger, "error", f"Exception in _configure_pipeline: {e}", event_type="error")
+            if bus:
+                self._cleanup_failed_pipeline(bus)
+            return False
+
+    def _cleanup_failed_pipeline(self, bus):
+        """Clean up resources when pipeline configuration fails."""
+        try:
+            if bus:
+                bus.remove_signal_watch()
+            if self.pipeline:
+                self.pipeline.set_state(Gst.State.NULL)
+        except Exception as e:
+            log_event(logger, "error", f"Error cleaning up failed pipeline: {e}", event_type="error")
     
+    def _on_buffer_handoff(self, identity, buffer):
+        """Track buffer sizes for bitrate calculation."""
+        try:
+            current_time = time.time()
+            buffer_size = buffer.get_size()
+
+            # Add buffer size to total
+            self.bitrate_bytes_transferred += buffer_size
+
+            # Calculate bitrate if enough time has passed
+            time_elapsed = current_time - self.bitrate_start_time
+            if time_elapsed >= self.bitrate_window:
+                # Calculate bitrate in bits per second
+                self.current_bitrate = (self.bitrate_bytes_transferred * 8) / time_elapsed
+
+                # Reset counters for next window
+                self.bitrate_bytes_transferred = 0
+                self.bitrate_start_time = current_time
+        except Exception as e:
+            log_event(logger, "warning", f"Error in _on_buffer_handoff: {e}", event_type="warning")
+
     def _on_new_sample(self, appsink) -> Gst.FlowReturn:
         """Handle new sample from appsink."""
         try:
@@ -197,12 +251,35 @@ class GStreamerPipeline:
     def _handle_error_message(self, message):
         """Handle error messages from GStreamer."""
         err, debug = message.parse_error()
-        log_event(logger, "error", f"GStreamer error: {err.message}, {debug}", event_type="error")
-        
-        # Check for ONVIF metadata issues
-        if "ONVIF.METADATA" in str(debug):
-            log_event(logger, "warning", "ONVIF metadata issue detected", event_type="warning")
-            self.use_alternative = True
+        error_msg = str(err.message)
+        debug_msg = str(debug)
+
+        log_event(logger, "error", f"GStreamer error: {error_msg}, {debug_msg}", event_type="error")
+
+        # Switch to alternative pipeline only for specific non-connection errors
+        # Do NOT switch for connection/network errors - keep retrying with primary
+        connection_errors = [
+            "Could not connect",
+            "Connection refused",
+            "timeout",
+            "Timeout",
+            "No route to host",
+            "Network is unreachable",
+            "Connection timed out"
+        ]
+
+        # Check if this is a connection error
+        is_connection_error = any(err_pattern in error_msg or err_pattern in debug_msg
+                                   for err_pattern in connection_errors)
+
+        if not is_connection_error:
+            # Non-connection errors: switch to alternative pipeline
+            if "ONVIF.METADATA" in debug_msg:
+                log_event(logger, "warning", "ONVIF metadata issue detected, switching to alternative pipeline", event_type="warning")
+                self.use_alternative = True
+            elif "stream" in error_msg.lower() or "format" in error_msg.lower():
+                log_event(logger, "warning", f"Stream/format error detected: {error_msg}, switching to alternative pipeline", event_type="warning")
+                self.use_alternative = True
     
     def _handle_warning_message(self, message):
         """Handle warning messages from GStreamer."""
@@ -230,8 +307,14 @@ class GStreamerPipeline:
             self.last_frame_time = time.time()
     
     def stop(self):
-        """Stop the pipeline."""
+        """Stop the pipeline and clean up resources."""
         if self.pipeline:
+            # Remove bus signal watch to prevent file descriptor leak
+            bus = self.pipeline.get_bus()
+            if bus:
+                bus.remove_signal_watch()
+
+            # Stop the pipeline
             self.pipeline.set_state(Gst.State.NULL)
             self.pipeline = None
     
@@ -249,3 +332,7 @@ class GStreamerPipeline:
     def get_frame_latency(self) -> float:
         """Get the latency of the last frame in milliseconds."""
         return self.frame_latency
+
+    def get_bitrate(self) -> float:
+        """Get the current bitrate in bits per second."""
+        return self.current_bitrate

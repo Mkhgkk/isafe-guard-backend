@@ -1,5 +1,5 @@
-import os
 from main import tools
+from utils.config_loader import config
 
 # All available models in the system
 ALL_MODELS = [
@@ -36,10 +36,16 @@ class ModelsConfig:
 
     def _get_enabled_models_from_env(self):
         """
-        Get list of enabled model values from MODELS_TO_LOAD environment variable.
+        Get list of enabled model values from MODELS_TO_LOAD configuration.
         Format: "PPE,Scaffolding,Fire" or empty for all models.
         """
-        models_to_load = os.getenv("MODELS_TO_LOAD", "").strip()
+        models_to_load = config.get("detection.models_to_load", "")
+
+        # Handle both string and list (config_loader may return list for comma-separated values)
+        if isinstance(models_to_load, list):
+            models_to_load = ",".join(models_to_load) if models_to_load else ""
+
+        models_to_load = models_to_load.strip()
 
         if not models_to_load:
             return [model["value"] for model in ALL_MODELS]

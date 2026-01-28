@@ -7,6 +7,8 @@ from flask import (
 )
 from pymongo.database import Database
 from flask_socketio import SocketIO
+from utils.config_loader import config
+from flasgger import Swagger
 
 from main.tools import JsonResp
 from main.stream.routes import stream_blueprint
@@ -37,19 +39,93 @@ def create_app():
     CORS(event_blueprint, resources={r"/*": {"origins": "*"}})
     CORS(models_blueprint, resources={r"/*": {"origins": "*"}})
 
-    os.environ["TZ"] = app.config["TIMEZONE"]
+    # Initialize Swagger after CORS
+    # Note: basePath is set to /api because nginx proxies to /api/*
+    swagger_config = {
+        "headers": [],
+        "specs": [
+            {
+                "endpoint": 'apispec_1',
+                "route": '/apispec_1.json',
+                "rule_filter": lambda rule: True,
+                "model_filter": lambda tag: True,
+            }
+        ],
+        "static_url_path": "/flasgger_static",
+        "swagger_ui": True,
+        "specs_route": "/apidocs/",
+        "url_prefix": None  # Don't add prefix to swagger routes
+    }
 
-    DB_HOST = os.getenv("DB_HOST", app.config["MONGO_URI"])
-    initialize_database(DB_HOST, app.config["MONGO_APP_DATABASE"])
+    swagger_template = {
+        "swagger": "2.0",
+        "basePath": "/api",  # Nginx proxy path - Flask blueprint prefix is added automatically by Swagger
+        "info": {
+            "title": "iSafe Guard Backend API",
+            "description": "API documentation for iSafe Guard surveillance and monitoring system",
+            "version": "1.0.0",
+            "contact": {
+                "name": "iSafe Guard Team",
+                "email": "support@isafeguard.com"
+            }
+        },
+        "securityDefinitions": {
+            "Bearer": {
+                "type": "apiKey",
+                "name": "Authorization",
+                "in": "header",
+                "description": "JWT Authorization header using the Bearer scheme. Example: 'Bearer {token}'"
+            }
+        },
+        "security": [
+            {
+                "Bearer": []
+            }
+        ],
+        "schemes": ["http", "https"],
+        "tags": [
+            {
+                "name": "User",
+                "description": "User authentication and management endpoints"
+            },
+            {
+                "name": "Stream",
+                "description": "Video stream management and control endpoints"
+            },
+            {
+                "name": "Event",
+                "description": "Event detection and retrieval endpoints"
+            },
+            {
+                "name": "System",
+                "description": "System information and health endpoints"
+            },
+            {
+                "name": "Logs",
+                "description": "Application logs and monitoring endpoints"
+            },
+            {
+                "name": "Models",
+                "description": "AI model management endpoints"
+            }
+        ]
+    }
+
+    Swagger(app, config=swagger_config, template=swagger_template)
+
+    os.environ["TZ"] = config.get("app.timezone", "US/Eastern")
+
+    DB_HOST = config.get("database.uri")
+    initialize_database(DB_HOST, config.get("database.name"))
     app.db = get_database()
 
-    app.register_blueprint(stream_blueprint, url_prefix="/api/stream")
-    app.register_blueprint(user_blueprint, url_prefix="/api/user")
-    app.register_blueprint(event_blueprint, url_prefix="/api/event")
-    app.register_blueprint(system_blueprint, url_prefix="/api/system")
-    app.register_blueprint(logs_blueprint, url_prefix="/api/logs")
-    app.register_blueprint(simple_logs_blueprint, url_prefix="/api/logs")
-    app.register_blueprint(models_blueprint, url_prefix="/api/models")
+    app.register_blueprint(stream_blueprint, url_prefix="/stream")
+    app.register_blueprint(user_blueprint, url_prefix="/user")
+    app.register_blueprint(event_blueprint, url_prefix="/event")
+    app.register_blueprint(system_blueprint, url_prefix="/system")
+    app.register_blueprint(logs_blueprint, url_prefix="/logs")
+    app.register_blueprint(simple_logs_blueprint, url_prefix="/logs")
+    app.register_blueprint(models_blueprint, url_prefix="/models")
 
     socketio.init_app(app, cors_allowed_origins="*", async_mode="threading")
     initialize_socketio(socketio)

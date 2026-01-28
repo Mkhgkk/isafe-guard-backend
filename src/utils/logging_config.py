@@ -163,9 +163,10 @@ def setup_logging(
         enable_colors: None (auto-detect), True (force enable), False (force disable)
     """
     
-    # Remove existing handlers
+    # Remove existing handlers and properly close them to prevent file descriptor leaks
     root_logger = logging.getLogger()
     for handler in root_logger.handlers[:]:
+        handler.close()  # Close handler to release file descriptors
         root_logger.removeHandler(handler)
     
     # Determine if colors should be used

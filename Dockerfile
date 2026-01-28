@@ -111,6 +111,9 @@ RUN dnf -y install gstreamer1-plugins-bad-freeworld
 RUN gst-inspect-1.0 rtmpsink
 RUN dnf -y install ffmpeg
 
+# Install libav gstreamer plugins for ffmpeg decoders
+RUN dnf -y install gstreamer1-libav 
+
 COPY . /app
 
 EXPOSE 5000

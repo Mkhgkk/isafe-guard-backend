@@ -1,0 +1,165 @@
+# iSafe Guard Backend Configuration
+# This file contains default values. Override using environment variables or config.local.yaml
+
+# Application Settings
+app:
+  name: "iSafe Guard Backend"
+  debug: false
+  timezone: "US/Eastern"
+  environment: "production"
+  secret_key: ""  # MUST be set via SECRET_KEY env var
+
+# Server Configuration
+server:
+  host: "0.0.0.0"
+  port: 5000
+  protocol: "http"  # http or https
+  domain: "isafe.re.kr"
+  frontend_domain: ""
+
+# Database Configuration
+database:
+  type: "mongodb"
+  host: "localhost"
+  port: 27017
+  name: "isafe_guard"
+  auth_database: ""
+  username: ""
+  password: ""
+  uri: "mongodb://localhost:27017"  # Override with MONGO_URI env var
+
+# Logging Configuration
+logging:
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+  json_format: true
+  file_logging: true
+  colored_logging: false  # Auto-detected in terminals
+  file_path: "/tmp/isafe-guard-logs/backend/"
+  max_file_size_mb: 50
+  backup_count: 10
+
+  # Logger-specific levels
+  loggers:
+    werkzeug: "WARNING"
+    urllib3: "WARNING"
+    requests: "WARNING"
+    apscheduler: "WARNING"
+    ultralytics: "WARNING"
+
+# Frame Processing
+processing:
+  frame_width: 1280
+  frame_height: 720
+  reconnect_wait_time_secs: 2
+  inference_interval: 0.2  # seconds (5 FPS)
+
+# GStreamer Configuration
+gstreamer:
+  debug_level: 2  # 0-9, higher = more verbose
+  debug_no_color: true
+  latency: 0  # milliseconds
+  max_buffers: 2
+  timeout: 5  # seconds
+  retry_count: 3
+  format: "BGR"
+
+  # Pipeline thresholds
+  default_frame_timeout: 5  # seconds
+  max_reconnect_wait: 60  # seconds
+  max_frame_queue_size: 10
+  fps_queue_size: 30
+
+# Streaming Configuration
+streaming:
+  rtmp_server: "rtmp://localhost:1935"
+  bitrate: 2500  # kbps (2.5 Mbps)
+
+  # Video encoding (x264)
+  encoding:
+    preset: "veryfast"  # ultrafast, superfast, veryfast, faster, fast, medium, slow, slower, veryslow
+    tune: "zerolatency"  # zerolatency, film, animation, grain
+    key_int_max: 60  # Keyframe interval (frames)
+    qp_min: 18  # Minimum quantization parameter
+    qp_max: 28  # Maximum quantization parameter
+
+  # Recording settings (FFmpeg)
+  recording:
+    preset: "fast"
+    crf: 23  # Constant Rate Factor (0-51, lower = better quality)
+    format: "yuv420p"
+    duration: 10  # seconds
+
+# Event Processing
+events:
+  unsafe_ratio_threshold: 0.7  # 70% unsafe frames trigger event
+  event_cooldown: 30  # seconds between consecutive events
+  default_record_duration: 10  # seconds
+
+# Detection & Inference
+detection:
+  # NPU (Mobilint) Configuration
+  npu:
+    enabled: false  # Set via USE_NPU env var
+    model_path: "yolov11_NIPA_Data_2025_v8.mxq"
+    img_size: [1280, 1280]
+    num_classes: 14
+    num_layers: 3
+    reg_max: 16
+    conf_threshold: 0.5
+    iou_threshold: 0.5
+    use_global8_core: true
+    device_id: 0
+
+  # Triton Inference Server
+  triton:
+    server_url: "http://tritonserver:8000"
+
+  # PPE Detection
+  ppe:
+    helmet_confidence: 0.6
+    person_confidence: 0.6
+    helmet_offset_pixels: 20
+
+  # Model loading
+  models_to_load: ""  # Comma-separated list, e.g., "model1,model2"
+  default_precision: "fp16"  # fp16, fp32
+
+# Directories
+# Note: base_dir is relative to project root (/app in Docker), others are relative to src/
+directories:
+  base_dir: "src"  # Project base directory (relative to /app)
+  static_dir: "main/static"  # Relative to src/
+  assets_dir: "assets"  # Relative to src/
+  models_dir: "models"  # Relative to src/
+
+# Notifications
+notifications:
+  # Email configuration
+  email:
+    enabled: false
+    sender: ""  # Set via SENDER_EMAIL env var
+    password: ""  # Set via EMAIL_PASSWORD env var (use app-specific password)
+    receivers: []  # List of email addresses
+    smtp_server: "smtp.gmail.com"
+    smtp_port: 587
+
+  # External watch notification
+  watch:
+    enabled: false
+    url: ""  # Set via WATCH_NOTIFICATION_URL env var
+    phone_id: ""  # Set via PHONE_ID env var
+    timeout: 10  # seconds
+
+# Gunicorn Server Configuration
+gunicorn:
+  bind: "0.0.0.0:5000"
+  workers: 1  # Single worker to avoid model duplication
+  worker_class: "eventlet"
+  worker_connections: 2000
+  timeout: 300  # seconds
+  keepalive: 5  # seconds
+  graceful_timeout: 60  # seconds
+  preload_app: true
+  max_requests: 2000
+  max_requests_jitter: 100
+  log_level: "info"

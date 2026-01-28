@@ -33,6 +33,11 @@ class DatabaseLogHandler(logging.Handler):
         self.stop_event.set()
         if self.worker_thread and self.worker_thread.is_alive():
             self.worker_thread.join(timeout=5)
+
+    def close(self):
+        """Close the handler and stop the worker thread."""
+        self.stop_worker()
+        super().close()
     
     @property
     def db_collection(self):

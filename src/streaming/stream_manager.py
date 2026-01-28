@@ -198,6 +198,19 @@ class StreamManager:
         # Cache for detection results to reuse on frames without inference
         self.cached_detection_results = None
 
+        # Store last raw frame for frame retrieval
+        self.last_raw_frame = None
+
+    def get_frame(self):
+        """Get the current unprocessed frame from the stream.
+
+        Returns:
+            np.ndarray: The last raw unprocessed frame, or None if no frame has been captured yet.
+        """
+        if self.last_raw_frame is not None:
+            return self.last_raw_frame.copy()
+        return None
+
     def start_stream(self):
         """Start the stream processing."""
         self.running = True
@@ -279,6 +292,9 @@ class StreamManager:
 
     def _process_single_frame(self, frame: np.ndarray):
         """Process a single frame through the complete pipeline."""
+        # Store a copy of the raw frame for retrieval
+        self.last_raw_frame = frame.copy()
+
         current_time = time.time()
         fps = self._calculate_fps()
 
@@ -381,16 +397,13 @@ class StreamManager:
                 else:
                     self.stats.current_speed = 0.0
 
-                # Calculate bandwidth based on frame size and fps
-                # Frame size = width * height * 3 (BGR channels)
-                frame_size_bytes = FRAME_WIDTH * FRAME_HEIGHT * 3
+        # Get actual bitrate from GStreamer bitrate element
+        bitrate_bps = self.pipeline.get_bitrate()
 
-                # Bandwidth = frame_size * fps (in bytes per second)
-                bandwidth_bytes_per_sec = frame_size_bytes * self.stats.current_speed
-
-                # Convert to kilobits and megabits per second
-                self.stats.bandwidth_kbps = (bandwidth_bytes_per_sec * 8) / 1000
-                self.stats.bandwidth_mbps = (bandwidth_bytes_per_sec * 8) / 1000000
+        if bitrate_bps > 0:
+            # Convert bitrate from bits per second to kbps and mbps
+            self.stats.bandwidth_kbps = bitrate_bps / 1000
+            self.stats.bandwidth_mbps = bitrate_bps / 1000000
 
         # Emit connection speed data every second
         if current_time - self.stats.last_speed_emit_time >= 1.0:

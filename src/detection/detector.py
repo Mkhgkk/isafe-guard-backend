@@ -7,8 +7,9 @@ import numpy as np
 from typing import List, Optional, Tuple
 from ultralytics import YOLO
 from detection.npu_inference import NPUInferenceEngine, InferenceConfig, Detection
+from utils.config_loader import config
 
-USE_NPU = os.getenv("USE_NPU", "false").lower() == "true"
+USE_NPU = config.get("detection.npu.enabled", False)
 
 # Import ByteTrack for NPU tracking
 if USE_NPU:
@@ -34,7 +35,8 @@ from detection.approtium import detect_approtium
 from detection.kdl import detect_kdl
 from ultralytics.engine.results import Results
 
-from config import DEFAULT_PRECISION, TRITON_SERVER_URL
+DEFAULT_PRECISION = config.get("detection.default_precision", "fp16")
+TRITON_SERVER_URL = config.get("detection.triton.server_url")
 
 MODELS_PATH = video_directory = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "../models")
@@ -44,18 +46,19 @@ MODELS_PATH = video_directory = os.path.abspath(
 npu_engine = None
 
 if USE_NPU:
-
-    config = InferenceConfig(
-        model_path=os.path.join(MODELS_PATH, f"yolov8s_best_globalCore_v1.mxq"),
-        img_size=(640, 640),
-        # num_classes=17,
-        conf_threshold=0.5,
-        iou_threshold=0.5,
-        use_global8_core=True,  # Use all 8 NPU cores
-        device_id=0,  # Use first NPU device
+    npu_config = InferenceConfig(
+        model_path=os.path.join(MODELS_PATH, config.get("detection.npu.model_path")),
+        img_size=tuple(config.get("detection.npu.img_size")),
+        num_classes=config.get("detection.npu.num_classes"),
+        num_layers=config.get("detection.npu.num_layers"),
+        reg_max=config.get("detection.npu.reg_max"),
+        conf_threshold=config.get("detection.npu.conf_threshold"),
+        iou_threshold=config.get("detection.npu.iou_threshold"),
+        use_global8_core=config.get("detection.npu.use_global8_core"),
+        device_id=config.get("detection.npu.device_id"),
     )
 
-    engine = NPUInferenceEngine(config)
+    engine = NPUInferenceEngine(npu_config)
     engine.initialize()
     npu_engine = engine
 

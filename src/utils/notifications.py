@@ -1,15 +1,19 @@
-import os
 import time
 import smtplib
 import requests
 from typing import List
 from bson import ObjectId
-from config import WATCH_NOTIFICATION_URL, RECEIVER_EMAILS, SENDER_EMAIL, EMAIL_PASSWORD
+from utils.config_loader import config
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from utils.logging_config import get_logger, log_event
 
 logger = get_logger(__name__)
+
+WATCH_NOTIFICATION_URL = config.get("notifications.watch.url", "")
+RECEIVER_EMAILS = config.get("notifications.email.receivers", [])
+SENDER_EMAIL = config.get("notifications.email.sender", "")
+EMAIL_PASSWORD = config.get("notifications.email.password", "")
 
 
 def send_watch_notification(reasons: List[str] = ["Wear helmet"]) -> None:
@@ -52,8 +56,8 @@ def send_watch_notification(reasons: List[str] = ["Wear helmet"]) -> None:
 def send_email_notification(
     reasons: List[str], event_id: ObjectId, stream_id: str
 ) -> None:
-    PROTOCOL = os.getenv("PROTOCOL", "http")
-    DOMAIN = os.getenv("DOMAIN", "isafe.re.kr")
+    PROTOCOL = config.get("server.protocol", "http")
+    DOMAIN = config.get("server.domain", "isafe.re.kr")
 
     if not RECEIVER_EMAILS or len(RECEIVER_EMAILS) == 0:
         return

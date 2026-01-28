@@ -69,7 +69,7 @@ class SafeAreaTracker:
                 cv2.fillPoly(overlay, [safe_area_int], (0, 255, 255))
                 cv2.polylines(frame, [safe_area_int], True, (0, 255, 255), 2)
 
-            alpha: float = 0.4
+            alpha: float = 0.2
             frame = cv2.addWeighted(overlay, alpha, frame, 1 - alpha, 0)
             return frame
 
@@ -113,7 +113,7 @@ class SafeAreaTracker:
             )
             cv2.polylines(frame, [safe_area_curr_int], True, (0, 255, 255), 2)
 
-        alpha: float = 0.4
+        alpha: float = 0.2
         frame = cv2.addWeighted(overlay, alpha, frame, 1 - alpha, 0)
 
         return frame
@@ -190,7 +190,7 @@ class SafeAreaTracker:
             cv2.fillPoly(overlay, [safe_area_curr], (0, 255, 255))
             cv2.polylines(frame, [safe_area_curr], True, (0, 255, 255), 2)
 
-        alpha: float = 0.4
+        alpha: float = 0.2
         frame = cv2.addWeighted(overlay, alpha, frame, 1 - alpha, 0)
 
         return frame

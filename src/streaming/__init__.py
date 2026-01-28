@@ -1,7 +1,8 @@
 import os
 import gi # pyright: ignore[reportMissingImports]
+from utils.config_loader import config
 
-os.environ["GST_DEBUG"] = os.getenv("GST_DEBUG", "1")
+os.environ["GST_DEBUG"] = str(config.get("gstreamer.debug_level", 1))
 gi.require_version('Gst', '1.0')
 
 from gi.repository import Gst # pyright: ignore[reportMissingImports]

@@ -4,12 +4,15 @@ import threading
 import re
 from typing import Tuple
 from utils.logging_config import get_logger, log_event
+from utils.config_loader import config
+from config import STATIC_DIR
 import numpy as np
-from config import STATIC_DIR, FRAME_HEIGHT, FRAME_WIDTH
 
 logger = get_logger(__name__)
 
-RTMP_MEDIA_SERVER = os.getenv("RTMP_MEDIA_SERVER", "rtmp://localhost:1935")
+FRAME_HEIGHT = config.get("processing.frame_height")
+FRAME_WIDTH = config.get("processing.frame_width")
+RTMP_MEDIA_SERVER = config.get("streaming.rtmp_server")
 
 
 def _log_gstreamer_output(stream, log_level: str, stream_id: str, output_type: str):
@@ -182,11 +185,8 @@ def create_video_writer(
     output_fps: float,
 ) -> Tuple[subprocess.Popen, str]:
     """Create FFmpeg video writer process with logging."""
-    EVENT_VIDEO_DIR = os.path.join(STATIC_DIR, stream_id, "videos")
-
-    video_directory = os.path.abspath(
-        os.path.join(os.path.dirname(__file__), EVENT_VIDEO_DIR)
-    )
+    # STATIC_DIR is already absolute from config.py
+    video_directory = os.path.join(STATIC_DIR, stream_id, "videos")
     os.makedirs(video_directory, exist_ok=True)
 
     video_name = f"video_{stream_id}_{model_name}_{timestamp}.mp4"
@@ -274,7 +274,8 @@ def start_ffmpeg_process(stream_id: str) -> subprocess.Popen:
         "ultrafast",
         "-f",
         "flv",
-        f"{RTMP_MEDIA_SERVER}/live/{stream_id}",
+        # f"{RTMP_MEDIA_SERVER}/live/{stream_id}",
+        f"{RTMP_MEDIA_SERVER}/{stream_id}",
     ]
 
     log_event(
@@ -337,7 +338,8 @@ def start_gstreamer_process(stream_id: str) -> subprocess.Popen:
         "streamable=true",
         "!",
         "rtmpsink",
-        f"location={RTMP_MEDIA_SERVER}/live/{stream_id}",
+        # f"location={RTMP_MEDIA_SERVER}/live/{stream_id}",
+        f"location={RTMP_MEDIA_SERVER}/{stream_id}",
     ]
 
     log_event(
